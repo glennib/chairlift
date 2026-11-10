@@ -36,7 +36,6 @@ pub use error::LexError;
 pub use options::Options;
 
 use crate::split::split;
-use crate::verify::Facts;
 
 /// Formats `source`.
 ///
@@ -52,6 +51,10 @@ use crate::verify::Facts;
 /// every byte, line endings included. Data in a format other than `Values`
 /// that runs to the end of the text gets no final newline, and such data that
 /// ends at a blank line keeps it.
+///
+/// Every statement is [parsed](syntax), and text the parser finds ClickHouse
+/// reads as written, such as the left operand of `[1,2]::Array(UInt8)`, keeps
+/// its whitespace too.
 ///
 /// The result is [verified](verify) against `source` before it is returned.
 ///
@@ -75,11 +78,13 @@ pub fn format(source: &str, options: &Options) -> Result<String, Error> {
         }
         .into());
     }
-    let output = cleanup::cleanup(source, &split, mode);
+    // The tree says which text must stay as written.
+    let parse = syntax::parse_split(source, &split, syntax::Entry::File);
+    let output = cleanup::cleanup(source, &split, mode, parse.facts());
     if too_large(output.len()) {
         return Err(Error::TooLarge { len: output.len() });
     }
-    verify::verify_split(source, &split, &output, mode, &Facts::new())?;
+    verify::verify_split(source, &split, &output, mode, parse.facts())?;
     Ok(output)
 }
 

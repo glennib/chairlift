@@ -294,3 +294,14 @@ fn lexer_errors_leave_the_text_alone() {
         Err(Error::Lex(_))
     ));
 }
+
+/// Text the parser finds ClickHouse reads as written keeps its whitespace,
+/// even at the end of a line.
+#[test]
+fn literals_read_as_text_are_kept() {
+    let source = "SELECT [1,  \n2]::Array(Int8), x  \n";
+    let split = crate::split::split(source, crate::lexer::Mode::Sql);
+    let parse = crate::syntax::parse_split(source, &split, crate::syntax::Entry::SelectListProbe);
+    let cleaned = super::cleanup(source, &split, crate::lexer::Mode::Sql, parse.facts());
+    assert_eq!(cleaned, "SELECT [1,  \n2]::Array(Int8), x\n");
+}

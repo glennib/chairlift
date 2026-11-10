@@ -31,6 +31,9 @@
 //! end of the input gets no final newline, and data that ends at a blank
 //! line keeps that blank line, since without it the data would run to the
 //! end of the input and gain the final newline.
+//!
+//! Text the parser found ClickHouse reads as written (see
+//! [`Facts::keep_verbatim`]) is left as it is, whitespace inside it included.
 
 use crate::lexer::Mode;
 use crate::lexer::Token;
@@ -42,12 +45,14 @@ use crate::lexer::same_before_newline;
 use crate::split::DataFormat;
 use crate::split::Split;
 use crate::split::split;
+use crate::verify::Facts;
 use crate::verify::line_comment_text;
 use crate::verify::render_joins_text;
 use crate::verify::rendered;
 
-/// The cleaned-up text of `source`, which `split` came from.
-pub(crate) fn cleanup(source: &str, split: &Split, mode: Mode) -> String {
+/// The cleaned-up text of `source`, which `split` came from; `facts` says
+/// which text must stay as written.
+pub(crate) fn cleanup(source: &str, split: &Split, mode: Mode, facts: &Facts) -> String {
     let tokens = split.tokens();
     let Some(last_solid) = tokens
         .iter()
@@ -68,13 +73,21 @@ pub(crate) fn cleanup(source: &str, split: &Split, mode: Mode) -> String {
     // a character stops the stripping, so in a template it stays.
     let removable = |c: char| is_whitespace(c) && (mode == Mode::Sql || c.is_whitespace());
     let Rendered {
-        kept,
+        mut kept,
         open_data: rendered_open_data,
     } = if mode == Mode::Jinja && render_joins_text(source) {
         inside_rendered_tokens(source, split, removable)
     } else {
         Rendered::default()
     };
+    for &(first, last) in facts.verbatim_regions() {
+        if kept.len() < tokens.len() {
+            kept.resize(tokens.len(), false);
+        }
+        if let Some(region) = kept.get_mut(first..=last) {
+            region.fill(true);
+        }
+    }
     // Whether the part of a whitespace token up to its last line break, which
     // the cleanup rewrites, is removable; a leading byte-order mark stays.
     let lines_removable = |text: &str, first: bool| {
