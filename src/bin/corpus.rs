@@ -14,9 +14,16 @@
 //! an oracle difference that is not allowlisted) and exits with 1 if there
 //! is one. `--csv` writes one row per file for analysis, for example with
 //! `duckdb -c "SELECT corpus, outcome, count(*) FROM 'out.csv' GROUP BY ALL"`.
+//!
+//! With `--oracle`, files the oracle cannot judge as a whole are judged
+//! statement by statement (see `chairlift::oracle::Oracle::judge_pairs`).
+//! The second table counts files by how their whole text fared; the third
+//! counts statements, which shows how much of each corpus the oracle
+//! actually judged. The `oracle_*` CSV columns hold the statement counts per
+//! file.
 
+use std::borrow::Cow;
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -31,10 +38,12 @@ use std::time::Instant;
 use chairlift::Error;
 use chairlift::Options;
 use chairlift::lexer::Mode;
-use chairlift::oracle;
+use chairlift::oracle::Counts;
 use chairlift::oracle::Judgement;
 use chairlift::oracle::Oracle;
+use chairlift::oracle::Pair;
 use chairlift::oracle::RejectionClass;
+use chairlift::oracle::Report;
 use chairlift::split::split;
 use clap::Parser;
 
@@ -115,7 +124,10 @@ enum OracleOutcome {
     Same,
     Differs,
     OutputRejected,
+    /// Input and output split into different numbers of statements.
+    Mismatch,
     Allowlisted,
+    /// The whole input is rejected; its statements may still be judged.
     Unjudgeable(RejectionClass),
 }
 
@@ -125,6 +137,7 @@ impl OracleOutcome {
             OracleOutcome::Same => "same",
             OracleOutcome::Differs => "differs",
             OracleOutcome::OutputRejected => "output_rejected",
+            OracleOutcome::Mismatch => "statement_mismatch",
             OracleOutcome::Allowlisted => "allowlisted",
             OracleOutcome::Unjudgeable(_) => "unjudgeable",
         }
@@ -145,7 +158,13 @@ struct Record {
     idempotent: Option<bool>,
     format_us: u128,
     oracle: Option<OracleOutcome>,
+    /// The statement counts, summed over the file's variants.
+    oracle_counts: Option<Counts>,
+    /// What went wrong, as one line; the first of `findings` if there are
+    /// any.
     detail: String,
+    /// Every oracle difference, one line each.
+    findings: Vec<String>,
     /// The input and output, kept for the oracle.
     texts: Option<(String, String)>,
 }
@@ -156,10 +175,17 @@ impl Record {
             || self.idempotent == Some(false)
             || matches!(
                 self.oracle,
-                Some(OracleOutcome::Differs | OracleOutcome::OutputRejected)
+                Some(
+                    OracleOutcome::Differs
+                        | OracleOutcome::OutputRejected
+                        | OracleOutcome::Mismatch
+                )
             )
     }
 }
+
+/// The most findings listed per file; the rest are counted.
+const FINDINGS_SHOWN: usize = 5;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -230,10 +256,19 @@ fn run(cli: &Cli) -> Result<bool, String> {
     let mut ok = true;
     for record in records.iter().filter(|r| r.is_bug()) {
         ok = false;
-        eprintln!(
-            "bug: {}/{}: {}",
-            corpora[record.corpus].name, record.path, record.detail
-        );
+        let name = format!("{}/{}", corpora[record.corpus].name, record.path);
+        if record.findings.is_empty() {
+            eprintln!("bug: {name}: {}", record.detail);
+        }
+        for finding in record.findings.iter().take(FINDINGS_SHOWN) {
+            eprintln!("bug: {name}: {finding}");
+        }
+        if record.findings.len() > FINDINGS_SHOWN {
+            eprintln!(
+                "bug: {name}: and {} more",
+                record.findings.len() - FINDINGS_SHOWN
+            );
+        }
     }
     if let Some(path) = &cli.csv {
         fs::write(path, csv(&corpora, &records))
@@ -402,7 +437,9 @@ fn format_file(index: usize, corpus: &Corpus, path: &Path) -> Record {
         idempotent: None,
         format_us: 0,
         oracle: None,
+        oracle_counts: None,
         detail: String::new(),
+        findings: Vec::new(),
         texts: None,
     };
     let bytes = match fs::read(path) {
@@ -459,6 +496,28 @@ fn format_file(index: usize, corpus: &Corpus, path: &Path) -> Record {
     record
 }
 
+/// A text the oracle judges for a file, with the output formatted from it.
+struct Variant<'a> {
+    /// What the variant is, to prefix its findings with; empty for the file
+    /// itself.
+    label: String,
+    input: Cow<'a, str>,
+    output: Cow<'a, str>,
+    mode: Mode,
+}
+
+/// The texts the oracle judges for a file: the file as it is. Rendering a
+/// template per combination of its branches gives a variant per rendering,
+/// in [`Mode::Sql`] and labelled with its branches.
+fn variants<'a>(input: &'a str, output: &'a str, mode: Mode) -> Vec<Variant<'a>> {
+    vec![Variant {
+        label: String::new(),
+        input: Cow::Borrowed(input),
+        output: Cow::Borrowed(output),
+        mode,
+    }]
+}
+
 /// Runs the oracle on the input and output of every formatted file.
 fn judge_all(
     oracle: &Oracle,
@@ -466,69 +525,164 @@ fn judge_all(
     records: &mut [Record],
     allowlist: &BTreeSet<String>,
 ) {
+    let mut owners = Vec::new();
+    let mut labels = Vec::new();
     let mut texts = Vec::new();
-    let mut slots = Vec::new();
-    for record in records.iter() {
-        let Some((input, output)) = &record.texts else {
-            slots.push(None);
-            continue;
-        };
-        let input_slot = texts.len();
-        texts.push(oracle::prepare(input, record.mode));
-        let output_slot = if input == output {
-            input_slot
-        } else {
-            texts.push(oracle::prepare(output, record.mode));
-            texts.len() - 1
-        };
-        slots.push(Some((input_slot, output_slot)));
-    }
-    let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
-    let verdicts = oracle.canonical(&refs);
-    for (record, slot) in records.iter_mut().zip(slots) {
-        let Some((input, output)) = slot else {
-            continue;
-        };
-        let key = format!("{}/{}", corpora[record.corpus].name, record.path);
-        record.oracle = Some(match oracle::judge(&verdicts[input], &verdicts[output]) {
-            Judgement::Same => OracleOutcome::Same,
-            Judgement::Differs { input, output } => {
-                record.detail = first_difference(&input, &output);
-                if allowlist.contains(&key) {
-                    OracleOutcome::Allowlisted
-                } else {
-                    OracleOutcome::Differs
-                }
-            }
-            Judgement::OutputRejected(why) => {
-                record.detail = format!("the oracle rejects the output: {}", why.message);
-                OracleOutcome::OutputRejected
-            }
-            Judgement::Unjudgeable(why) => {
-                record.detail = why.message;
-                OracleOutcome::Unjudgeable(why.class)
-            }
-        });
-        record.texts = None;
-    }
-}
-
-/// The first line where two canonical forms differ.
-fn first_difference(input: &str, output: &str) -> String {
-    let mut a = input.lines();
-    let mut b = output.lines();
-    loop {
-        match (a.next(), b.next()) {
-            (Some(x), Some(y)) if x == y => {}
-            (x, y) => {
-                return format!(
-                    "the oracle prints {:?} for the input and {:?} for the output",
-                    x.unwrap_or(""),
-                    y.unwrap_or("")
-                );
+    for (r, record) in records.iter().enumerate() {
+        if let Some((input, output)) = &record.texts {
+            for variant in variants(input, output, record.mode) {
+                owners.push(r);
+                labels.push(variant.label);
+                texts.push((variant.input, variant.output, variant.mode));
             }
         }
     }
+    let pairs: Vec<Pair<'_>> = texts
+        .iter()
+        .map(|(input, output, mode)| Pair {
+            input,
+            output,
+            mode: *mode,
+        })
+        .collect();
+    let reports = oracle.judge_pairs(&pairs);
+    drop(pairs);
+    drop(texts);
+
+    let mut by_record: Vec<Vec<(String, Report)>> = records.iter().map(|_| Vec::new()).collect();
+    for ((r, label), report) in owners.into_iter().zip(labels).zip(reports) {
+        by_record[r].push((label, report));
+    }
+    for (record, reports) in records.iter_mut().zip(by_record) {
+        record.texts = None;
+        if reports.is_empty() {
+            continue;
+        }
+        let key = format!("{}/{}", corpora[record.corpus].name, record.path);
+        let mut counts = Counts::default();
+        for (_, report) in &reports {
+            counts.add(&report.counts());
+        }
+        record.oracle_counts = Some(counts);
+        record.findings = reports
+            .iter()
+            .flat_map(|(label, report)| findings(label, report))
+            .collect();
+        let any = |f: &dyn Fn(&Judgement) -> bool| {
+            reports
+                .iter()
+                .any(|(_, r)| f(&r.whole) || r.statements.iter().any(|s| f(&s.judgement)))
+        };
+        let outcome = if any(&|j| matches!(j, Judgement::Differs { .. })) {
+            if allowlist.contains(&key) {
+                OracleOutcome::Allowlisted
+            } else {
+                OracleOutcome::Differs
+            }
+        } else if any(&|j| matches!(j, Judgement::OutputRejected(_))) {
+            OracleOutcome::OutputRejected
+        } else if reports.iter().any(|(_, r)| r.mismatch.is_some()) {
+            OracleOutcome::Mismatch
+        } else if let Some(why) = reports.iter().find_map(|(_, r)| match &r.whole {
+            Judgement::Unjudgeable(why) => Some(why),
+            _ => None,
+        }) {
+            why.message.clone_into(&mut record.detail);
+            OracleOutcome::Unjudgeable(why.class)
+        } else {
+            OracleOutcome::Same
+        };
+        if let Some(first) = record.findings.first() {
+            first.clone_into(&mut record.detail);
+        }
+        record.oracle = Some(outcome);
+    }
+}
+
+/// One line per difference that `report` shows, each prefixed with `label`.
+fn findings(label: &str, report: &Report) -> Vec<String> {
+    let prefix = if label.is_empty() {
+        String::new()
+    } else {
+        format!("{label}: ")
+    };
+    let mut out = Vec::new();
+    if let Some(mismatch) = report.mismatch {
+        out.push(format!(
+            "{prefix}the input splits into {} statements and the output into {}",
+            mismatch.input, mismatch.output
+        ));
+    }
+    for (n, statement) in report.statements.iter().enumerate() {
+        let at = format!(
+            "{prefix}statement {} (line {}, output line {})",
+            n + 1,
+            statement.line,
+            statement.output_line
+        );
+        match &statement.judgement {
+            Judgement::Differs { input, output } => {
+                out.push(format!("{at}: {}", difference(input, output)));
+            }
+            Judgement::OutputRejected(why) => {
+                out.push(format!(
+                    "{at}: the oracle rejects the output: {}",
+                    why.message
+                ));
+            }
+            Judgement::Same | Judgement::Unjudgeable(_) => {}
+        }
+    }
+    // A difference between the whole texts that no single statement shows.
+    if out.is_empty() {
+        match &report.whole {
+            Judgement::Differs { input, output } => out.push(format!(
+                "{prefix}the whole text, though no statement on its own: {}",
+                difference(input, output)
+            )),
+            Judgement::OutputRejected(why) => out.push(format!(
+                "{prefix}the whole text, though no statement on its own: the oracle rejects \
+                 the output: {}",
+                why.message
+            )),
+            Judgement::Same | Judgement::Unjudgeable(_) => {}
+        }
+    }
+    out
+}
+
+/// Characters of a canonical form shown before the point where it differs.
+const EXCERPT_BEFORE: usize = 40;
+/// Characters of a canonical form shown, at most.
+const EXCERPT: usize = 160;
+
+/// Two canonical forms, cut to where they first differ.
+fn difference(input: &str, output: &str) -> String {
+    let (a, b) = (input.trim_end(), output.trim_end());
+    let first = a
+        .char_indices()
+        .zip(b.chars())
+        .find(|((_, x), y)| x != y)
+        .map_or(a.len().min(b.len()), |((i, _), _)| i);
+    // The texts agree up to `first`, so a boundary in one is in both.
+    let start = a.floor_char_boundary(first.saturating_sub(EXCERPT_BEFORE));
+    let cut = |s: &str| {
+        let rest = &s[start..];
+        let mut out = String::new();
+        if start > 0 {
+            out.push('…');
+        }
+        out.extend(rest.chars().take(EXCERPT));
+        if rest.chars().nth(EXCERPT).is_some() {
+            out.push('…');
+        }
+        out
+    };
+    format!(
+        "the oracle prints {:?} for the input and {:?} for the output",
+        cut(a),
+        cut(b)
+    )
 }
 
 fn summary(corpora: &[Corpus], records: &[Record], with_oracle: bool) -> String {
@@ -546,21 +700,29 @@ fn summary(corpora: &[Corpus], records: &[Record], with_oracle: bool) -> String 
         "p95 µs".to_owned(),
         "max µs".to_owned(),
     ]];
-    let mut oracle_rows = vec![vec![
-        "corpus".to_owned(),
-        "input accepted".to_owned(),
-        "same".to_owned(),
-        "differs".to_owned(),
-        "output rejected".to_owned(),
-        "allowlisted".to_owned(),
-        "unjudgeable".to_owned(),
-        "unrendered_jinja".to_owned(),
-        "insert_data".to_owned(),
-        "empty_query".to_owned(),
-        "syntax".to_owned(),
-        "other".to_owned(),
-        "failed".to_owned(),
-    ]];
+    let header = |names: &[&str]| names.iter().map(|&n| n.to_owned()).collect::<Vec<_>>();
+    let mut file_rows = vec![header(&[
+        "corpus",
+        "files",
+        "same",
+        "differs",
+        "output rejected",
+        "statement mismatch",
+        "allowlisted",
+        "unjudgeable",
+    ])];
+    file_rows[0].extend(RejectionClass::ALL.map(|c| c.name().to_owned()));
+    let mut statement_rows = vec![header(&[
+        "corpus",
+        "statements",
+        "judged",
+        "judged %",
+        "same",
+        "differs",
+        "output rejected",
+    ])];
+    statement_rows[0].extend(RejectionClass::ALL.map(|c| c.name().to_owned()));
+    statement_rows[0].extend(header(&["changed", "changed judged"]));
     for (i, corpus) in corpora.iter().enumerate() {
         let of: Vec<&Record> = records.iter().filter(|r| r.corpus == i).collect();
         let count = |f: &dyn Fn(&Record) -> bool| of.iter().filter(|r| f(r)).count().to_string();
@@ -589,41 +751,55 @@ fn summary(corpora: &[Corpus], records: &[Record], with_oracle: bool) -> String 
             percentile(95),
             times.last().map_or_else(String::new, ToString::to_string),
         ]);
+
         let oracle_is = |o: OracleOutcome| move |r: &Record| r.oracle == Some(o);
-        let unjudgeable =
-            |c: RejectionClass| move |r: &Record| r.oracle == Some(OracleOutcome::Unjudgeable(c));
-        oracle_rows.push(vec![
+        let mut row = vec![
             corpus.name.clone(),
-            count(&|r| {
-                matches!(
-                    r.oracle,
-                    Some(
-                        OracleOutcome::Same
-                            | OracleOutcome::Differs
-                            | OracleOutcome::OutputRejected
-                            | OracleOutcome::Allowlisted
-                    )
-                )
-            }),
+            count(&|r| r.oracle.is_some()),
             count(&oracle_is(OracleOutcome::Same)),
             count(&oracle_is(OracleOutcome::Differs)),
             count(&oracle_is(OracleOutcome::OutputRejected)),
+            count(&oracle_is(OracleOutcome::Mismatch)),
             count(&oracle_is(OracleOutcome::Allowlisted)),
             count(&|r| matches!(r.oracle, Some(OracleOutcome::Unjudgeable(_)))),
-            count(&unjudgeable(RejectionClass::UnrenderedJinja)),
-            count(&unjudgeable(RejectionClass::InsertData)),
-            count(&unjudgeable(RejectionClass::EmptyQuery)),
-            count(&unjudgeable(RejectionClass::Syntax)),
-            count(&unjudgeable(RejectionClass::Other)),
-            count(&unjudgeable(RejectionClass::Failed)),
-        ]);
+        ];
+        row.extend(RejectionClass::ALL.map(|c| count(&oracle_is(OracleOutcome::Unjudgeable(c)))));
+        file_rows.push(row);
+
+        let mut sum = Counts::default();
+        for counts in of.iter().filter_map(|r| r.oracle_counts.as_ref()) {
+            sum.add(counts);
+        }
+        let mut row = vec![
+            corpus.name.clone(),
+            sum.statements.to_string(),
+            sum.judged().to_string(),
+            percent(sum.judged(), sum.statements),
+            sum.same.to_string(),
+            sum.differs.to_string(),
+            sum.output_rejected.to_string(),
+        ];
+        row.extend(RejectionClass::ALL.map(|c| sum.rejected(c).to_string()));
+        row.extend([sum.changed.to_string(), sum.changed_judged.to_string()]);
+        statement_rows.push(row);
     }
     let mut out = table(&rows);
     if with_oracle {
-        out.push('\n');
-        out.push_str(&table(&oracle_rows));
+        out.push_str("\nfiles, by the oracle's verdict on the whole text\n");
+        out.push_str(&table(&file_rows));
+        out.push_str("\nstatements, by the oracle's verdict on each\n");
+        out.push_str(&table(&statement_rows));
     }
     out
+}
+
+/// `part` as a percentage of `whole`, to one decimal.
+fn percent(part: usize, whole: usize) -> String {
+    if whole == 0 {
+        return String::new();
+    }
+    let tenths = (part * 1000 + whole / 2) / whole;
+    format!("{}.{}", tenths / 10, tenths % 10)
 }
 
 /// Rows as an aligned text table, numbers right-aligned.
@@ -653,9 +829,15 @@ fn table(rows: &[Vec<String>]) -> String {
     out
 }
 
-/// The CSV columns, in order.
+/// The CSV columns, in order. `oracle` and `oracle_class` are the verdict on
+/// the file as a whole; the `oracle_*` counts after them are statements.
 const CSV_COLUMNS: &str = "corpus,path,mode,bytes,tokens,statements,outcome,changed,idempotent,\
-                           format_us,oracle,oracle_class,detail";
+                           format_us,oracle,oracle_class,oracle_statements,oracle_judged,\
+                           oracle_same,oracle_differs,oracle_output_rejected,\
+                           oracle_rejected_unrendered_jinja,oracle_rejected_insert_data,\
+                           oracle_rejected_empty_query,oracle_rejected_syntax,\
+                           oracle_rejected_other,oracle_rejected_failed,oracle_changed,\
+                           oracle_changed_judged,detail";
 
 fn csv(corpora: &[Corpus], records: &[Record]) -> String {
     let mut out = String::from(CSV_COLUMNS);
@@ -667,27 +849,44 @@ fn csv(corpora: &[Corpus], records: &[Record]) -> String {
             Some(OracleOutcome::OutputRejected) => "output",
             _ => "",
         };
-        let _ = writeln!(
-            out,
-            "{},{},{},{},{},{},{},{},{},{},{},{},{}",
+        let mut fields = vec![
             quote(&corpora[r.corpus].name),
             quote(&r.path),
             if r.mode == Mode::Jinja {
                 "jinja"
             } else {
                 "sql"
-            },
-            r.bytes,
-            r.tokens,
-            r.statements,
-            r.outcome.name(),
-            flag(r.changed),
-            flag(r.idempotent),
-            r.format_us,
-            r.oracle.map_or("", OracleOutcome::name),
-            class,
-            quote(r.detail.lines().next().unwrap_or("")),
-        );
+            }
+            .to_owned(),
+            r.bytes.to_string(),
+            r.tokens.to_string(),
+            r.statements.to_string(),
+            r.outcome.name().to_owned(),
+            flag(r.changed).to_owned(),
+            flag(r.idempotent).to_owned(),
+            r.format_us.to_string(),
+            r.oracle.map_or("", OracleOutcome::name).to_owned(),
+            class.to_owned(),
+        ];
+        let counts = r.oracle_counts.map(|c| {
+            let mut counts = vec![
+                c.statements,
+                c.judged(),
+                c.same,
+                c.differs,
+                c.output_rejected,
+            ];
+            counts.extend(RejectionClass::ALL.map(|class| c.rejected(class)));
+            counts.extend([c.changed, c.changed_judged]);
+            counts
+        });
+        match counts {
+            Some(counts) => fields.extend(counts.iter().map(ToString::to_string)),
+            None => fields.extend(std::iter::repeat_n(String::new(), 13)),
+        }
+        fields.push(quote(r.detail.lines().next().unwrap_or("")));
+        out.push_str(&fields.join(","));
+        out.push('\n');
     }
     out
 }
@@ -708,4 +907,66 @@ fn check_writable(path: &Path) -> io::Result<()> {
         .append(true)
         .open(path)
         .map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use chairlift::oracle::Rejection;
+    use chairlift::oracle::StatementReport;
+
+    use super::*;
+
+    #[test]
+    fn differing_statements_are_located() {
+        let statement = |line, judgement| StatementReport {
+            line,
+            output_line: line + 1,
+            changed: true,
+            judgement,
+        };
+        let differs = Judgement::Differs {
+            input: "SELECT a + b FROM t;\n".to_owned(),
+            output: "SELECT a - b FROM t;\n".to_owned(),
+        };
+        let syntax = Judgement::Unjudgeable(Rejection {
+            class: RejectionClass::Syntax,
+            message: "x".to_owned(),
+        });
+        let report = Report {
+            whole: syntax.clone(),
+            statements: vec![statement(1, syntax), statement(4, differs.clone())],
+            mismatch: None,
+        };
+        assert_eq!(
+            findings("", &report),
+            [
+                "statement 2 (line 4, output line 5): the oracle prints \"SELECT a + b FROM t;\" \
+                 for the input and \"SELECT a - b FROM t;\" for the output"
+            ]
+        );
+        // A difference only the whole texts show.
+        let report = Report {
+            whole: differs,
+            statements: vec![statement(1, Judgement::Same)],
+            mismatch: None,
+        };
+        let found = findings("variant", &report);
+        assert_eq!(found.len(), 1);
+        assert!(
+            found[0].starts_with("variant: the whole text, though no statement on its own: "),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn long_canonical_forms_are_cut_around_the_difference() {
+        let a = format!("SELECT {}1", "x, ".repeat(100));
+        let b = format!("SELECT {}2", "x, ".repeat(100));
+        let message = difference(&a, &b);
+        assert!(message.contains("\"… x, x, "), "{message}");
+        assert!(message.contains("x, 1\" for the input"), "{message}");
+        assert!(message.contains("x, 2\" for the output"), "{message}");
+        let long = format!("{a}{}", " AND y".repeat(100));
+        assert!(difference(&long, &b).contains("…\" for the input"));
+    }
 }

@@ -54,7 +54,7 @@ description = "Format every corpus, checking verification and idempotence (relea
 run = "cargo run --release --features corpus-tool --bin corpus -- --default"
 
 [tasks."corpus:oracle"]
-description = "Like corpus, and run clickhouse-format on every input and output; fails on any difference not in tests/oracle-allowlist.txt"
+description = "Like corpus, and run clickhouse-format on every input and output, statement by statement where it rejects a whole file; fails on any difference not in tests/oracle-allowlist.txt"
 run = "cargo run --release --features corpus-tool --bin corpus -- --default --oracle --allowlist tests/oracle-allowlist.txt"
 
 [tasks.build]

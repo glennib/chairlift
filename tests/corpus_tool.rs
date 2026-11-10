@@ -90,7 +90,10 @@ fn fixtures_verify_and_keep_their_meaning() {
     let csv = fs::read_to_string(&csv).unwrap();
     assert!(csv.starts_with(
         "corpus,path,mode,bytes,tokens,statements,outcome,changed,idempotent,format_us,oracle,\
-         oracle_class,detail\n"
+         oracle_class,oracle_statements,oracle_judged,oracle_same,oracle_differs,\
+         oracle_output_rejected,oracle_rejected_unrendered_jinja,oracle_rejected_insert_data,\
+         oracle_rejected_empty_query,oracle_rejected_syntax,oracle_rejected_other,\
+         oracle_rejected_failed,oracle_changed,oracle_changed_judged,detail\n"
     ));
     let rows = rows(&csv);
     assert_eq!(rows.len(), 14);
@@ -102,6 +105,11 @@ fn fixtures_verify_and_keep_their_meaning() {
                 matches!(field(row, "oracle"), "same" | "unjudgeable"),
                 "{row:?}"
             );
+            let count = |name| field(row, name).parse::<usize>().unwrap();
+            assert_eq!(count("oracle_statements"), count("statements"), "{row:?}");
+            assert_eq!(count("oracle_differs"), 0, "{row:?}");
+        } else {
+            assert_eq!(field(row, "oracle_statements"), "");
         }
     }
     let design = rows
@@ -110,6 +118,14 @@ fn fixtures_verify_and_keep_their_meaning() {
         .unwrap();
     assert_eq!(field(design, "mode"), "jinja");
     assert_eq!(field(design, "changed"), "false");
+    if oracle {
+        // The template is unjudgeable as a whole, but its statement without
+        // tags is judged.
+        assert_eq!(field(design, "oracle_class"), "unrendered_jinja");
+        assert_eq!(field(design, "oracle_judged"), "1");
+        assert_eq!(field(design, "oracle_rejected_unrendered_jinja"), "2");
+        assert!(stdout.contains("judged %"), "{stdout}");
+    }
 }
 
 #[test]
