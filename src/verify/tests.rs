@@ -84,15 +84,66 @@ fn case_changes_only_where_recorded() {
     facts.recase(0);
     assert!(facts.is_recased(0) && !facts.is_recased(2));
     verify(input, "SELECT true, select", Mode::Sql, &facts).unwrap();
-    verify(input, "SeLeCt true, select", Mode::Sql, &facts).unwrap();
+    // Only into its canonical case.
+    fails(input, "SeLeCt true, select", Mode::Sql, &facts);
     // Only the recorded word.
     fails(input, "SELECT true, SELECT", Mode::Sql, &facts);
     fails(input, "SELECT TRUE, select", Mode::Sql, &facts);
     // Only its case.
     fails(input, "SELEKT true, select", Mode::Sql, &facts);
-    // Literals go through the same door.
-    facts.recase(token_index(input, "true"));
-    verify(input, "SELECT TRUE, select", Mode::Sql, &facts).unwrap();
+}
+
+/// A keyword's canonical case is upper case, a literal word's lower case,
+/// `NULL`'s upper case; a word that is neither keeps its case.
+#[test]
+fn recased_words_take_their_canonical_case() {
+    let input = "SELECT TRUE, Inf, null, Infinity, nAn, toDate, x FROM t";
+    let mut facts = Facts::new();
+    for word in [
+        "SELECT", "TRUE", "Inf", "null", "Infinity", "nAn", "toDate", "x", "FROM",
+    ] {
+        facts.recase(token_index(input, word));
+    }
+    verify(
+        input,
+        "SELECT true, inf, NULL, infinity, nan, toDate, x FROM t",
+        Mode::Sql,
+        &facts,
+    )
+    .unwrap();
+    // Unchanged is always fine.
+    verify(input, input, Mode::Sql, &facts).unwrap();
+    fails(
+        input,
+        "select TRUE, Inf, null, Infinity, nAn, toDate, x FROM t",
+        Mode::Sql,
+        &facts,
+    );
+    fails(
+        input,
+        "SELECT TRUE, INF, null, Infinity, nAn, toDate, x FROM t",
+        Mode::Sql,
+        &facts,
+    );
+    fails(
+        input,
+        "SELECT TRUE, Inf, Null, Infinity, nAn, toDate, x FROM t",
+        Mode::Sql,
+        &facts,
+    );
+    // Not keywords: no case is canonical.
+    fails(
+        input,
+        "SELECT TRUE, Inf, null, Infinity, nAn, TODATE, x FROM t",
+        Mode::Sql,
+        &facts,
+    );
+    fails(
+        input,
+        "SELECT TRUE, Inf, null, Infinity, nAn, toDate, X FROM t",
+        Mode::Sql,
+        &facts,
+    );
 }
 
 #[test]

@@ -6,7 +6,7 @@
 //! text, with these exceptions only:
 //!
 //! - a bare word the formatter recorded as re-cased (see [`Facts::recase`])
-//!   may differ in ASCII case;
+//!   may be printed in its canonical case, if it has one;
 //! - a line comment may differ in the whitespace at its end, where the `\r`
 //!   of a CRLF line ending sits (see [`TokenKind::LineComment`]).
 //!
@@ -37,6 +37,7 @@
 use std::fmt;
 
 use crate::Position;
+use crate::keyword::Keyword;
 use crate::lexer::Mode;
 use crate::lexer::Token;
 use crate::lexer::TokenKind;
@@ -66,9 +67,11 @@ impl Facts {
         Facts::default()
     }
 
-    /// Records that the bare word at `token` may change case: a keyword in a
-    /// keyword slot, or a literal such as `true` or `NULL` written in its
-    /// canonical case. Recording any other kind of token has no effect.
+    /// Records that the bare word at `token` may be printed in its canonical
+    /// case: upper case for a ClickHouse keyword in a keyword slot (`NULL`
+    /// included), lower case for the literal words `true`, `false`, `inf`,
+    /// `infinity` and `nan`. Any other case, any other word and any other
+    /// kind of token stay as they are.
     pub fn recase(&mut self, token: usize) {
         let (word, bit) = (token / 64, token % 64);
         if self.recased.len() <= word {
@@ -255,8 +258,25 @@ fn mismatch(before: &Side<'_>, after: &Side<'_>, n: usize) -> VerifyError {
 fn same_text(kind: TokenKind, a: &str, b: &str, recased: bool) -> bool {
     match kind {
         TokenKind::LineComment => line_comment_text(a) == line_comment_text(b),
-        TokenKind::BareWord if recased => a.eq_ignore_ascii_case(b),
+        TokenKind::BareWord if recased => a == b || canonical_case(a).is_some_and(|c| c == b),
         _ => a == b,
+    }
+}
+
+/// The case a re-cased word is printed in, if it may be re-cased at all: a
+/// literal word (`true`, `false`, `inf`, `infinity`, `nan`) in lower case,
+/// and any other ClickHouse keyword, `NULL` among them, in upper case.
+fn canonical_case(word: &str) -> Option<String> {
+    let lower = word.to_ascii_lowercase();
+    if matches!(
+        lower.as_str(),
+        "true" | "false" | "inf" | "infinity" | "nan"
+    ) {
+        Some(lower)
+    } else if Keyword::from_word(word).is_some() {
+        Some(word.to_ascii_uppercase())
+    } else {
+        None
     }
 }
 
