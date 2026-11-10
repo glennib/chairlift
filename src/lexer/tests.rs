@@ -161,3 +161,18 @@ fn heredoc_closer_search_is_linear() {
         );
     }
 }
+
+#[test]
+fn is_whitespace_agrees_with_the_lexer() {
+    for c in (0..=0x3100)
+        .chain(0xfe00..=0xffff)
+        .filter_map(char::from_u32)
+    {
+        let text = c.to_string();
+        let lexed = matches!(
+            tokenize(&text, Mode::Sql)[..],
+            [token] if token.kind() == TokenKind::Whitespace
+        );
+        assert_eq!(is_whitespace(c), lexed, "{c:?}");
+    }
+}

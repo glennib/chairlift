@@ -285,6 +285,23 @@ impl Iterator for Lexer<'_> {
 
 impl FusedIterator for Lexer<'_> {}
 
+/// Whether `c` is whitespace to ClickHouse, as in a
+/// [`Whitespace`](TokenKind::Whitespace) token.
+pub(crate) fn is_whitespace(c: char) -> bool {
+    matches!(
+        c,
+        ' ' | '\t' | '\n' | '\r' | '\x0b' | '\x0c' | '\u{85}' | '\u{a0}' | '\u{180e}' | '\u{2000}'
+            ..='\u{200d}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{2060}'
+                | '\u{3000}'
+                | '\u{feff}'
+    )
+}
+
 /// Whether two tokens may be printed with nothing between them: whether
 /// their concatenation lexes back to exactly the same two tokens.
 ///

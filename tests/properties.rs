@@ -8,6 +8,8 @@ use chairlift::lexer::can_touch;
 use chairlift::lexer::jinja;
 use chairlift::lexer::tokenize;
 use chairlift::split::split;
+use chairlift::verify::Facts;
+use chairlift::verify::verify;
 use proptest::prelude::*;
 
 /// Pieces of SQL and Jinja syntax whose rules depend on what is next to them.
@@ -195,6 +197,26 @@ proptest! {
     #[test]
     fn jinja_mode_without_tags_is_sql(source in inputs().prop_map(|s| s.replace('{', "("))) {
         prop_assert_eq!(tokenize(&source, Mode::Jinja), tokenize(&source, Mode::Sql));
+    }
+
+    /// The verifier accepts what a printer that follows [`can_touch`]
+    /// produces. Inline `INSERT` data is left out: its whitespace is data,
+    /// and squashing it is a change the verifier must reject.
+    #[test]
+    fn verify_accepts_what_can_touch_allows(source in prop_oneof![statement_inputs(), inputs()]) {
+        let mode = Mode::Sql;
+        let error = tokenize(&source, mode).into_iter().find(|t| t.kind().is_error());
+        let source = &source[..error.map_or(source.len(), Token::start)];
+        let has_data = |text: &str| {
+            split(text, mode).tokens().iter().any(|t| t.kind() == TokenKind::InsertData)
+        };
+        prop_assume!(!has_data(source));
+        let tokens = tokenize(source, mode);
+        prop_assume!(!tokens.iter().any(|t| t.kind().is_error()));
+        let squashed = squash(source, &tokens, mode);
+        prop_assume!(!has_data(&squashed));
+        let result = verify(source, &squashed, mode, &Facts::new());
+        prop_assert!(result.is_ok(), "{:?} squashed to {:?}: {:?}", source, squashed, result);
     }
 
     /// The splitter's tokens keep the lexer's guarantees, and its statements

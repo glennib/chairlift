@@ -9,6 +9,46 @@
 pub mod keyword;
 pub mod lexer;
 pub mod split;
+pub mod verify;
+
+use std::fmt;
+
+/// A place in a text: a byte offset, and the line and column it is on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Position {
+    /// The byte offset.
+    pub offset: usize,
+    /// The line, counting from 1; lines end at `\n`.
+    pub line: usize,
+    /// The column, counting from 1, in `char`s.
+    pub column: usize,
+}
+
+impl Position {
+    /// The position of byte `offset` in `text`, or of the end of `text` if
+    /// `offset` is past it or not on a `char` boundary.
+    #[must_use]
+    pub fn new(text: &str, offset: usize) -> Position {
+        let offset = if text.is_char_boundary(offset) {
+            offset
+        } else {
+            text.len()
+        };
+        let before = &text[..offset];
+        let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+        Position {
+            offset,
+            line: before.bytes().filter(|&b| b == b'\n').count() + 1,
+            column: before[line_start..].chars().count() + 1,
+        }
+    }
+}
+
+impl fmt::Display for Position {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.line, self.column)
+    }
+}
 
 /// The ClickHouse release whose grammar chairlift targets.
 ///
