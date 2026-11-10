@@ -12,6 +12,8 @@ use std::ops::Range;
 use std::path::Path;
 use std::path::PathBuf;
 
+use chairlift::Error;
+use chairlift::Options;
 use chairlift::lexer::Mode;
 use chairlift::lexer::Token;
 use chairlift::lexer::jinja;
@@ -161,6 +163,41 @@ fn every_corpus_file_round_trips() {
         eprintln!(
             "{}: {files} files ({templates} templates, {bytes} bytes) round-trip in both modes; \
              {not_utf8} not UTF-8; {with_errors} with error tokens in their own mode",
+            corpus.name
+        );
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Every file formats without a verification failure, or is left alone for a
+/// lexer error, and formatting is idempotent.
+#[test]
+fn every_corpus_file_formats_idempotently() {
+    let mut failures = Vec::new();
+    for corpus in corpora() {
+        let (mut formatted, mut changed, mut lex_errors) = (0, 0, 0);
+        for path in &corpus.files {
+            let Some(source) = read(path) else {
+                continue;
+            };
+            let options = Options::default().with_jinja(corpus.mode(path) == Mode::Jinja);
+            match chairlift::format(&source, &options) {
+                Ok(output) => {
+                    formatted += 1;
+                    changed += usize::from(output != source);
+                    match chairlift::format(&output, &options) {
+                        Ok(again) if again == output => {}
+                        Ok(_) => failures.push(format!("{}: not idempotent", path.display())),
+                        Err(e) => failures.push(format!("{}: second pass: {e}", path.display())),
+                    }
+                }
+                Err(Error::Lex(_)) => lex_errors += 1,
+                Err(e) => failures.push(format!("{}: {e}", path.display())),
+            }
+        }
+        eprintln!(
+            "{}: {formatted} files verify and are idempotent, {changed} of them changed; \
+             {lex_errors} left alone for a lexer error",
             corpus.name
         );
     }

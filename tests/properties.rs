@@ -219,6 +219,24 @@ proptest! {
         prop_assert!(result.is_ok(), "{:?} squashed to {:?}: {:?}", source, squashed, result);
     }
 
+    /// Formatting never fails verification, and formatting its output again
+    /// changes nothing.
+    #[test]
+    fn format_verifies_and_is_idempotent(
+        source in prop_oneof![statement_inputs(), inputs()],
+        jinja in any::<bool>(),
+    ) {
+        let options = chairlift::Options::default().with_jinja(jinja);
+        match chairlift::format(&source, &options) {
+            Ok(once) => {
+                let twice = chairlift::format(&once, &options);
+                prop_assert_eq!(twice.as_ref(), Ok(&once), "formatted to {:?}", once);
+            }
+            Err(chairlift::Error::Lex(_)) => {}
+            Err(e) => prop_assert!(false, "{:?}: {}", source, e),
+        }
+    }
+
     /// The splitter's tokens keep the lexer's guarantees, and its statements
     /// are ordered runs of tokens with only trivia between them.
     #[test]

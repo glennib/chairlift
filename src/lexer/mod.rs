@@ -363,5 +363,31 @@ pub fn can_touch(
     )
 }
 
+/// Whether the tokens that end the input lex the same with a newline after
+/// them. ClickHouse lexes the last bytes of the input specially (`1e` at the
+/// very end is a bare word, elsewhere a number; `1e+` at the end is `1e` and
+/// `+`, elsewhere one number), so adding a final newline can change the last
+/// tokens.
+///
+/// `tail` is the end of the input from the start of a token a few tokens
+/// before the end; `prev_significant` is as for [`can_touch`], and `continued`
+/// says whether `tail` starts after the start of the input.
+pub(crate) fn same_before_newline(
+    mode: Mode,
+    prev_significant: Option<TokenKind>,
+    tail: &str,
+    continued: bool,
+) -> bool {
+    let lex = |text: &str| -> Vec<(TokenKind, usize)> {
+        let mut scanner = scan::Scanner::new(text, mode, prev_significant, continued);
+        std::iter::from_fn(|| scanner.next_token())
+            .map(|t| (t.kind, t.end()))
+            .collect()
+    };
+    let mut joined = lex(&[tail, "\n"].concat());
+    joined.pop_if(|&mut (kind, end)| kind == TokenKind::Whitespace && end == tail.len() + 1);
+    joined == lex(tail)
+}
+
 #[cfg(test)]
 mod tests;

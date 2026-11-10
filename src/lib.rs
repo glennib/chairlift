@@ -2,16 +2,91 @@
 //! contain Jinja templates.
 //!
 //! chairlift changes only whitespace and the case of keywords; it never adds,
-//! removes, reorders or rewrites tokens. The library has no formatting API yet:
-//! the crate is pre-release, and `docs/MILESTONES.md` in the repository lays
-//! out what comes next.
+//! removes, reorders or rewrites tokens, and [`format`] checks every result
+//! against its input with the [verifier](verify) before returning it.
+//!
+//! The crate is pre-release: formatting is the safe cleanup of [`format`]
+//! only, and `docs/MILESTONES.md` in the repository lays out what comes next.
+//!
+//! ```
+//! let options = chairlift::Options::default();
+//! let formatted = chairlift::format("select 1;  \r\n\n\n\nselect 2;", &options)?;
+//! assert_eq!(formatted, "select 1;\n\n\nselect 2;\n");
+//! assert!(chairlift::check(&formatted, &options)?);
+//! # Ok::<(), chairlift::Error>(())
+//! ```
 
+mod cleanup;
+mod error;
 pub mod keyword;
 pub mod lexer;
+mod options;
 pub mod split;
 pub mod verify;
 
 use std::fmt;
+
+pub use error::Error;
+pub use error::LexError;
+pub use options::Options;
+
+use crate::split::split;
+use crate::verify::Facts;
+
+/// Formats `source`.
+///
+/// For now this is a safe cleanup that cannot change what any token is:
+///
+/// - whitespace at the end of lines goes, and CRLF line endings become LF;
+/// - blank lines collapse to at most two between statements and one inside
+///   a statement, with none right after `(` or before `)`;
+/// - the text starts without a blank line and ends with exactly one newline.
+///
+/// Indentation and keyword case are left alone, and nothing inside a token
+/// changes: comments, strings, heredocs, Jinja tags and `INSERT` data keep
+/// every byte, line endings included. Data in a format other than `Values`
+/// that runs to the end of the text gets no final newline, and such data that
+/// ends at a blank line keeps it.
+///
+/// The result is [verified](verify) against `source` before it is returned.
+///
+/// # Errors
+///
+/// - [`Error::Lex`] if `source` has a lexer error, such as an unclosed string
+///   or comment: what its tokens are after that point cannot be relied on.
+/// - [`Error::Verify`] if the result failed verification, which is a bug.
+/// - [`Error::TooLarge`] if `source` is 4 GiB or longer.
+pub fn format(source: &str, options: &Options) -> Result<String, Error> {
+    let too_large = |len: usize| u32::try_from(len).is_err();
+    if too_large(source.len()) {
+        return Err(Error::TooLarge { len: source.len() });
+    }
+    let mode = options.mode();
+    let split = split(source, mode);
+    if let Some(token) = split.first_error() {
+        return Err(LexError {
+            position: Position::new(source, token.start()),
+            kind: token.kind(),
+        }
+        .into());
+    }
+    let output = cleanup::cleanup(source, &split, mode);
+    if too_large(output.len()) {
+        return Err(Error::TooLarge { len: output.len() });
+    }
+    verify::verify_split(source, &split, &output, mode, &Facts::new())?;
+    Ok(output)
+}
+
+/// Whether `source` is formatted already: whether [`format`] would return it
+/// unchanged.
+///
+/// # Errors
+///
+/// As [`format`].
+pub fn check(source: &str, options: &Options) -> Result<bool, Error> {
+    Ok(format(source, options)? == source)
+}
 
 /// A place in a text: a byte offset, and the line and column it is on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

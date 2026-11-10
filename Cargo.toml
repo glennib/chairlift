@@ -36,6 +36,7 @@ default = ["cli"]
 cli = ["dep:clap"]
 
 [dependencies]
+thiserror = "2"
 # CLI-only dependencies (gated behind the `cli` feature).
 clap = { version = "4.6", features = ["derive"], optional = true }
 
