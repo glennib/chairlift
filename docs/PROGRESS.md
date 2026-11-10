@@ -8,9 +8,9 @@ M9 (chum integration) is not part of this run.
 | Milestone | State | Notes |
 | --- | --- | --- |
 | M0. Repository scaffolding | done | CI green |
-| M1. Lossless lexer | implemented | independent review running |
-| M2. Verifier, splitter, safe-cleanup CLI | in progress | |
-| M3. Parser core | not started | planned in three parts: infrastructure and expressions, `SELECT`, `CREATE TABLE` and materialized views |
+| M1. Lossless lexer | done | reviewed; CI green |
+| M2. Verifier, splitter, safe-cleanup CLI | implemented | independent review running |
+| M3. Parser core | in progress | part 1 of 3: infrastructure and expressions; then `SELECT`; then `CREATE TABLE` and materialized views |
 | M4. Formatting rules and printer | not started | |
 | M5. Jinja templates | not started | |
 | M6. CLI polish and performance | not started | |
@@ -25,6 +25,10 @@ M7 follows M5, and M8 comes last.
 
 Each milestone is reviewed by a second agent that re-runs the acceptance criteria itself
 before the milestone is marked done here.
+The next milestone starts while that review runs; findings are fixed on top of the stack.
+
+Implementers run each fuzz target for a few minutes only.
+Longer fuzz runs happen beside the next milestone, and a crash becomes a fix on top of the stack.
 
 ## Open questions: defaults taken
 
@@ -92,13 +96,13 @@ Filled in as milestones complete: what was built, measured acceptance numbers, k
 
 ### M1
 
-Acceptance, as measured by the implementer (the independent review re-runs these):
+Acceptance, as measured by the implementer and re-measured by the independent review:
 
 | Criterion | Result |
 | --- | --- |
 | Round trip on every corpus file | holds in both modes: 14 fixtures, 12,866 stateless (9 non-UTF-8 skipped), 38 dbt, 9 local |
-| Edge-case table of at least 60 | 147 cases (99 SQL, 48 Jinja) |
-| Token kinds agree with ClickHouse | identical streams to ClickHouse's compiled lexer on the edge cases and on 12,978 corpus files |
+| Edge-case table of at least 60 | 142 cases (96 SQL, 46 Jinja) |
+| Token kinds agree with ClickHouse | identical streams to ClickHouse's compiled lexer on the edge cases and on 12,926 corpus files |
 | Throughput of at least 200 MB/s | about 255 MB/s for `tokenize`, 274 MB/s streaming |
 | Fuzzing for 10 minutes | 601 s, 1.94 million runs, no crash |
 | minijinja differential | about 3,930 tags, no disagreement, nothing allowlisted |
@@ -109,3 +113,45 @@ Acceptance, as measured by the implementer (the independent review re-runs these
   the CI corpus job runs it with `CHAIRLIFT_REQUIRE_CORPUS` so that a missing corpus fails.
 - Compiling ClickHouse's standalone lexer for the comparison needs clang.
 - The private migrations corpus has 4 files and no template, not the 6 the plan lists.
+- Review: no blockers.
+  The reviewer's own random comparisons found no difference from ClickHouse's lexer
+  (300,000 fragments)
+  or from minijinja's tag spans (3 million strings), and no pair that `can_touch` wrongly lets touch
+  (7.5 million token triples).
+  Its findings were fixed in M2's stack: an unclosed Jinja tag inside a line comment is now an error token,
+  the heredoc closer search is linear, and the contents of a `LineComment` token are documented
+  (never its `\n`, a CRLF's `\r` stays inside it, and a tag can make it span lines).
+
+### M2
+
+Acceptance, as measured by the implementer (the independent review re-runs these):
+
+| Criterion | Result |
+| --- | --- |
+| Injected printer bug (`-` and `-1` adjacent) | caught by the verifier, in `tests/verify.rs` |
+| Verify and idempotence over every corpus | hold on every file that lexes |
+| Oracle canonical forms, allowlist empty | 0 differing, 0 rejected outputs |
+| `--check` on the stateless corpus under 5 s | 0.8–0.9 s, single-threaded |
+| DESIGN.md example unchanged | unchanged |
+
+Corpus numbers:
+
+| Corpus | Files | Formatted | Lexer errors | Changed | Oracle accepted, all unchanged | Oracle cannot judge |
+| --- | --- | --- | --- | --- | --- | --- |
+| stateless | 12,875 | 12,851 | 15 (and 9 not UTF-8) | 1,034 | 12,303 | 548 |
+| dbt | 38 | 38 | 0 | 25 | 3 | 35 (unrendered Jinja) |
+| fixtures | 14 | 14 | 0 | 0 | 8 | 6 (unrendered Jinja) |
+| local | 9 | 9 | 0 | 0 | 9 | 0 |
+
+- The fuzz target for `format` found 7 verification failures in Jinja edge cases; each is fixed with a regression test.
+- Bytes inside a token are never changed: block comments, strings, heredocs,
+  tags and `INSERT` data keep CRLF and trailing spaces,
+  so a CRLF file containing one of these comes out with mixed line endings.
+  A line comment's trailing `\r` and spaces are trimmed.
+- The start and end of the input are left alone where ClickHouse's lexer treats the first or last byte specially
+  (`1e`, `1e+`, a leading `.`),
+  and `INSERT` data in a non-`VALUES` format that runs to the end of the file gets no final newline.
+- Known gaps: forcing blank lines around multi-line statements is left to M4;
+  hard links to a formatted file are broken by the rename-based write;
+  whether cargo-dist would ship the `corpus` binary is unchecked.
+- `mise run corpus` and `mise run corpus:oracle` run the corpus tool; `--csv FILE` writes one row per file.
