@@ -250,10 +250,13 @@ impl FusedIterator for Lexer<'_> {}
 /// `.` and digits lex differently after some tokens.
 ///
 /// This is what keeps a printer from turning `-` `-1` into a comment, `x`
-/// `'0'` into a hex string, or `{{ a }}` `b` into one rendered word. Beyond the
-/// pair, one ClickHouse rule looks further ahead: a number that ends in an
-/// exponent marker (`1e`) followed by `+` or `-` could absorb the sign and the
-/// digits after it, so that pair never touches.
+/// `'0'` into a hex string, or `{{ a }}` `b` into one rendered word. Two rules
+/// reach beyond the pair, so those pairs never touch:
+///
+/// - a number that ends in an exponent marker (`1e`) followed by `+` or `-`
+///   could absorb the sign and the digits after it;
+/// - a `$` followed by a `$` makes a heredoc opener (`$$`) that a later `$$`
+///   would close.
 ///
 /// ```
 /// use chairlift::lexer::{Mode, TokenKind, can_touch};
@@ -279,17 +282,23 @@ pub fn can_touch(
     {
         return false;
     }
-    let joined = [left_text, right_text].concat();
+    if left_text.ends_with('$') && right_text.starts_with('$') {
+        return false;
+    }
+    // A newline stands in for whatever follows `right`: some rules lex the
+    // last bytes of the input differently (`1e` at the very end is a bare
+    // word, elsewhere a number).
+    let joined = [left_text, right_text, "\n"].concat();
     let mut scanner = scan::Scanner::new(&joined, mode, prev_significant, true);
     let first = scanner.next_token();
     let second = scanner.next_token();
-    let third = scanner.next_token();
     matches!(
-        (first, second, third),
-        (Some(a), Some(b), None)
+        (first, second),
+        (Some(a), Some(b))
             if a.kind == left_kind
                 && a.end() == left_text.len()
                 && b.kind == right_kind
+                && b.end() == left_text.len() + right_text.len()
     )
 }
 
