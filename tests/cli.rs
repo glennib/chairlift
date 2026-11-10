@@ -249,6 +249,31 @@ fn writing_keeps_permissions_and_symbolic_links() {
     assert_eq!(mode & 0o777, 0o640);
 }
 
+/// A file without write permission is not replaced, even where the
+/// directory would allow it.
+#[cfg(unix)]
+#[test]
+fn a_read_only_file_is_an_error() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let dir = temp_dir("read-only");
+    let file = write(&dir, "ro.sql", MESSY);
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o444)).unwrap();
+    let output = run(&["ro.sql"], None, Some(&dir));
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    assert!(
+        stderr(&output).starts_with("error: ro.sql: cannot be written: "),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(read(&file), MESSY);
+    let mode = fs::metadata(&file).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o444);
+    // `--check` only reads.
+    let output = run(&["--check", "ro.sql"], None, Some(&dir));
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+}
+
 #[test]
 fn check_lists_files_and_writes_nothing() {
     let dir = temp_dir("check");

@@ -332,9 +332,13 @@ fn process(path: &Path, settings: &Settings) -> Result<Outcome, FileError> {
 /// the old file or the new one, never a truncated one: the text goes to a
 /// temporary file in the same directory, is synced, and is renamed over the
 /// original. A symbolic link is followed, so the file it points at is
-/// replaced and the link stays.
+/// replaced and the link stays. The new file gets the old one's permissions.
+///
+/// Renaming needs write permission on the directory only, so a file the
+/// user may not write is refused first, as writing it in place would be.
 fn write_atomically(path: &Path, contents: &str) -> io::Result<()> {
     let target = fs::canonicalize(path)?;
+    fs::OpenOptions::new().write(true).open(&target)?;
     let dir = target
         .parent()
         .ok_or_else(|| io::Error::other("the file has no parent directory"))?;
