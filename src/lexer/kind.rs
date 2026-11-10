@@ -160,6 +160,9 @@ pub enum TokenKind {
     /// as `1e+x` or `1.5abc`.
     ErrorWrongNumber,
     /// `{{`, `{%` or `{#` without its closer; runs to the end of the input.
+    /// A line comment with such a tag in it is this error too, from the
+    /// comment marker on: the renderer reads the tag regardless of the
+    /// comment, so the comment never ends at its line.
     ErrorJinjaTagIsNotClosed,
     /// `{% raw %}` without `{% endraw %}`; runs to the end of the input.
     ErrorJinjaRawIsNotClosed,

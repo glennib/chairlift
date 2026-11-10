@@ -566,10 +566,26 @@ impl<'s> Scanner<'s> {
 
     /// A line comment whose marker ends before `pos`; the newline is not part
     /// of it.
+    ///
+    /// In Jinja mode a tag inside the comment is skipped whole, newlines
+    /// included, since the renderer sees it as a tag. A tag that is not closed
+    /// makes the template unrenderable, so the comment is then an
+    /// [`ErrorJinjaTagIsNotClosed`](TokenKind::ErrorJinjaTagIsNotClosed)
+    /// running to the end of the input, as an unclosed tag in a string or block
+    /// comment makes those unclosed.
     fn line_comment(&mut self, mut pos: usize) -> TokenKind {
         let b = self.bytes;
         while pos < b.len() && b[pos] != b'\n' {
-            pos = self.tag_at(pos).unwrap_or(pos + 1);
+            if self.jinja && jinja::is_tag_start(b, pos) {
+                let tag = jinja::scan_tag(b, pos);
+                if !tag.closed {
+                    self.pos = b.len();
+                    return TokenKind::ErrorJinjaTagIsNotClosed;
+                }
+                pos = tag.end;
+            } else {
+                pos += 1;
+            }
         }
         self.pos = pos;
         TokenKind::LineComment

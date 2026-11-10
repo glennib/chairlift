@@ -201,6 +201,13 @@ const CASES: &[Case] = cases! {
     jinja "x'{{ h }}'" => [StringLiteral "x'{{ h }}'"];
     jinja "$$ {{ \"$$\" }} $$" => [HereDoc "$$ {{ \"$$\" }} $$"];
     jinja "-- {{ x\n }}\ny" => [LineComment "-- {{ x\n }}", Whitespace "\n", BareWord "y"];
+    jinja "1 -- it's {# not closed\nSELECT 2;" => [
+        Number "1", Whitespace " ", ErrorJinjaTagIsNotClosed "-- it's {# not closed\nSELECT 2;",
+    ];
+    jinja "# {% if x\n" => [ErrorJinjaTagIsNotClosed "# {% if x\n"];
+    sql "-- it's {# not closed\nx" => [
+        LineComment "-- it's {# not closed", Whitespace "\n", BareWord "x",
+    ];
     jinja "/* {{ \"*/\" }} */" => [BlockComment "/* {{ \"*/\" }} */"];
 };
 
