@@ -9,7 +9,7 @@ M9 (chum integration) is not part of this run.
 | --- | --- | --- |
 | M0. Repository scaffolding | done | CI green |
 | M1. Lossless lexer | done | reviewed; CI green |
-| M2. Verifier, splitter, safe-cleanup CLI | done | review findings fixed; oracle per-statement judgement in progress |
+| M2. Verifier, splitter, safe-cleanup CLI | done | review findings fixed |
 | M3. Parser core | in progress | part 1 of 3: infrastructure and expressions; then `SELECT`; then `CREATE TABLE` and materialized views |
 | M4. Formatting rules and printer | not started | |
 | M5. Jinja templates | not started | |
@@ -156,7 +156,7 @@ Corpus numbers:
   whether cargo-dist would ship the `corpus` binary is unchecked.
 - `mise run corpus` and `mise run corpus:oracle` run the corpus tool; `--csv FILE` writes one row per file.
 - Review: acceptance numbers re-measured correctly.
-  It found the following, all since fixed except the last, which is in progress:
+  It found the following, all since fixed:
   - **Blocker**: `INSERT` data is not recognised when the statement starts with a `{{ }}` tag,
     or when a bare word `format` appears earlier in it.
     Cleanup then strips trailing spaces inside the data and the verifier accepts it.
@@ -184,3 +184,12 @@ Corpus numbers:
     (`true`, `false`, `inf`, `infinity`, `nan` lower case; everything else, `NULL` included, upper).
   - A file without write permission is an error (exit 2) and is not rewritten.
 - Known limitation, owned by M5: the verifier models only the render in which every `{% if %}` branch is taken.
+- The oracle judges statement by statement where it rejects a whole file.
+  On the stateless corpus 270,259 of 273,812 statements are judged (98.7%, up from 93.2%) and none differs.
+  The rest are rejected by the oracle itself: 2,115 syntax errors
+  (mostly tests of other query dialects), 913 with unrendered Jinja, 257 `INSERT` data, 208 empty queries, 60 other.
+  Statements without a tag in a template are judged too.
+- The full oracle sweep is slower for it: 4.8 minutes on a loaded machine, against 2.3 before.
+  A rejected statement costs a `clickhouse-format` process of its own.
+  `clickhouse local` with a formatting function is an untried faster route.
+- Oracle blind spot: `clickhouse-format` prints the same `GRANULARITY` for a text index whatever the input says.
