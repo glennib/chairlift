@@ -60,11 +60,9 @@ fi
 
 # Distinct upper-case words, sorted; this is the enum order.
 words=$(tr ' ' '\n' <<<"$phrases" | tr '[:lower:]' '[:upper:]' | LC_ALL=C sort -u)
-# The same words sorted by length, then text: the lookup table's order.
-by_length=$(awk '{ print length($0), $0 }' <<<"$words" | LC_ALL=C sort -k1,1n -k2,2 | cut -d' ' -f2)
 
 generate() {
-    VERSION=$version WORDS=$words BY_LENGTH=$by_length PHRASES=$phrases awk '
+    VERSION=$version WORDS=$words PHRASES=$phrases awk '
         function variant(word,    parts, n, i, name) {
             n = split(tolower(word), parts, "_")
             name = ""
@@ -81,7 +79,6 @@ generate() {
             version = ENVIRON["VERSION"]
             nwords = split(ENVIRON["WORDS"], word, "\n")
             nphrases = split(ENVIRON["PHRASES"], phrase, "\n")
-            split(ENVIRON["BY_LENGTH"], sorted, "\n")
             max_len = 0
             for (i = 1; i <= nwords; i++) {
                 name[i] = variant(word[i])
@@ -127,11 +124,6 @@ generate() {
             print "/// The text of each keyword, indexed by its discriminant."
             print "pub(super) const TEXT: [&str; " nwords "] = ["
             for (i = 1; i <= nwords; i++) print "    \"" word[i] "\","
-            print "];"
-            print ""
-            print "/// Every keyword, sorted by the length of its text and then by the text."
-            print "pub(super) const BY_LENGTH: [Keyword; " nwords "] = ["
-            for (i = 1; i <= nwords; i++) print "    Keyword::" by_word[sorted[i]] ","
             print "];"
             print ""
             print "/// ClickHouse'"'"'s keyword phrases (`ORDER BY`, `ADD COLUMN`, ...), in the order"

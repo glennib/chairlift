@@ -437,10 +437,17 @@ impl<'s> Scanner<'s> {
     }
 
     /// `$tag$…$tag$`, if a heredoc starts at `start`.
+    ///
+    /// ClickHouse takes the text up to the next `$` as the tag and rejects it
+    /// unless it is all word characters; scanning word characters and
+    /// expecting a `$` after them is the same test without searching ahead.
     fn heredoc(&mut self, start: usize) -> Option<TokenKind> {
         let b = self.bytes;
-        let tag_end = start + 1 + b[start + 1..].iter().position(|&c| c == b'$')?;
-        if !b[start + 1..tag_end].iter().all(|&c| is_word_char(c)) {
+        let mut tag_end = start + 1;
+        while tag_end < b.len() && is_word_char(b[tag_end]) {
+            tag_end += 1;
+        }
+        if b.get(tag_end) != Some(&b'$') {
             return None;
         }
         let opener = &b[start..=tag_end];

@@ -45,20 +45,27 @@ impl Keyword {
             return None;
         }
         let mut upper = [0u8; generated::MAX_LEN];
+        let mut hash = FNV_OFFSET;
         for (dst, &b) in upper.iter_mut().zip(bytes) {
             if !(b.is_ascii_alphanumeric() || b == b'_') {
                 return None;
             }
             *dst = b.to_ascii_uppercase();
+            hash = fnv_step(hash, *dst);
         }
         let key = &upper[..bytes.len()];
-        generated::BY_LENGTH
-            .binary_search_by(|k| {
-                let text = k.as_str().as_bytes();
-                text.len().cmp(&key.len()).then_with(|| text.cmp(key))
-            })
-            .ok()
-            .map(|i| generated::BY_LENGTH[i])
+        let mut slot = slot_of(hash);
+        loop {
+            let index = TABLE[slot];
+            if index == EMPTY {
+                return None;
+            }
+            let keyword = Keyword::ALL[usize::from(index)];
+            if keyword.as_str().as_bytes() == key {
+                return Some(keyword);
+            }
+            slot = (slot + 1) % SLOTS;
+        }
     }
 
     /// ClickHouse's keyword phrases, single words and sequences such as
@@ -76,6 +83,51 @@ impl Keyword {
 
     /// The ClickHouse release the keyword list was generated from.
     pub const SOURCE_VERSION: &'static str = generated::SOURCE_VERSION;
+}
+
+/// The lookup table for [`Keyword::from_word`]: an open-addressing hash table
+/// over the keywords' upper-case text (FNV-1a, linear probing), built at
+/// compile time. Every bare word the lexer sees is looked up, so this is on
+/// the lexer's hot path.
+static TABLE: [u16; SLOTS] = build_table();
+
+/// Four times the number of keywords, rounded up to a power of two, so that
+/// probe sequences stay short.
+const SLOTS: usize = (generated::TEXT.len() * 4).next_power_of_two();
+const EMPTY: u16 = u16::MAX;
+const FNV_OFFSET: u32 = 0x811c_9dc5;
+
+const fn fnv_step(hash: u32, byte: u8) -> u32 {
+    (hash ^ byte as u32).wrapping_mul(0x0100_0193)
+}
+
+const fn slot_of(hash: u32) -> usize {
+    hash as usize % SLOTS
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "there are fewer keywords than u16::MAX"
+)]
+const fn build_table() -> [u16; SLOTS] {
+    let mut table = [EMPTY; SLOTS];
+    let mut index = 0;
+    while index < generated::TEXT.len() {
+        let text = generated::TEXT[index].as_bytes();
+        let mut hash = FNV_OFFSET;
+        let mut i = 0;
+        while i < text.len() {
+            hash = fnv_step(hash, text[i]);
+            i += 1;
+        }
+        let mut slot = slot_of(hash);
+        while table[slot] != EMPTY {
+            slot = (slot + 1) % SLOTS;
+        }
+        table[slot] = index as u16;
+        index += 1;
+    }
+    table
 }
 
 impl std::fmt::Display for Keyword {
