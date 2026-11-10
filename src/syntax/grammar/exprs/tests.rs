@@ -400,6 +400,8 @@ const PRECEDENCE: &[(&str, &str)] = &[
     ),
     ("f(a + b AS x * 2)", "f ( ((a + b) AS x * 2) )"),
     ("(1, 2).-1", "(( 1 , 2 ) . - 1)"),
+    ("x < some(y, z) + 1", "(x < (some ( y , z ) + 1))"),
+    ("x = some(y) + 1", "((x = some ( y )) + 1)"),
 ];
 
 #[test]
@@ -554,6 +556,13 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
     ("'{{ and }}' and y", "'{{ and }}' AND y"),
     ("f(x) filter (where y)", "f(x) FILTER (WHERE y)"),
     ("x = any (select 1)", "x = ANY (SELECT 1)"),
+    ("x = some(y)", "x = SOME(y)"),
+    ("x like all(y)", "x LIKE ALL(y)"),
+    ("x = some(1, 2)", "x = some(1, 2)"),
+    ("x = all()", "x = all()"),
+    ("x = all(y as z)", "x = all(y AS z)"),
+    ("x = some((select 1), 2)", "x = some((SELECT 1), 2)"),
+    ("x = any(y)", "x = any(y)"),
 ];
 
 #[test]

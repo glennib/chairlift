@@ -347,7 +347,9 @@ syntax_kinds! {
         /// that is not a plain name. The element is a number token, a
         /// [`Name`](Self::Name), or an expression.
         TupleAccessExpr: Node,
-        /// `ANY (subquery)`, `ALL (…)`, `SOME (…)` after a comparison.
+        /// `ANY (subquery)`, `SOME (…)`, `ALL (…)` as the right operand of a
+        /// comparison or a matching predicate: the keyword, then a
+        /// [`Subquery`](Self::Subquery) or a [`ParenExpr`](Self::ParenExpr).
         QuantifiedExpr: Node,
         /// `INTERVAL n UNIT`, `INTERVAL '…' [UNIT [TO UNIT]]`.
         IntervalExpr: Node,

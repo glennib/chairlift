@@ -223,10 +223,10 @@ fn expr_bp_inner(p: &mut Parser<'_>, min_bp: u8, inline_alias: bool) -> Option<C
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OpKind {
-    /// A binary operator; `quantified` allows `ANY`/`ALL`/`SOME (…)` on the
-    /// right, `escape` an `ESCAPE 'c'` after it.
+    /// A binary operator; `quantified` says which quantified right operands
+    /// it takes, `escape` whether an `ESCAPE 'c'` may follow.
     Binary {
-        quantified: bool,
+        quantified: Quantified,
         escape: bool,
     },
     And,
@@ -238,6 +238,19 @@ enum OpKind {
     Cast,
     Index,
     Dot,
+}
+
+/// The quantified right operands a binary operator takes, as ClickHouse's
+/// `tryParseOperand` allows them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Quantified {
+    No,
+    /// `SOME (x)` and `ALL (x)` with one expression, after the
+    /// string-matching predicates and `IS [NOT] DISTINCT FROM`.
+    Array,
+    /// Those, and `ANY`, `SOME` or `ALL` with a subquery, after a
+    /// comparison.
+    Comparison,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -253,8 +266,12 @@ const fn op(kind: OpKind, bp: u8, tokens: u8) -> Op {
     Op { kind, bp, tokens }
 }
 
-const fn binary(bp: u8, tokens: u8, quantified: bool, escape: bool) -> Op {
+const fn binary(bp: u8, tokens: u8, quantified: Quantified, escape: bool) -> Op {
     op(OpKind::Binary { quantified, escape }, bp, tokens)
+}
+
+const fn plain(bp: u8, tokens: u8) -> Op {
+    binary(bp, tokens, Quantified::No, false)
 }
 
 /// The operator at the current token, in operator position.
@@ -262,21 +279,20 @@ fn infix(p: &Parser<'_>) -> Option<Op> {
     Some(match p.nth(0)? {
         T::Arrow => op(OpKind::Lambda, 2, 1),
         T::QuestionMark => op(OpKind::Ternary, 4, 1),
-        T::PipeMark => binary(16, 1, false, false),
+        T::PipeMark => plain(16, 1),
         T::Equals
         | T::NotEquals
         | T::Less
         | T::Greater
         | T::LessOrEquals
         | T::GreaterOrEquals
-        | T::Spaceship
-        | T::Tilde
-        | T::TildeAsterisk
-        | T::NotTilde
-        | T::NotTildeAsterisk => binary(18, 1, true, false),
-        T::Concatenation => binary(20, 1, false, false),
-        T::Plus | T::Minus => binary(22, 1, false, false),
-        T::Asterisk | T::Slash | T::Percent => binary(24, 1, false, false),
+        | T::Spaceship => binary(18, 1, Quantified::Comparison, false),
+        T::Tilde | T::TildeAsterisk | T::NotTilde | T::NotTildeAsterisk => {
+            binary(18, 1, Quantified::Array, false)
+        }
+        T::Concatenation => plain(20, 1),
+        T::Plus | T::Minus => plain(22, 1),
+        T::Asterisk | T::Slash | T::Percent => plain(24, 1),
         T::Dot => op(OpKind::Dot, 28, 1),
         T::OpeningSquareBracket => op(OpKind::Index, 28, 1),
         T::DoubleColon => op(OpKind::Cast, 28, 1),
@@ -295,7 +311,7 @@ fn keyword_infix(p: &Parser<'_>) -> Option<Op> {
             match p.nth_keyword(next) {
                 Some(K::Null | K::True | K::False | K::Unknown) => op(OpKind::Postfix, 12, 2 + not),
                 Some(K::Distinct) if p.nth_at_kw(next + 1, K::From) => {
-                    binary(12, 3 + not, true, false)
+                    binary(12, 3 + not, Quantified::Array, false)
                 }
                 _ => return None,
             }
@@ -303,24 +319,24 @@ fn keyword_infix(p: &Parser<'_>) -> Option<Op> {
         K::Between => op(OpKind::Between, 14, 1),
         K::Not => match p.nth_keyword(1)? {
             K::Between => op(OpKind::Between, 14, 2),
-            K::Like | K::Ilike => binary(18, 2, true, true),
-            K::In => binary(18, 2, false, false),
-            K::Similar if p.nth_at_kw(2, K::To) => binary(18, 3, true, true),
+            K::Like | K::Ilike => binary(18, 2, Quantified::Array, true),
+            K::In => plain(18, 2),
+            K::Similar if p.nth_at_kw(2, K::To) => binary(18, 3, Quantified::Array, true),
             _ => return None,
         },
-        K::Like | K::Ilike => binary(18, 1, true, true),
-        K::Regexp => binary(18, 1, true, false),
-        K::Similar if p.nth_at_kw(1, K::To) => binary(18, 2, true, true),
+        K::Like | K::Ilike => binary(18, 1, Quantified::Array, true),
+        K::Regexp => binary(18, 1, Quantified::Array, false),
+        K::Similar if p.nth_at_kw(1, K::To) => binary(18, 2, Quantified::Array, true),
         // `IN PARTITION` belongs to `ALTER … IN PARTITION p`.
-        K::In if !p.no_in() && !p.nth_at_kw(1, K::Partition) => binary(18, 1, false, false),
+        K::In if !p.no_in() && !p.nth_at_kw(1, K::Partition) => plain(18, 1),
         K::Global => match (p.nth_keyword(1), p.nth_keyword(2)) {
-            (Some(K::In), _) => binary(18, 2, false, false),
-            (Some(K::Not), Some(K::In)) => binary(18, 3, false, false),
+            (Some(K::In), _) => plain(18, 2),
+            (Some(K::Not), Some(K::In)) => plain(18, 3),
             _ => return None,
         },
-        K::Mod | K::Div => binary(24, 1, false, false),
+        K::Mod | K::Div => plain(24, 1),
         K::At => match p.nth_keyword(1) {
-            Some(K::Time) if p.nth_at_kw(2, K::Zone) => binary(26, 3, false, false),
+            Some(K::Time) if p.nth_at_kw(2, K::Zone) => plain(26, 3),
             Some(K::Local) => op(OpKind::Postfix, 26, 2),
             _ => return None,
         },
@@ -339,9 +355,7 @@ fn apply(p: &mut Parser<'_>, lhs: CompletedMarker, op: Op) -> Option<CompletedMa
         OpKind::Binary { quantified, escape } => {
             let m = lhs.precede(p);
             bump_operator(p, op.tokens);
-            if quantified && at_quantifier(p) {
-                quantified_expr(p)?;
-            } else {
+            if !quantifier(p, quantified)? {
                 expr_bp(p, op.bp + 1)?;
             }
             if escape && p.at_kw(K::Escape) && p.nth_at(1, T::StringLiteral) {
@@ -492,20 +506,68 @@ fn literal_as_text(p: &mut Parser<'_>, operand: CompletedMarker) -> CompletedMar
     }
 }
 
-fn at_quantifier(p: &Parser<'_>) -> bool {
-    match p.nth_keyword(0) {
-        // `x = any(y)` is the aggregate function unless `y` is a subquery.
-        Some(K::Any) => select::at_subquery(p, 1),
-        Some(K::Some | K::All) => p.nth_at(1, T::OpeningRoundBracket),
-        _ => false,
+/// A [`QuantifiedExpr`](SyntaxKind::QuantifiedExpr) as the right operand
+/// of an operator that takes those `quantified`, if one is here: whether
+/// one was parsed. ClickHouse reads `ANY`, `SOME` and `ALL` with a subquery
+/// after a comparison, and `SOME` and `ALL` with one expression in brackets;
+/// anything else, `x = any(y)` or `x = some(1, 2)`, calls a function.
+fn quantifier(p: &mut Parser<'_>, quantified: Quantified) -> Option<bool> {
+    if quantified == Quantified::No || !p.nth_at(1, T::OpeningRoundBracket) {
+        return Some(false);
     }
+    let keyword = p.nth_keyword(0);
+    if !matches!(keyword, Some(K::Any | K::Some | K::All)) {
+        return Some(false);
+    }
+    if quantified == Quantified::Comparison && select::at_subquery(p, 1) {
+        let m = p.start();
+        p.bump_keyword();
+        select::subquery(p)?;
+        m.complete(p, SyntaxKind::QuantifiedExpr);
+        return Some(true);
+    }
+    if keyword == Some(K::Any) || !one_bracketed_item(p, 1) {
+        return Some(false);
+    }
+    Some(
+        p.speculate(|p| {
+            let m = p.start();
+            p.bump_keyword();
+            let paren = p.start();
+            p.bump();
+            p.with_no_in(false, expr)?;
+            p.expect(T::ClosingRoundBracket)?;
+            paren.complete(p, SyntaxKind::ParenExpr);
+            Some(m.complete(p, SyntaxKind::QuantifiedExpr))
+        })
+        .is_some(),
+    )
 }
 
-fn quantified_expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
-    let m = p.start();
-    p.bump_keyword();
-    paren(p)?;
-    Some(m.complete(p, SyntaxKind::QuantifiedExpr))
+/// Whether the brackets that open at the `n`th token hold something and no
+/// comma outside further brackets.
+fn one_bracketed_item(p: &Parser<'_>, n: usize) -> bool {
+    if p.nth_at(n + 1, T::ClosingRoundBracket) {
+        return false;
+    }
+    let mut depth = 0usize;
+    // The bound keeps nested brackets from scanning quadratically.
+    for i in n + 1..n + 10_000 {
+        let Some(kind) = p.nth(i) else {
+            return false;
+        };
+        if fallback::is_opener(kind) {
+            depth += 1;
+        } else if fallback::is_closer(kind) {
+            if depth == 0 {
+                return true;
+            }
+            depth -= 1;
+        } else if kind == T::Comma && depth == 0 {
+            return false;
+        }
+    }
+    false
 }
 
 // ---- Operands -------------------------------------------------------------
