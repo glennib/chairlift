@@ -1,7 +1,10 @@
 use super::*;
 
 fn kinds(source: &str) -> Vec<TokenKind> {
-    tokenize(source).iter().map(|t| t.kind()).collect()
+    tokenize(source, Mode::Sql)
+        .iter()
+        .map(|t| t.kind())
+        .collect()
 }
 
 #[test]
@@ -11,13 +14,13 @@ fn token_is_twelve_bytes() {
 
 #[test]
 fn empty_input_has_no_tokens() {
-    assert_eq!(tokenize(""), []);
+    assert_eq!(tokenize("", Mode::Sql), []);
 }
 
 #[test]
 fn bare_words_carry_their_keyword() {
     let source = "select Settings, events";
-    let keywords: Vec<Option<Keyword>> = tokenize(source)
+    let keywords: Vec<Option<Keyword>> = tokenize(source, Mode::Sql)
         .iter()
         .filter(|t| t.kind() == TokenKind::BareWord)
         .map(|t| t.keyword())
@@ -30,13 +33,13 @@ fn bare_words_carry_their_keyword() {
 
 #[test]
 fn quoted_keywords_are_not_keywords() {
-    let tokens = tokenize("`select` 'select' \"select\"");
+    let tokens = tokenize("`select` 'select' \"select\"", Mode::Sql);
     assert!(tokens.iter().all(|t| t.keyword().is_none()));
 }
 
 #[test]
 fn debug_shows_kind_range_and_keyword() {
-    let tokens = tokenize("from x");
+    let tokens = tokenize("from x", Mode::Sql);
     assert_eq!(
         format!("{tokens:?}"),
         "[BareWord@0..4(From), Whitespace@4..5, BareWord@5..6]"
@@ -82,9 +85,48 @@ fn touching_tokens() {
     ];
     for (prev, left, right, expected) in cases {
         assert_eq!(
-            can_touch(prev, left, right),
+            can_touch(Mode::Sql, prev, left, right),
             expected,
             "{prev:?} {left:?} {right:?}"
         );
     }
+}
+
+#[test]
+fn glued_words_are_not_keywords() {
+    let tokens = tokenize("select{{ x }}", Mode::Jinja);
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0].kind(), TokenKind::BareWord);
+    assert_eq!(tokens[0].keyword(), None);
+}
+
+#[test]
+fn touching_tokens_in_jinja_mode() {
+    use TokenKind::*;
+    let cases = [
+        ((JinjaExpr, "{{ a }}"), (BareWord, "b"), false),
+        ((BareWord, "b"), (JinjaBlock, "{% if x %}"), false),
+        ((JinjaExpr, "{{ a }}"), (JinjaExpr, "{{ b }}"), false),
+        (
+            (JinjaBlock, "{% if x %}"),
+            (JinjaBlock, "{% endif %}"),
+            true,
+        ),
+        ((JinjaExpr, "{{ a }}"), (Comma, ","), true),
+        ((Dot, "."), (JinjaExpr, "{{ c }}"), true),
+        ((OpeningCurlyBrace, "{"), (OpeningCurlyBrace, "{"), false),
+    ];
+    for (left, right, expected) in cases {
+        assert_eq!(
+            can_touch(Mode::Jinja, Some(BareWord), left, right),
+            expected,
+            "{left:?} {right:?}"
+        );
+    }
+    assert!(can_touch(
+        Mode::Sql,
+        None,
+        (OpeningCurlyBrace, "{"),
+        (OpeningCurlyBrace, "{")
+    ));
 }

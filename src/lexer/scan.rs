@@ -3,9 +3,16 @@
 //! The bounds checks (`pos + 1 < end` and the like) are ClickHouse's and are
 //! kept exactly, because they decide edge cases at the end of the input: `1e`
 //! at the end is a bare word, but `1e+` is the number `1e` and a `+`.
+//!
+//! In Jinja mode, every loop that looks for the end of a string, quoted
+//! identifier, heredoc or comment steps over whole tags ([`Scanner::tag_at`]),
+//! so a quote or closer inside a tag never ends the SQL construct around it.
 
+use super::Mode;
 use super::Token;
 use super::TokenKind;
+use super::jinja;
+use super::jinja::TagKind;
 use crate::keyword::Keyword;
 
 #[derive(Clone, Debug)]
@@ -13,21 +20,44 @@ pub(super) struct Scanner<'s> {
     source: &'s str,
     bytes: &'s [u8],
     pos: usize,
+    jinja: bool,
     /// The kind of the last significant token, for the `.` and digit rules.
     prev: Option<TokenKind>,
     /// The input continues text that came before it, so its first byte is not
     /// the start of a query (where ClickHouse always reads `.` as a number).
     continued: bool,
+    /// Where the current run of glued block and comment tags ends, if it has
+    /// been scanned and found to have nothing to join: its tags are single
+    /// tokens.
+    separate_tags_until: usize,
+}
+
+/// A run of glued pieces: tags, and the word characters between them.
+struct Run {
+    end: usize,
+    pieces: usize,
+    /// The end and kind of the first piece, when it is a tag.
+    first_tag: Option<(usize, TagKind)>,
+    word: bool,
+    expr: bool,
+    raw: bool,
 }
 
 impl<'s> Scanner<'s> {
-    pub(super) fn new(source: &'s str, prev: Option<TokenKind>, continued: bool) -> Self {
+    pub(super) fn new(
+        source: &'s str,
+        mode: Mode,
+        prev: Option<TokenKind>,
+        continued: bool,
+    ) -> Self {
         Self {
             source,
             bytes: source.as_bytes(),
             pos: 0,
+            jinja: mode == Mode::Jinja,
             prev,
             continued,
+            separate_tags_until: 0,
         }
     }
 
@@ -36,7 +66,23 @@ impl<'s> Scanner<'s> {
         if start >= self.bytes.len() {
             return None;
         }
-        let kind = self.sql_token(start);
+        let kind = if self.jinja && jinja::is_tag_start(self.bytes, start) {
+            self.tags(start)
+        } else {
+            let kind = self.sql_token(start);
+            if self.jinja
+                && matches!(
+                    kind,
+                    TokenKind::BareWord | TokenKind::Number | TokenKind::DollarSign
+                )
+                && self.pos < self.bytes.len()
+                && jinja::is_tag_start(self.bytes, self.pos)
+            {
+                self.glued_to_word(kind)
+            } else {
+                kind
+            }
+        };
         debug_assert!(self.pos > start);
         let keyword = if kind == TokenKind::BareWord {
             Keyword::from_word(&self.source[start..self.pos])
@@ -61,6 +107,9 @@ impl<'s> Scanner<'s> {
 
     /// Whether the previous significant token can be followed by tuple access,
     /// which makes `.1` a `Dot` and a number rather than the number `.1`.
+    ///
+    /// A `{{ … }}` or raw block renders as text the lexer cannot see; it is
+    /// taken to end like a bare word, as in `{{ table }}.1`.
     fn after_operand(&self) -> bool {
         matches!(
             self.prev,
@@ -70,8 +119,118 @@ impl<'s> Scanner<'s> {
                     | TokenKind::BareWord
                     | TokenKind::QuotedIdentifier
                     | TokenKind::Number
+                    | TokenKind::JinjaExpr
+                    | TokenKind::Verbatim
             )
         )
+    }
+
+    /// In Jinja mode, the end of the tag that starts at `pos`, if one does (the
+    /// end of the input if it is not closed).
+    #[inline]
+    fn tag_at(&self, pos: usize) -> Option<usize> {
+        if self.jinja && pos < self.bytes.len() && jinja::is_tag_start(self.bytes, pos) {
+            Some(jinja::scan_tag(self.bytes, pos).end)
+        } else {
+            None
+        }
+    }
+
+    /// The token at a tag in Jinja mode, starting at `start`.
+    ///
+    /// Tags glued to each other and to word characters form a run. A run that
+    /// contains anything that renders text (a word, a `{{ … }}` or a raw block)
+    /// is one token, because whitespace inserted anywhere inside it could split
+    /// the rendered text. A run of only block and comment tags renders nothing,
+    /// so its tags are separate tokens.
+    fn tags(&mut self, start: usize) -> TokenKind {
+        let b = self.bytes;
+        if start < self.separate_tags_until {
+            let tag = jinja::scan_tag(b, start);
+            self.pos = tag.end;
+            return single_tag_kind(tag.kind);
+        }
+        let run = self.run(start, false);
+        let Some((first_end, first_kind)) = run.first_tag else {
+            // The first tag is not closed.
+            self.pos = b.len();
+            return if jinja::scan_tag(b, start).kind == TagKind::Raw {
+                TokenKind::ErrorJinjaRawIsNotClosed
+            } else {
+                TokenKind::ErrorJinjaTagIsNotClosed
+            };
+        };
+        if run.pieces > 1 && (run.word || run.expr || run.raw) {
+            self.pos = run.end;
+            return if run.word {
+                TokenKind::BareWord
+            } else if run.expr {
+                TokenKind::JinjaExpr
+            } else {
+                TokenKind::Verbatim
+            };
+        }
+        self.separate_tags_until = run.end;
+        self.pos = first_end;
+        single_tag_kind(first_kind)
+    }
+
+    /// A bare word, number or `$` that ends at `self.pos`, where a tag starts:
+    /// the word and the run of tags glued to it are one bare word.
+    fn glued_to_word(&mut self, kind: TokenKind) -> TokenKind {
+        let run = self.run(self.pos, true);
+        if run.pieces > 1 {
+            self.pos = run.end;
+            TokenKind::BareWord
+        } else {
+            kind
+        }
+    }
+
+    /// Scans the run of glued tags and word characters from `start`. With
+    /// `after_word`, a word ends at `start` and counts as the run's first piece.
+    /// An unclosed tag ends the run before it.
+    fn run(&self, start: usize, after_word: bool) -> Run {
+        let b = self.bytes;
+        let mut run = Run {
+            end: start,
+            pieces: usize::from(after_word),
+            first_tag: None,
+            word: after_word,
+            expr: false,
+            raw: false,
+        };
+        let mut last_was_tag = false;
+        let mut pos = start;
+        while pos < b.len() {
+            if jinja::is_tag_start(b, pos) {
+                let tag = jinja::scan_tag(b, pos);
+                if !tag.closed {
+                    break;
+                }
+                match tag.kind {
+                    TagKind::Expr => run.expr = true,
+                    TagKind::Raw => run.raw = true,
+                    TagKind::Block | TagKind::Comment => {}
+                }
+                if run.pieces == 0 {
+                    run.first_tag = Some((tag.end, tag.kind));
+                }
+                pos = tag.end;
+                last_was_tag = true;
+            } else if last_was_tag && is_bare_word_char(b[pos]) {
+                while pos < b.len() && is_bare_word_char(b[pos]) {
+                    pos += 1;
+                }
+                run.word = true;
+                last_was_tag = false;
+            } else {
+                break;
+            }
+            run.pieces += 1;
+            run.end = pos;
+        }
+        run
     }
 
     /// Lexes one token starting at `start`, leaving `self.pos` at its end.
@@ -285,26 +444,35 @@ impl<'s> Scanner<'s> {
             return None;
         }
         let opener = &b[start..=tag_end];
-        let body = tag_end + 1;
-        let close = b[body..]
-            .windows(opener.len())
-            .position(|window| window == opener)?;
-        self.pos = body + close + opener.len();
-        Some(TokenKind::HereDoc)
+        let mut pos = tag_end + 1;
+        while pos + opener.len() <= b.len() {
+            if b[pos..].starts_with(opener) {
+                self.pos = pos + opener.len();
+                return Some(TokenKind::HereDoc);
+            }
+            pos = self.tag_at(pos).unwrap_or(pos + 1);
+        }
+        None
     }
 
     fn hex_or_bin_string(&mut self, start: usize) -> TokenKind {
         let b = self.bytes;
         let hex = matches!(b[start], b'x' | b'X');
         let mut pos = start + 2;
-        while pos < b.len()
-            && if hex {
-                b[pos].is_ascii_hexdigit()
-            } else {
-                matches!(b[pos], b'0' | b'1')
+        loop {
+            while pos < b.len()
+                && if hex {
+                    b[pos].is_ascii_hexdigit()
+                } else {
+                    matches!(b[pos], b'0' | b'1')
+                }
+            {
+                pos += 1;
             }
-        {
-            pos += 1;
+            match self.tag_at(pos) {
+                Some(tag_end) => pos = tag_end,
+                None => break,
+            }
         }
         if pos < b.len() && b[pos] == b'\'' {
             self.pos = pos + 1;
@@ -316,12 +484,16 @@ impl<'s> Scanner<'s> {
     }
 
     /// `'…'`, `"…"` or `` `…` ``: a doubled quote or a backslash escapes.
+    ///
+    /// A tag right after a backslash is still a tag (the renderer does not
+    /// know SQL escapes), so the backslash escapes the tag's rendered text.
     fn quoted(&mut self, start: usize, quote: u8, ok: TokenKind, error: TokenKind) -> TokenKind {
         let b = self.bytes;
         let end = b.len();
+        let brace = if self.jinja { b'{' } else { quote };
         let mut pos = start + 1;
         loop {
-            while pos < end && b[pos] != quote && b[pos] != b'\\' {
+            while pos < end && b[pos] != quote && b[pos] != b'\\' && b[pos] != brace {
                 pos += 1;
             }
             if pos >= end {
@@ -337,12 +509,18 @@ impl<'s> Scanner<'s> {
                 self.pos = pos;
                 return ok;
             }
-            pos += 1;
-            if pos >= end {
-                self.pos = end;
-                return error;
+            if b[pos] == b'\\' {
+                pos += 1;
+                if pos >= end {
+                    self.pos = end;
+                    return error;
+                }
+                if self.tag_at(pos).is_none() {
+                    pos += 1;
+                }
+                continue;
             }
-            pos += 1;
+            pos = self.tag_at(pos).unwrap_or(pos + 1);
         }
     }
 
@@ -357,10 +535,15 @@ impl<'s> Scanner<'s> {
     ) -> TokenKind {
         let b = self.bytes;
         let end = b.len();
+        let brace = if self.jinja { b'{' } else { 0xe2 };
         let mut pos = start + 3;
         loop {
-            while pos < end && b[pos] != 0xe2 {
+            while pos < end && b[pos] != 0xe2 && b[pos] != brace {
                 pos += 1;
+            }
+            if pos < end && b[pos] == b'{' {
+                pos = self.tag_at(pos).unwrap_or(pos + 1);
+                continue;
             }
             if pos + 2 >= end {
                 self.pos = end;
@@ -376,13 +559,12 @@ impl<'s> Scanner<'s> {
 
     /// A line comment whose marker ends before `pos`; the newline is not part
     /// of it.
-    fn line_comment(&mut self, pos: usize) -> TokenKind {
+    fn line_comment(&mut self, mut pos: usize) -> TokenKind {
         let b = self.bytes;
-        self.pos = pos
-            + b[pos..]
-                .iter()
-                .position(|&c| c == b'\n')
-                .unwrap_or(b.len() - pos);
+        while pos < b.len() && b[pos] != b'\n' {
+            pos = self.tag_at(pos).unwrap_or(pos + 1);
+        }
+        self.pos = pos;
         TokenKind::LineComment
     }
 
@@ -402,7 +584,7 @@ impl<'s> Scanner<'s> {
                     return TokenKind::BlockComment;
                 }
             } else {
-                pos += 1;
+                pos = self.tag_at(pos).unwrap_or(pos + 1);
             }
         }
         self.pos = b.len();
@@ -525,6 +707,20 @@ fn is_number_separator(b: &[u8], pos: usize, start_of_block: bool, hex: bool) ->
 /// ClickHouse's `isWordCharASCII`: `[A-Za-z0-9_]`.
 fn is_word_char(c: u8) -> bool {
     c.is_ascii_alphanumeric() || c == b'_'
+}
+
+/// A byte that continues a bare word: a word character or `$`.
+fn is_bare_word_char(c: u8) -> bool {
+    is_word_char(c) || c == b'$'
+}
+
+fn single_tag_kind(kind: TagKind) -> TokenKind {
+    match kind {
+        TagKind::Expr => TokenKind::JinjaExpr,
+        TagKind::Block => TokenKind::JinjaBlock,
+        TagKind::Comment => TokenKind::JinjaComment,
+        TagKind::Raw => TokenKind::Verbatim,
+    }
 }
 
 fn is_continuation_byte(c: u8) -> bool {

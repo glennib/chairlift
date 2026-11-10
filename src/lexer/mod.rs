@@ -10,15 +10,18 @@
 //!   panics on the source the tokens came from.
 //!
 //! Whitespace and comments are tokens like any other; [`TokenKind::is_trivia`]
-//! tells them apart. A token is a kind and a byte range, so a token stream
-//! costs 12 bytes per token and holds no copies of the text.
+//! tells them apart from the *significant* tokens the parser consumes. A token
+//! is a kind and a byte range, so a token stream costs 12 bytes per token and
+//! holds no copies of the text.
+//!
+//! # SQL
 //!
 //! The rules are ClickHouse's own (`src/Parsers/Lexer.cpp`) for the release in
-//! [`CLICKHOUSE_VERSION`](crate::CLICKHOUSE_VERSION): lexing ClickHouse SQL
-//! with chairlift gives the same tokens as ClickHouse, except that runs of
-//! whitespace are always one token and comments are split into line and
-//! block comments. Two of those rules depend on the previous significant
-//! token, which is why the lexer is a stateful iterator:
+//! [`CLICKHOUSE_VERSION`](crate::CLICKHOUSE_VERSION): lexing in [`Mode::Sql`]
+//! gives the same tokens as ClickHouse, except that runs of whitespace are
+//! always one token and comments are split into line and block comments. Two
+//! of those rules depend on the previous significant token, which is why the
+//! lexer is a stateful iterator:
 //!
 //! - `.` followed by a digit starts a number (`.5`), unless the previous
 //!   significant token is `)`, `]`, a bare word, a quoted identifier or a
@@ -27,20 +30,82 @@
 //! - after a `Dot`, a number is only digits and `_`, so `x.1.2` is
 //!   `x . 1 . 2`.
 //!
-//! Lexing never fails. Malformed input, such as an unclosed string or comment,
-//! becomes an [error token](TokenKind::is_error); unclosed constructs run to
-//! the end of the input.
+//! # Jinja
+//!
+//! In [`Mode::Jinja`], Jinja tags are found first, wherever they are, as the
+//! renderer finds them (see [`jinja`]), and SQL is lexed around them:
+//!
+//! - a tag on its own is a [`JinjaExpr`](TokenKind::JinjaExpr),
+//!   [`JinjaBlock`](TokenKind::JinjaBlock),
+//!   [`JinjaComment`](TokenKind::JinjaComment) or, for a raw block,
+//!   [`Verbatim`](TokenKind::Verbatim);
+//! - a tag inside a SQL string, quoted identifier, heredoc or comment is part
+//!   of that token, and quotes or closers inside the tag do not end it:
+//!   `'{{ "it's" }}'` is one string;
+//! - tags glued to a bare word or number, or to each other, join into one
+//!   token, since inserting whitespace there would split the rendered text;
+//!   see [`TokenKind::BareWord`] and [`TokenKind::JinjaExpr`];
+//! - for the `.` rule, a `{{ … }}` counts as a bare word and block and comment
+//!   tags are skipped like whitespace.
+//!
+//! In [`Mode::Sql`], `{{` is two [`OpeningCurlyBrace`](TokenKind::OpeningCurlyBrace)
+//! tokens.
+//!
+//! # Errors
+//!
+//! Lexing never fails. Malformed input, such as an unclosed string, comment or
+//! tag, becomes an [error token](TokenKind::is_error); unclosed constructs run
+//! to the end of the input.
 
+pub mod jinja;
 mod kind;
 mod scan;
 
 use std::fmt;
 use std::iter::FusedIterator;
 use std::ops::Range;
+use std::path::Path;
 
 pub use kind::TokenKind;
 
 use crate::keyword::Keyword;
+
+/// Whether the source is plain SQL or a Jinja template.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Mode {
+    /// Plain ClickHouse SQL.
+    #[default]
+    Sql,
+    /// SQL with Jinja tags, such as a chum `.sql.j2` migration or a dbt model.
+    Jinja,
+}
+
+impl Mode {
+    /// The mode for a file, by its name: [`Mode::Jinja`] for names ending in
+    /// `.j2` (as `.sql.j2`) or `.j2.sql`, chum's two template extensions;
+    /// otherwise [`Mode::Sql`].
+    ///
+    /// The name is only a default: dbt models, for one, are templates named
+    /// `.sql`.
+    ///
+    /// ```
+    /// use chairlift::lexer::Mode;
+    /// use std::path::Path;
+    ///
+    /// assert_eq!(Mode::for_path(Path::new("0001_base.up.sql.j2")), Mode::Jinja);
+    /// assert_eq!(Mode::for_path(Path::new("0003.up.j2.sql")), Mode::Jinja);
+    /// assert_eq!(Mode::for_path(Path::new("schema.sql")), Mode::Sql);
+    /// ```
+    #[must_use]
+    pub fn for_path(path: &Path) -> Mode {
+        let name = path.file_name().map(|n| n.to_string_lossy());
+        if name.is_some_and(|n| n.ends_with(".j2") || n.ends_with(".j2.sql")) {
+            Mode::Jinja
+        } else {
+            Mode::Sql
+        }
+    }
+}
 
 /// A token: a kind and a byte range of the source text.
 ///
@@ -65,7 +130,8 @@ impl Token {
     /// otherwise `None`.
     ///
     /// This classifies the text only: whether the word is used as a keyword or
-    /// as an identifier is for the parser to decide.
+    /// as an identifier is for the parser to decide. A word with Jinja tags
+    /// glued into it is never a keyword.
     #[must_use]
     pub const fn keyword(self) -> Option<Keyword> {
         self.keyword
@@ -116,13 +182,18 @@ impl fmt::Debug for Token {
 /// the tokens guarantee.
 ///
 /// ```
-/// use chairlift::lexer::{TokenKind, tokenize};
+/// use chairlift::lexer::{Mode, TokenKind, tokenize};
 ///
-/// let source = "SELECT 1--1";
-/// let kinds: Vec<TokenKind> = tokenize(source).iter().map(|t| t.kind()).collect();
+/// let kinds = |source, mode| -> Vec<TokenKind> {
+///     tokenize(source, mode).iter().map(|t| t.kind()).collect()
+/// };
 /// assert_eq!(
-///     kinds,
+///     kinds("SELECT 1--1", Mode::Sql),
 ///     [TokenKind::BareWord, TokenKind::Whitespace, TokenKind::Number, TokenKind::LineComment]
+/// );
+/// assert_eq!(
+///     kinds("FROM events_{{ suffix }}", Mode::Jinja),
+///     [TokenKind::BareWord, TokenKind::Whitespace, TokenKind::BareWord]
 /// );
 /// ```
 ///
@@ -130,9 +201,9 @@ impl fmt::Debug for Token {
 ///
 /// If `source` is 4 GiB or longer; token offsets are 32 bits.
 #[must_use]
-pub fn tokenize(source: &str) -> Vec<Token> {
+pub fn tokenize(source: &str, mode: Mode) -> Vec<Token> {
     let mut tokens = Vec::with_capacity(source.len() / 4 + 1);
-    tokens.extend(Lexer::new(source));
+    tokens.extend(Lexer::new(source, mode));
     tokens
 }
 
@@ -149,13 +220,13 @@ impl<'s> Lexer<'s> {
     ///
     /// If `source` is 4 GiB or longer; token offsets are 32 bits.
     #[must_use]
-    pub fn new(source: &'s str) -> Self {
+    pub fn new(source: &'s str, mode: Mode) -> Self {
         assert!(
             u32::try_from(source.len()).is_ok(),
             "chairlift lexes inputs up to 4 GiB"
         );
         Self {
-            scanner: scan::Scanner::new(source, None, false),
+            scanner: scan::Scanner::new(source, mode, None, false),
         }
     }
 }
@@ -178,22 +249,24 @@ impl FusedIterator for Lexer<'_> {}
 /// `left`, or `None` at the start of a statement; the lexer needs it because
 /// `.` and digits lex differently after some tokens.
 ///
-/// This is what keeps a printer from turning `-` `-1` into a comment or `x`
-/// `'0'` into a hex string. Beyond the pair, one ClickHouse rule looks further
-/// ahead: a number that ends in an exponent marker (`1e`) followed by `+` or
-/// `-` could absorb the sign and the digits after it, so that pair never
-/// touches.
+/// This is what keeps a printer from turning `-` `-1` into a comment, `x`
+/// `'0'` into a hex string, or `{{ a }}` `b` into one rendered word. Beyond the
+/// pair, one ClickHouse rule looks further ahead: a number that ends in an
+/// exponent marker (`1e`) followed by `+` or `-` could absorb the sign and the
+/// digits after it, so that pair never touches.
 ///
 /// ```
-/// use chairlift::lexer::{TokenKind, can_touch};
+/// use chairlift::lexer::{Mode, TokenKind, can_touch};
 ///
 /// let minus = (TokenKind::Minus, "-");
-/// assert!(can_touch(None, (TokenKind::BareWord, "a"), minus));
-/// assert!(!can_touch(None, minus, minus));
-/// assert!(can_touch(Some(TokenKind::BareWord), (TokenKind::Dot, "."), (TokenKind::BareWord, "b")));
+/// assert!(can_touch(Mode::Sql, None, (TokenKind::BareWord, "a"), minus));
+/// assert!(!can_touch(Mode::Sql, None, minus, minus));
+/// let dot = (TokenKind::Dot, ".");
+/// assert!(can_touch(Mode::Sql, Some(TokenKind::BareWord), dot, (TokenKind::BareWord, "b")));
 /// ```
 #[must_use]
 pub fn can_touch(
+    mode: Mode,
     prev_significant: Option<TokenKind>,
     left: (TokenKind, &str),
     right: (TokenKind, &str),
@@ -207,7 +280,7 @@ pub fn can_touch(
         return false;
     }
     let joined = [left_text, right_text].concat();
-    let mut scanner = scan::Scanner::new(&joined, prev_significant, true);
+    let mut scanner = scan::Scanner::new(&joined, mode, prev_significant, true);
     let first = scanner.next_token();
     let second = scanner.next_token();
     let third = scanner.next_token();

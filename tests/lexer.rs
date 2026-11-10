@@ -2,7 +2,7 @@
 //! `docs/spikes/2026-11-10-clickhouse-internals-and-corpus.md`.
 //!
 //! The expectations are written out by hand. When the fetched ClickHouse
-//! source and clang are available, the SQL cases are also lexed by
+//! source and clang are available, every input is also lexed in SQL mode by
 //! ClickHouse's own lexer, which must agree.
 
 #[path = "support/clickhouse_lexer.rs"]
@@ -10,19 +10,30 @@ mod clickhouse_lexer;
 #[path = "support/corpus.rs"]
 mod corpus;
 
+use chairlift::lexer::Mode;
 use chairlift::lexer::TokenKind;
 use chairlift::lexer::TokenKind::*;
 use chairlift::lexer::tokenize;
 
 struct Case {
+    mode: Mode,
     input: &'static str,
     expected: &'static [(TokenKind, &'static str)],
 }
 
-/// `sql "input" => [Kind "text", …];`
+macro_rules! mode {
+    (sql) => {
+        Mode::Sql
+    };
+    (jinja) => {
+        Mode::Jinja
+    };
+}
+
+/// `sql "input" => [Kind "text", …];`, or `jinja …` for Jinja mode.
 macro_rules! cases {
-    ($(sql $input:literal => [$($kind:ident $text:literal),* $(,)?];)*) => {
-        &[$(Case { input: $input, expected: &[$(($kind, $text)),*] }),*]
+    ($($mode:ident $input:literal => [$($kind:ident $text:literal),* $(,)?];)*) => {
+        &[$(Case { mode: mode!($mode), input: $input, expected: &[$(($kind, $text)),*] }),*]
     };
 }
 
@@ -137,6 +148,60 @@ const CASES: &[Case] = cases! {
     sql "\u{b}\u{c}\r\n" => [Whitespace "\u{b}\u{c}\r\n"];
     sql "blåbær" => [BareWord "bl", Error "å", BareWord "b", Error "æ", BareWord "r"];
     sql "\u{1f642}" => [Error "\u{1f642}"];
+
+    // Jinja tags on their own
+    jinja "{{ x }}" => [JinjaExpr "{{ x }}"];
+    jinja "{{- x -}}" => [JinjaExpr "{{- x -}}"];
+    jinja "{{ \"}}\" }}" => [JinjaExpr "{{ \"}}\" }}"];
+    jinja "{% set s = '%}' %}" => [JinjaBlock "{% set s = '%}' %}"];
+    jinja "{{ {'a': {'b': 1}} }}" => [JinjaExpr "{{ {'a': {'b': 1}} }}"];
+    jinja "{{ f(')') }}" => [JinjaExpr "{{ f(')') }}"];
+    jinja "{%- if x -%}" => [JinjaBlock "{%- if x -%}"];
+    jinja "{%+ if x +%}" => [JinjaBlock "{%+ if x +%}"];
+    jinja "{# c #}" => [JinjaComment "{# c #}"];
+    jinja "{# {{ x }} '%} #}" => [JinjaComment "{# {{ x }} '%} #}"];
+    jinja "{#- c -#}" => [JinjaComment "{#- c -#}"];
+    jinja "{% raw %}{{ x }}{% endraw %}" => [Verbatim "{% raw %}{{ x }}{% endraw %}"];
+    jinja "{%- raw -%} ' {%- endraw %}" => [Verbatim "{%- raw -%} ' {%- endraw %}"];
+    jinja "{% rawx %}" => [JinjaBlock "{% rawx %}"];
+    jinja "{% raw %}x" => [ErrorJinjaRawIsNotClosed "{% raw %}x"];
+    jinja "{{ x" => [ErrorJinjaTagIsNotClosed "{{ x"];
+    jinja "{{ ) }} x" => [ErrorJinjaTagIsNotClosed "{{ ) }} x"];
+    jinja "{# x" => [ErrorJinjaTagIsNotClosed "{# x"];
+    jinja "{x:UInt8}" => [OpeningCurlyBrace "{", BareWord "x", Colon ":", BareWord "UInt8", ClosingCurlyBrace "}"];
+    jinja "{ {" => [OpeningCurlyBrace "{", Whitespace " ", OpeningCurlyBrace "{"];
+
+    // Tags glued to words and to each other
+    jinja "events_{{ s }}" => [BareWord "events_{{ s }}"];
+    jinja "{{ p }}_events" => [BareWord "{{ p }}_events"];
+    jinja "events{% if v2 %}_v2{% endif %} x" => [BareWord "events{% if v2 %}_v2{% endif %}", Whitespace " ", BareWord "x"];
+    jinja "a{# c #}b" => [BareWord "a{# c #}b"];
+    jinja "{{ a }}{{ b }}" => [JinjaExpr "{{ a }}{{ b }}"];
+    jinja "{% if a %}{{ b }}{% endif %}" => [JinjaExpr "{% if a %}{{ b }}{% endif %}"];
+    jinja "{% if a %}{% endif %}" => [JinjaBlock "{% if a %}", JinjaBlock "{% endif %}"];
+    jinja "{% if a %} x {% endif %}" => [
+        JinjaBlock "{% if a %}", Whitespace " ", BareWord "x", Whitespace " ", JinjaBlock "{% endif %}",
+    ];
+    jinja "${{ x }}" => [BareWord "${{ x }}"];
+    jinja "1.{{ x }}" => [BareWord "1.{{ x }}"];
+    jinja "{{ x }}1.5" => [BareWord "{{ x }}1", Dot ".", Number "5"];
+    jinja "abc{{ x" => [BareWord "abc", ErrorJinjaTagIsNotClosed "{{ x"];
+    jinja "a.{{ col }}" => [BareWord "a", Dot ".", JinjaExpr "{{ col }}"];
+    jinja "{{ t }}.5" => [JinjaExpr "{{ t }}", Dot ".", Number "5"];
+    jinja "x {% if a %}.5" => [BareWord "x", Whitespace " ", JinjaBlock "{% if a %}", Dot ".", Number "5"];
+    jinja "select{{ x }}" => [BareWord "select{{ x }}"];
+
+    // Tags inside SQL constructs
+    jinja "'{{ x }}'" => [StringLiteral "'{{ x }}'"];
+    jinja "'{{ \"it's\" }}'" => [StringLiteral "'{{ \"it's\" }}'"];
+    jinja "'\\{{ \"'\" }}'" => [StringLiteral "'\\{{ \"'\" }}'"];
+    jinja "'{{ x'" => [ErrorSingleQuoteIsNotClosed "'{{ x'"];
+    jinja "`{{ \"`\" }}`" => [QuotedIdentifier "`{{ \"`\" }}`"];
+    jinja "‘{{ \"’\" }}’" => [StringLiteral "‘{{ \"’\" }}’"];
+    jinja "x'{{ h }}'" => [StringLiteral "x'{{ h }}'"];
+    jinja "$$ {{ \"$$\" }} $$" => [HereDoc "$$ {{ \"$$\" }} $$"];
+    jinja "-- {{ x\n }}\ny" => [LineComment "-- {{ x\n }}", Whitespace "\n", BareWord "y"];
+    jinja "/* {{ \"*/\" }} */" => [BlockComment "/* {{ \"*/\" }} */"];
 };
 
 #[test]
@@ -144,7 +209,7 @@ fn edge_cases() {
     assert!(CASES.len() >= 60, "the plan asks for at least 60 cases");
     let mut failures = Vec::new();
     for case in CASES {
-        let tokens = tokenize(case.input);
+        let tokens = tokenize(case.input, case.mode);
         let actual: Vec<(TokenKind, &str)> = tokens
             .iter()
             .map(|t| (t.kind(), t.text(case.input)))
@@ -167,7 +232,7 @@ fn edge_cases_agree_with_clickhouse() {
     let inputs: Vec<&str> = CASES.iter().map(|c| c.input).collect();
     let mut failures = Vec::new();
     for (input, clickhouse) in inputs.iter().zip(oracle.lex(&inputs)) {
-        let chairlift = clickhouse_lexer::as_clickhouse(&tokenize(input));
+        let chairlift = clickhouse_lexer::as_clickhouse(&tokenize(input, Mode::Sql));
         if chairlift != clickhouse {
             failures.push(format!(
                 "{input:?}\n  ClickHouse {clickhouse:?}\n  chairlift  {chairlift:?}"
