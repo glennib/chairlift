@@ -1,0 +1,20 @@
+[package]
+name = "chairlift-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.chairlift]
+path = ".."
+default-features = false
+
+# Its own workspace, so the main crate's builds never compile the fuzzers.
+# Targets are added with `cargo fuzz add <name>`, which appends a `[[bin]]`.
+[workspace]
+members = ["."]

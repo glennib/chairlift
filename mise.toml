@@ -1,0 +1,63 @@
+[tools]
+cargo-binstall = "1.26.2"
+"cargo:cargo-dist" = "0.34.0"
+"cargo:cargo-edit" = "0.13.14"
+"cargo:cargo-fuzz" = "0.13.2"
+"cargo:cargo-insta" = "1.49.0"
+"cargo:cargo-nextest" = "0.9.151"
+"cargo:release-plz" = "0.4.3"
+# The oracle: provides `clickhouse-format` and `clickhouse local`. Keep in step
+# with `CLICKHOUSE_VERSION` in src/lib.rs.
+clickhouse = "26.10.2.103-stable"
+
+[tasks.fmt]
+description = "Format code"
+run = "cargo fmt --all"
+
+[tasks."fmt:check"]
+description = "Check code formatting"
+run = "cargo fmt --all -- --check"
+
+[tasks.clippy]
+description = "Run clippy lints (all features)"
+run = "cargo clippy --all-targets --all-features -- -D warnings"
+
+[tasks."clippy:lib"]
+description = "Run clippy on the library with no features (consumer contract)"
+run = "cargo clippy --lib --no-default-features -- -D warnings"
+
+[tasks.test]
+description = "Run tests"
+run = "cargo nextest run --all-targets --no-tests=pass"
+
+[tasks."test:doc"]
+description = "Run doctests (nextest does not run them)"
+run = "cargo test --doc"
+
+[tasks.build]
+description = "Build release binary"
+run = "cargo build --release"
+
+[tasks."build:debug"]
+description = "Check that the project compiles"
+run = "cargo build"
+
+[tasks."build:lib"]
+description = "Check the library compiles with no default features"
+run = "cargo build --lib --no-default-features"
+
+[tasks."oracle:smoke"]
+description = "Check that the pinned clickhouse-format runs"
+run = "echo 'select 1' | clickhouse-format -n --oneline --show_secrets"
+
+[tasks.ci]
+description = "Run all CI checks"
+depends = [
+  "fmt:check",
+  "clippy",
+  "clippy:lib",
+  "test",
+  "test:doc",
+  "build:debug",
+  "build:lib",
+]

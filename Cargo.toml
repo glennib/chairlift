@@ -1,0 +1,51 @@
+[package]
+name = "chairlift"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.94.0"
+repository = "https://github.com/glennib/chairlift"
+description = "An opinionated, lossless formatter for ClickHouse SQL and Jinja-templated SQL (library + CLI)."
+license = "MIT OR Apache-2.0"
+authors = ["Glenn Bitar <glennbitar@gmail.com>"]
+readme = "README.md"
+keywords = ["clickhouse", "sql", "formatter", "jinja", "cli"]
+categories = ["command-line-utilities", "development-tools", "database"]
+exclude = ["/corpus", "/docs", "/fuzz", "/scripts", "/tests/fixtures"]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "chairlift"
+path = "src/bin/chairlift.rs"
+required-features = ["cli"]
+
+[[test]]
+name = "cli"
+path = "tests/cli.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+# The `chairlift` binary. The library needs none of these; a consumer that only
+# uses the library can disable default features.
+cli = ["dep:clap"]
+
+[dependencies]
+# CLI-only dependencies (gated behind the `cli` feature).
+clap = { version = "4.6", features = ["derive"], optional = true }
+
+[dev-dependencies]
+insta = "1.49"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+too_many_lines = "allow"
+doc_markdown = "allow"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+strip = true
+lto = "fat"
+codegen-units = 1
