@@ -76,6 +76,11 @@ description = "Fuzz the lexer (nightly toolchain); pass libFuzzer options after 
 env = { RUSTUP_TOOLCHAIN = "nightly" }
 run = 'cargo fuzz run --target "$(rustc -vV | sed -n "s/^host: //p")" lexer -- -dict=fuzz/lexer.dict'
 
+[tasks."fuzz:format"]
+description = "Fuzz chairlift::format: no panic, verification holds, idempotent (nightly toolchain); pass libFuzzer options after --"
+env = { RUSTUP_TOOLCHAIN = "nightly" }
+run = 'cargo fuzz run --target "$(rustc -vV | sed -n "s/^host: //p")" format -- -dict=fuzz/format.dict'
+
 [tasks."corpus:fetch"]
 description = "Fetch the ClickHouse and dbt corpora into $CHAIRLIFT_CORPUS_DIR (default corpus/)"
 run = "scripts/fetch-corpus.sh"
