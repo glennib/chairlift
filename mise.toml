@@ -57,6 +57,18 @@ run = "cargo run --release --features corpus-tool --bin corpus -- --default"
 description = "Like corpus, and run clickhouse-format on every input and output, statement by statement where it rejects a whole file; fails on any difference not in tests/oracle-allowlist.txt"
 run = "cargo run --release --features corpus-tool --bin corpus -- --default --oracle --allowlist tests/oracle-allowlist.txt"
 
+[tasks."corpus:recase"]
+description = "Re-case the keyword slots the parser finds in every corpus file, and check that with verify and clickhouse-format"
+run = "cargo run --release --features corpus-tool --bin corpus -- --default --recase all --oracle --allowlist tests/oracle-allowlist.txt"
+
+[tasks."corpus:expressions"]
+description = "Parse every `SELECT <list>` statement of the corpora as an expression list: report how much parses, and check the re-cased keyword slots with verify and clickhouse-format"
+run = "cargo run --release --features corpus-tool --bin corpus -- --default --recase expressions --oracle --allowlist tests/oracle-allowlist.txt"
+
+[tasks.tree]
+description = "Print the syntax tree of the files given after --"
+run = "cargo run --features corpus-tool --bin corpus -- --tree"
+
 [tasks.build]
 description = "Build release binary"
 run = "cargo build --release"

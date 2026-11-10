@@ -93,13 +93,16 @@ fn fixtures_verify_and_keep_their_meaning() {
          oracle_class,oracle_statements,oracle_judged,oracle_same,oracle_differs,\
          oracle_output_rejected,oracle_rejected_unrendered_jinja,oracle_rejected_insert_data,\
          oracle_rejected_empty_query,oracle_rejected_syntax,oracle_rejected_other,\
-         oracle_rejected_failed,oracle_changed,oracle_changed_judged,detail\n"
+         oracle_rejected_failed,oracle_changed,oracle_changed_judged,round_trip,\
+         parsed_statements,partial_statements,verbatim_statements,clauses,verbatim_clauses,items,\
+         verbatim_items,detail\n"
     ));
     let rows = rows(&csv);
     assert_eq!(rows.len(), 14);
     for row in &rows {
         assert_eq!(field(row, "outcome"), "formatted");
         assert_eq!(field(row, "idempotent"), "true");
+        assert_eq!(field(row, "round_trip"), "true");
         if oracle {
             assert!(
                 matches!(field(row, "oracle"), "same" | "unjudgeable"),
@@ -171,6 +174,68 @@ fn every_outcome_is_recorded() {
         expected.map(|(p, m, o)| (p.to_owned(), m.to_owned(), o.to_owned()))
     );
     assert!(csv.contains(",formatted,true,true,"), "{csv}");
+}
+
+/// The re-casing modes: the expression probe parses `SELECT <list>`, its
+/// keyword slots verify, and the statements CSV says how each statement
+/// went.
+#[test]
+fn the_expression_probe_reports_each_statement() {
+    let dir = temp_dir("probe");
+    let root = dir.join("c");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("q.sql"),
+        "select 1 as x, left(s, 2);\nselect f(a b);\ndrop table t;\n",
+    )
+    .unwrap();
+    let csv = dir.join("statements.csv");
+    let corpus_arg = format!("mine={}", root.display());
+    let output = corpus(&[
+        "--corpus",
+        &corpus_arg,
+        "--recase",
+        "expressions",
+        "--statements-csv",
+        csv.to_str().unwrap(),
+    ]);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(0), "{stdout}");
+    assert!(stdout.contains("probed statements"), "{stdout}");
+    let csv = fs::read_to_string(&csv).unwrap();
+    let mut lines = csv.lines();
+    assert_eq!(
+        lines.next(),
+        Some(
+            "corpus,path,statement,kind,outcome,clauses,verbatim_clauses,items,verbatim_items,\
+             probe_items,probe_verbatim_items,fallback,text"
+        )
+    );
+    let rows: Vec<&str> = lines.collect();
+    assert!(rows[0].starts_with("mine,q.sql,1,select,parsed,"), "{csv}");
+    assert!(rows[1].starts_with("mine,q.sql,2,select,partial,"), "{csv}");
+    assert!(rows[1].contains("expected"), "{csv}");
+    assert!(
+        rows[2].starts_with("mine,q.sql,3,drop table,verbatim,"),
+        "{csv}"
+    );
+
+    let output = corpus(&["--corpus", &corpus_arg, "--recase", "all"]);
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn trees_are_printed() {
+    let dir = temp_dir("tree");
+    let file = dir.join("t.sql");
+    fs::write(&file, "SELECT 1;\n").unwrap();
+    let output = corpus(&["--tree", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.starts_with("Root@0..10\n  Statement@0..9\n"),
+        "{stdout}"
+    );
 }
 
 #[test]

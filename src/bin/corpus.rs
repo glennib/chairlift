@@ -10,10 +10,21 @@
 //! ```
 //!
 //! It prints a summary table per corpus, lists every file that shows a
-//! chairlift bug (a verification failure, output that is not idempotent, or
-//! an oracle difference that is not allowlisted) and exits with 1 if there
-//! is one. `--csv` writes one row per file for analysis, for example with
-//! `duckdb -c "SELECT corpus, outcome, count(*) FROM 'out.csv' GROUP BY ALL"`.
+//! chairlift bug (a verification failure, output that is not idempotent, a
+//! syntax tree that does not give back the input, a panic, or an oracle
+//! difference that is not allowlisted) and exits with 1 if there is one.
+//! `--csv` writes one row per file for analysis, for example with
+//! `duckdb -c "SELECT corpus, outcome, count(*) FROM 'out.csv' GROUP BY ALL"`,
+//! and `--statements-csv` one row per statement, with how much of it parsed.
+//!
+//! Every file is also parsed, to report how much of each statement kind
+//! parses and why the rest fell back to verbatim. `--recase` replaces the
+//! formatter with the parser's keyword re-casing, which `verify` and the
+//! oracle then check: `--recase all` re-cases the keyword slots of the whole
+//! parse, and `--recase expressions` parses only `SELECT <list>` statements,
+//! as expression lists, and re-cases those (see
+//! `chairlift::syntax::Entry::SelectListProbe`). `--tree FILE` prints the
+//! syntax tree of a file instead.
 //!
 //! With `--oracle`, files the oracle cannot judge as a whole are judged
 //! statement by statement (see `chairlift::oracle::Oracle::judge_pairs`).
@@ -24,6 +35,7 @@
 
 use std::borrow::Cow;
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -45,6 +57,11 @@ use chairlift::oracle::Pair;
 use chairlift::oracle::RejectionClass;
 use chairlift::oracle::Report;
 use chairlift::split::split;
+use chairlift::syntax;
+use chairlift::syntax::Entry;
+use chairlift::syntax::StatementOutcome;
+use chairlift::syntax::SyntaxKind;
+use chairlift::syntax::SyntaxNode;
 use clap::Parser;
 
 /// Format, verify and check whole corpora of SQL files.
@@ -85,6 +102,23 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     csv: Option<PathBuf>,
 
+    /// Write one row per statement to this CSV file: its kind, how much of
+    /// it parsed, and why the rest did not.
+    #[arg(long, value_name = "FILE")]
+    statements_csv: Option<PathBuf>,
+
+    /// Instead of formatting, re-case the keyword slots the parser finds,
+    /// and check that with `verify` (and the oracle, with `--oracle`):
+    /// `all` parses files as the formatter does, `expressions` parses only
+    /// `SELECT <list>` statements, as expression lists, and keeps the rest
+    /// verbatim, to report how much of the expression grammar parses.
+    #[arg(long, value_enum, value_name = "WHAT")]
+    recase: Option<Recase>,
+
+    /// Print the syntax tree of each FILE and exit.
+    #[arg(long, value_name = "FILE")]
+    tree: Vec<PathBuf>,
+
     /// Files formatted at once [default: the number of CPUs].
     #[arg(long, value_name = "N")]
     jobs: Option<usize>,
@@ -96,6 +130,31 @@ struct Corpus {
     all_templates: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+enum Recase {
+    All,
+    Expressions,
+}
+
+/// What the tool does to each file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Transform {
+    /// `chairlift::format`.
+    Format,
+    /// Re-case the keyword slots of the parse as `entry`.
+    Recase(Entry),
+}
+
+impl Transform {
+    /// The entry the statistics parse uses.
+    fn entry(self) -> Entry {
+        match self {
+            Transform::Format => Entry::File,
+            Transform::Recase(entry) => entry,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Outcome {
     Formatted,
@@ -104,6 +163,7 @@ enum Outcome {
     VerifyError,
     TooLarge,
     ReadError,
+    Panic,
 }
 
 impl Outcome {
@@ -115,6 +175,7 @@ impl Outcome {
             Outcome::VerifyError => "verify_error",
             Outcome::TooLarge => "too_large",
             Outcome::ReadError => "read_error",
+            Outcome::Panic => "panic",
         }
     }
 }
@@ -167,11 +228,42 @@ struct Record {
     findings: Vec<String>,
     /// The input and output, kept for the oracle.
     texts: Option<(String, String)>,
+    /// What the parse of the input says, if it ran to the end.
+    parse: Option<ParseReport>,
+    /// The parse panicked, with this message.
+    parse_panic: Option<String>,
+}
+
+/// What the parse of one file says.
+struct ParseReport {
+    /// The tree's text is the input.
+    round_trip: bool,
+    statements: Vec<StatementRow>,
+}
+
+/// What became of one statement.
+struct StatementRow {
+    kind: String,
+    outcome: StatementOutcome,
+    clauses: usize,
+    verbatim_clauses: usize,
+    items: usize,
+    verbatim_items: usize,
+    /// For a statement the expression probe parsed: its top-level items, and
+    /// those with a fallback inside.
+    probe_items: Option<(usize, usize)>,
+    /// The reason for the statement's first fallback.
+    fallback: Option<String>,
+    /// The start of the statement's text, on one line.
+    excerpt: String,
 }
 
 impl Record {
     fn is_bug(&self) -> bool {
         self.outcome == Outcome::VerifyError
+            || self.outcome == Outcome::Panic
+            || self.parse_panic.is_some()
+            || self.parse.as_ref().is_some_and(|p| !p.round_trip)
             || self.idempotent == Some(false)
             || matches!(
                 self.oracle,
@@ -201,6 +293,9 @@ fn main() -> ExitCode {
 
 /// Runs everything; `Ok(false)` when a chairlift bug was found.
 fn run(cli: &Cli) -> Result<bool, String> {
+    if !cli.tree.is_empty() {
+        return print_trees(cli);
+    }
     let corpora = corpora(cli)?;
     if corpora.is_empty() {
         return Err("no corpora given; pass --default, --corpus or --templates".to_owned());
@@ -209,9 +304,14 @@ fn run(cli: &Cli) -> Result<bool, String> {
         Some(path) => read_allowlist(path)?,
         None => BTreeSet::new(),
     };
-    if let Some(path) = &cli.csv {
+    for path in cli.csv.iter().chain(&cli.statements_csv) {
         check_writable(path).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
     }
+    let transform = match cli.recase {
+        None => Transform::Format,
+        Some(Recase::All) => Transform::Recase(Entry::File),
+        Some(Recase::Expressions) => Transform::Recase(Entry::SelectListProbe),
+    };
     let jobs = cli
         .jobs
         .unwrap_or_else(|| thread::available_parallelism().map_or(1, usize::from))
@@ -224,7 +324,7 @@ fn run(cli: &Cli) -> Result<bool, String> {
             files.push((i, path));
         }
     }
-    let mut records = format_all(&corpora, &files, jobs);
+    let mut records = format_all(&corpora, &files, jobs, transform);
     let format_time = started.elapsed();
 
     let oracle_time = if cli.oracle {
@@ -244,6 +344,7 @@ fn run(cli: &Cli) -> Result<bool, String> {
     };
 
     print!("{}", summary(&corpora, &records, cli.oracle));
+    print!("{}", parse_summary(&corpora, &records, transform));
     println!(
         "{} files formatted in {:.2} s{}",
         records.len(),
@@ -257,7 +358,11 @@ fn run(cli: &Cli) -> Result<bool, String> {
     for record in records.iter().filter(|r| r.is_bug()) {
         ok = false;
         let name = format!("{}/{}", corpora[record.corpus].name, record.path);
-        if record.findings.is_empty() {
+        if let Some(panic) = &record.parse_panic {
+            eprintln!("bug: {name}: the parser panicked: {panic}");
+        } else if record.parse.as_ref().is_some_and(|p| !p.round_trip) {
+            eprintln!("bug: {name}: the syntax tree's text is not the input");
+        } else if record.findings.is_empty() {
             eprintln!("bug: {name}: {}", record.detail);
         }
         for finding in record.findings.iter().take(FINDINGS_SHOWN) {
@@ -274,7 +379,33 @@ fn run(cli: &Cli) -> Result<bool, String> {
         fs::write(path, csv(&corpora, &records))
             .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
     }
+    if let Some(path) = &cli.statements_csv {
+        fs::write(path, statements_csv(&corpora, &records))
+            .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    }
     Ok(ok)
+}
+
+/// Prints the syntax tree of each `--tree` file, in the mode its name says.
+fn print_trees(cli: &Cli) -> Result<bool, String> {
+    for path in &cli.tree {
+        let source =
+            fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        let entry = if cli.recase == Some(Recase::Expressions) {
+            Entry::SelectListProbe
+        } else {
+            Entry::File
+        };
+        let parse = syntax::parse_as(&source, Mode::for_path(path), entry);
+        print!("{}", syntax::debug_tree(&parse.syntax()));
+        for fallback in parse.fallbacks() {
+            println!(
+                "fallback ({:?}) at {}..{}: {}",
+                fallback.level, fallback.range.start, fallback.range.end, fallback.message
+            );
+        }
+    }
+    Ok(true)
 }
 
 /// The corpora the arguments name.
@@ -391,7 +522,12 @@ fn read_allowlist(path: &Path) -> Result<BTreeSet<String>, String> {
 }
 
 /// Formats every file, `jobs` at a time.
-fn format_all(corpora: &[Corpus], files: &[(usize, PathBuf)], jobs: usize) -> Vec<Record> {
+fn format_all(
+    corpora: &[Corpus],
+    files: &[(usize, PathBuf)],
+    jobs: usize,
+    transform: Transform,
+) -> Vec<Record> {
     let next = AtomicUsize::new(0);
     let records = Mutex::new(Vec::with_capacity(files.len()));
     thread::scope(|scope| {
@@ -402,7 +538,7 @@ fn format_all(corpora: &[Corpus], files: &[(usize, PathBuf)], jobs: usize) -> Ve
                     let Some((corpus, path)) = files.get(i) else {
                         break;
                     };
-                    let record = format_file(*corpus, &corpora[*corpus], path);
+                    let record = format_file(*corpus, &corpora[*corpus], path, transform);
                     records
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -418,7 +554,7 @@ fn format_all(corpora: &[Corpus], files: &[(usize, PathBuf)], jobs: usize) -> Ve
     records.into_iter().map(|(_, r)| r).collect()
 }
 
-fn format_file(index: usize, corpus: &Corpus, path: &Path) -> Record {
+fn format_file(index: usize, corpus: &Corpus, path: &Path, transform: Transform) -> Record {
     let relative = path.strip_prefix(&corpus.root).unwrap_or(path);
     let mode = if corpus.all_templates {
         Mode::Jinja
@@ -441,6 +577,8 @@ fn format_file(index: usize, corpus: &Corpus, path: &Path) -> Record {
         detail: String::new(),
         findings: Vec::new(),
         texts: None,
+        parse: None,
+        parse_panic: None,
     };
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
@@ -461,23 +599,42 @@ fn format_file(index: usize, corpus: &Corpus, path: &Path) -> Record {
     };
     let options = Options::default().with_jinja(mode == Mode::Jinja);
     let started = Instant::now();
-    let result = chairlift::format(&source, &options);
+    let result = apply(&source, &options, transform);
     record.format_us = started.elapsed().as_micros();
     if u32::try_from(source.len()).is_ok() {
         let split = split(&source, mode);
         record.tokens = split.tokens().len();
         record.statements = split.statements().len();
+        match std::panic::catch_unwind(|| {
+            let parse = syntax::parse_split(&source, &split, transform.entry());
+            report(&parse, &source)
+        }) {
+            Ok(report) => record.parse = Some(report),
+            Err(panic) => record.parse_panic = Some(panic_message(&*panic)),
+        }
     }
+    let result = match result {
+        Ok(result) => result,
+        Err(panic) => {
+            record.outcome = Outcome::Panic;
+            record.detail = format!("panicked: {panic}");
+            return record;
+        }
+    };
     match result {
         Ok(output) => {
             record.changed = Some(output != source);
-            match chairlift::format(&output, &options) {
-                Ok(again) if again == output => record.idempotent = Some(true),
-                Ok(_) => {
+            match apply(&output, &options, transform) {
+                Err(panic) => {
+                    record.idempotent = Some(false);
+                    record.detail = format!("panicked on the output: {panic}");
+                }
+                Ok(Ok(again)) if again == output => record.idempotent = Some(true),
+                Ok(Ok(_)) => {
                     record.idempotent = Some(false);
                     "formatting the output changes it again".clone_into(&mut record.detail);
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     record.idempotent = Some(false);
                     record.detail = format!("formatting the output fails: {e}");
                 }
@@ -516,6 +673,118 @@ fn variants<'a>(input: &'a str, output: &'a str, mode: Mode) -> Vec<Variant<'a>>
         output: Cow::Borrowed(output),
         mode,
     }]
+}
+
+/// `transform` applied to `source`: formatted, or re-cased and verified.
+/// `Err` holds a panic's message.
+fn apply(
+    source: &str,
+    options: &Options,
+    transform: Transform,
+) -> Result<Result<String, Error>, String> {
+    std::panic::catch_unwind(|| match transform {
+        Transform::Format => chairlift::format(source, options),
+        Transform::Recase(entry) => recase(source, options.mode(), entry),
+    })
+    .map_err(|panic| panic_message(&*panic))
+}
+
+/// The keyword slots of `source` re-cased, verified against `source`.
+fn recase(source: &str, mode: Mode, entry: Entry) -> Result<String, Error> {
+    if u32::try_from(source.len()).is_err() {
+        return Err(Error::TooLarge { len: source.len() });
+    }
+    let split = split(source, mode);
+    if let Some(token) = split.first_error() {
+        return Err(chairlift::LexError {
+            position: chairlift::Position::new(source, token.start()),
+            kind: token.kind(),
+        }
+        .into());
+    }
+    let parse = syntax::parse_split(source, &split, entry);
+    let output = parse.recased();
+    chairlift::verify::verify_split(source, &split, &output, mode, parse.facts())?;
+    Ok(output)
+}
+
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    panic
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| panic.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "a panic".to_owned())
+}
+
+/// What `parse` of `source` says about each statement.
+fn report(parse: &syntax::Parse, source: &str) -> ParseReport {
+    let root = parse.syntax();
+    let round_trip = root.text() == source;
+    let fallbacks = parse.fallbacks();
+    let statements = root
+        .children()
+        .filter(|n| n.kind() == SyntaxKind::Statement)
+        .zip(parse.statements())
+        .map(|(node, stats)| {
+            let fallback = fallbacks
+                .iter()
+                .find(|f| stats.range.contains(&f.range.start))
+                .map(|f| f.message.clone());
+            StatementRow {
+                kind: stats.kind,
+                outcome: stats.outcome,
+                clauses: stats.clauses,
+                verbatim_clauses: stats.verbatim_clauses,
+                items: stats.items,
+                verbatim_items: stats.verbatim_items,
+                probe_items: probe_items(&node),
+                fallback,
+                excerpt: excerpt(&source[stats.range.clone()]),
+            }
+        })
+        .collect();
+    ParseReport {
+        round_trip,
+        statements,
+    }
+}
+
+/// The start of `text` with its whitespace runs as single spaces, at most
+/// 200 characters.
+fn excerpt(text: &str) -> String {
+    let mut out = String::new();
+    for word in text.split_whitespace() {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+        if out.chars().count() > 200 {
+            return out.chars().take(200).chain(std::iter::once('…')).collect();
+        }
+    }
+    out
+}
+
+/// For a statement the expression probe parsed, its top-level items and how
+/// many of them have a fallback inside.
+fn probe_items(statement: &SyntaxNode) -> Option<(usize, usize)> {
+    let probe = statement
+        .first_child()
+        .filter(|n| n.kind() == SyntaxKind::ExpressionProbe)?;
+    let list = probe
+        .children()
+        .find(|n| n.kind() == SyntaxKind::ExprList)?;
+    let items: Vec<SyntaxNode> = list.children().collect();
+    let failed = items
+        .iter()
+        .filter(|item| {
+            item.kind() == SyntaxKind::VerbatimItem
+                || item
+                    .descendants()
+                    .any(|n| n.kind().fallback_level().is_some())
+        })
+        .count();
+    Some((items.len(), failed))
 }
 
 /// Runs the oracle on the input and output of every formatted file.
@@ -802,6 +1071,146 @@ fn percent(part: usize, whole: usize) -> String {
     format!("{}.{}", tenths / 10, tenths % 10)
 }
 
+/// The statement kinds the summary lists on their own.
+const KINDS: [&str; 4] = ["select", "with", "create table", "create materialized view"];
+
+/// How much parsed: statements per kind, the expression probe's items, and
+/// the most common reasons for a fallback.
+fn parse_summary(corpora: &[Corpus], records: &[Record], transform: Transform) -> String {
+    let mut rows = vec![
+        [
+            "corpus",
+            "statement kind",
+            "statements",
+            "parsed",
+            "partial",
+            "verbatim",
+            "clauses",
+            "verbatim clauses",
+            "items",
+            "verbatim items",
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+    ];
+    let mut probe_rows = vec![
+        [
+            "corpus",
+            "probed statements",
+            "parsed",
+            "%",
+            "items",
+            "parsed items",
+            "%",
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+    ];
+    let mut reasons: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    let percent = |part: usize, all: usize| {
+        if all == 0 {
+            String::new()
+        } else {
+            #[expect(clippy::cast_precision_loss, reason = "counts are far below 2^52")]
+            let share = part as f64 * 100.0 / all as f64;
+            format!("{share:.1}")
+        }
+    };
+    for (i, corpus) in corpora.iter().enumerate() {
+        let statements: Vec<&StatementRow> = records
+            .iter()
+            .filter(|r| r.corpus == i)
+            .filter_map(|r| r.parse.as_ref())
+            .flat_map(|p| &p.statements)
+            .collect();
+        let mut groups: Vec<(String, Vec<&StatementRow>)> = KINDS
+            .iter()
+            .map(|kind| {
+                let of = statements
+                    .iter()
+                    .copied()
+                    .filter(|s| s.kind == *kind)
+                    .collect();
+                ((*kind).to_owned(), of)
+            })
+            .collect();
+        groups.push((
+            "other".to_owned(),
+            statements
+                .iter()
+                .copied()
+                .filter(|s| !KINDS.contains(&s.kind.as_str()))
+                .collect(),
+        ));
+        groups.push(("all".to_owned(), statements.clone()));
+        for (kind, of) in groups {
+            if of.is_empty() {
+                continue;
+            }
+            let count = |o: StatementOutcome| of.iter().filter(|s| s.outcome == o).count();
+            let sum = |f: &dyn Fn(&StatementRow) -> usize| of.iter().map(|s| f(s)).sum::<usize>();
+            rows.push(vec![
+                corpus.name.clone(),
+                kind,
+                of.len().to_string(),
+                count(StatementOutcome::Parsed).to_string(),
+                count(StatementOutcome::Partial).to_string(),
+                count(StatementOutcome::Verbatim).to_string(),
+                sum(&|s| s.clauses).to_string(),
+                sum(&|s| s.verbatim_clauses).to_string(),
+                sum(&|s| s.items).to_string(),
+                sum(&|s| s.verbatim_items).to_string(),
+            ]);
+        }
+        let probed: Vec<(usize, usize, StatementOutcome)> = statements
+            .iter()
+            .filter_map(|s| {
+                s.probe_items
+                    .map(|(items, failed)| (items, failed, s.outcome))
+            })
+            .collect();
+        if !probed.is_empty() {
+            let parsed = probed
+                .iter()
+                .filter(|p| p.2 == StatementOutcome::Parsed)
+                .count();
+            let items: usize = probed.iter().map(|p| p.0).sum();
+            let failed: usize = probed.iter().map(|p| p.1).sum();
+            probe_rows.push(vec![
+                corpus.name.clone(),
+                probed.len().to_string(),
+                parsed.to_string(),
+                percent(parsed, probed.len()),
+                items.to_string(),
+                (items - failed).to_string(),
+                percent(items - failed, items),
+            ]);
+        }
+        for statement in &statements {
+            if let Some(reason) = &statement.fallback {
+                *reasons.entry(reason.as_str()).or_default() += 1;
+            }
+        }
+    }
+    let mut out = String::from("\n");
+    out.push_str(&table(&rows));
+    if transform == Transform::Recase(Entry::SelectListProbe) {
+        out.push('\n');
+        out.push_str(&table(&probe_rows));
+    }
+    if !reasons.is_empty() {
+        let mut reasons: Vec<(&str, usize)> = reasons.into_iter().collect();
+        reasons.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+        let mut rows = vec![vec!["fallbacks".to_owned(), "first reason".to_owned()]];
+        for (reason, count) in reasons.into_iter().take(15) {
+            rows.push(vec![count.to_string(), reason.to_owned()]);
+        }
+        out.push('\n');
+        out.push_str(&table(&rows));
+    }
+    out
+}
+
 /// Rows as an aligned text table, numbers right-aligned.
 fn table(rows: &[Vec<String>]) -> String {
     let columns = rows.first().map_or(0, Vec::len);
@@ -837,7 +1246,9 @@ const CSV_COLUMNS: &str = "corpus,path,mode,bytes,tokens,statements,outcome,chan
                            oracle_rejected_unrendered_jinja,oracle_rejected_insert_data,\
                            oracle_rejected_empty_query,oracle_rejected_syntax,\
                            oracle_rejected_other,oracle_rejected_failed,oracle_changed,\
-                           oracle_changed_judged,detail";
+                           oracle_changed_judged,round_trip,parsed_statements,\
+                           partial_statements,verbatim_statements,clauses,verbatim_clauses,items,\
+                           verbatim_items,detail";
 
 fn csv(corpora: &[Corpus], records: &[Record]) -> String {
     let mut out = String::from(CSV_COLUMNS);
@@ -884,9 +1295,63 @@ fn csv(corpora: &[Corpus], records: &[Record]) -> String {
             Some(counts) => fields.extend(counts.iter().map(ToString::to_string)),
             None => fields.extend(std::iter::repeat_n(String::new(), 13)),
         }
+        let statements = r.parse.as_ref().map_or(&[][..], |p| &p.statements[..]);
+        let count = |o: StatementOutcome| statements.iter().filter(|s| s.outcome == o).count();
+        let sum = |f: fn(&StatementRow) -> usize| statements.iter().map(f).sum::<usize>();
+        fields.push(flag(r.parse.as_ref().map(|p| p.round_trip)).to_owned());
+        fields.extend(
+            [
+                count(StatementOutcome::Parsed),
+                count(StatementOutcome::Partial),
+                count(StatementOutcome::Verbatim),
+                sum(|s| s.clauses),
+                sum(|s| s.verbatim_clauses),
+                sum(|s| s.items),
+                sum(|s| s.verbatim_items),
+            ]
+            .map(|n| n.to_string()),
+        );
         fields.push(quote(r.detail.lines().next().unwrap_or("")));
         out.push_str(&fields.join(","));
         out.push('\n');
+    }
+    out
+}
+
+/// One row per statement.
+fn statements_csv(corpora: &[Corpus], records: &[Record]) -> String {
+    let mut out = String::from(
+        "corpus,path,statement,kind,outcome,clauses,verbatim_clauses,items,verbatim_items,\
+         probe_items,probe_verbatim_items,fallback,text\n",
+    );
+    for r in records {
+        let Some(parse) = &r.parse else {
+            continue;
+        };
+        for (n, s) in parse.statements.iter().enumerate() {
+            let (probe_items, probe_failed) = s
+                .probe_items
+                .map_or((String::new(), String::new()), |(a, b)| {
+                    (a.to_string(), b.to_string())
+                });
+            let _ = writeln!(
+                out,
+                "{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                quote(&corpora[r.corpus].name),
+                quote(&r.path),
+                n + 1,
+                quote(&s.kind),
+                s.outcome.name(),
+                s.clauses,
+                s.verbatim_clauses,
+                s.items,
+                s.verbatim_items,
+                probe_items,
+                probe_failed,
+                quote(s.fallback.as_deref().unwrap_or("")),
+                quote(&s.excerpt),
+            );
+        }
     }
     out
 }

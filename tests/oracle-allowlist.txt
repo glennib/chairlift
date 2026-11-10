@@ -5,4 +5,8 @@
 # tooling") are the source text of the left operand of `::`, and
 # `INSERT … VALUES (…); SELECT 1;` on one line.
 #
-# Empty: the safe cleanup moves no token across a line.
+# The safe cleanup moves no token across a line, so it needs no entry here.
+
+# `insert into … values (1); select 11111;` on one line: clickhouse-format reads
+# the rest of the line as data, so re-casing `select` changes what it prints.
+stateless/00306_insert_values_and_expressions.sql
