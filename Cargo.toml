@@ -45,6 +45,7 @@ insta = "1.49"
 # The oracle for Jinja tag spans. Its tokenizer is behind an unstable feature
 # with no semver guarantees, hence the tilde requirement (chum pins the same).
 minijinja = { version = "~3.1.0", default-features = false, features = ["unstable_machinery"] }
+proptest = "1.12"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
