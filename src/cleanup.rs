@@ -9,6 +9,10 @@
 //!   In a template, characters that ClickHouse counts as whitespace and the
 //!   renderer does not (U+FEFF, U+200B and a few more) stay, because they
 //!   stop a `-` marker from stripping what lies beyond them.
+//! - In a template whose rendering joins text (see
+//!   [`render_joins_text`]), whitespace changes only where the rendered SQL
+//!   puts it between the same neighbours as the template does; the rule and
+//!   why it is enough are at [`inside_rendered_tokens`].
 //! - Blank lines collapse: at most two between statements, at most one
 //!   inside a statement, and none right after `(` or before `)`.
 //! - The file starts without a blank line (a byte-order mark stays) and ends
@@ -31,6 +35,8 @@
 use crate::lexer::Mode;
 use crate::lexer::TokenKind;
 use crate::lexer::is_whitespace;
+use crate::lexer::jinja;
+use crate::lexer::jinja::TagKind;
 use crate::lexer::same_before_newline;
 use crate::split::DataFormat;
 use crate::split::Split;
@@ -56,18 +62,18 @@ pub(crate) fn cleanup(source: &str, split: &Split, mode: Mode) -> String {
         .take(3)
         .last()
         .unwrap_or(last_solid);
-    let Rendered {
-        kept,
-        open_data: rendered_open_data,
-    } = if mode == Mode::Jinja && render_joins_text(source) {
-        inside_rendered_tokens(source, split)
-    } else {
-        Rendered::default()
-    };
     // A template's `-` markers strip what the renderer counts as whitespace,
     // which leaves out some of ClickHouse's (U+FEFF, U+200B and others); such
     // a character stops the stripping, so in a template it stays.
     let removable = |c: char| is_whitespace(c) && (mode == Mode::Sql || c.is_whitespace());
+    let Rendered {
+        kept,
+        open_data: rendered_open_data,
+    } = if mode == Mode::Jinja && render_joins_text(source) {
+        inside_rendered_tokens(source, split, removable)
+    } else {
+        Rendered::default()
+    };
     // Whether the part of a whitespace token up to its last line break, which
     // the cleanup rewrites, is removable; a leading byte-order mark stays.
     let lines_removable = |text: &str, first: bool| {
@@ -197,18 +203,60 @@ struct Rendered {
     open_data: bool,
 }
 
-/// Which tokens of a template lie inside a token of the rendered text that
-/// spans several of the template's tokens. Rendering removes block tags and
-/// stripped whitespace, which can turn separate template tokens into one
-/// string, heredoc, comment or run of `INSERT` data of the SQL, such as
-/// `$a${% x %}` … `{% y %}$a$`; the whitespace inside that is the literal's
-/// text then, and must stay as it is.
-fn inside_rendered_tokens(source: &str, template: &Split) -> Rendered {
+/// Which tokens of a template the cleanup leaves as they are, because
+/// changing their whitespace could change the rendered SQL.
+///
+/// The cleanup changes a run of whitespace (a whitespace token, or the end of
+/// a line comment) in a template only where two things hold:
+///
+/// - **The run is not inside a token of the rendered text.** Rendering
+///   removes block tags and stripped whitespace, which can turn separate
+///   template tokens into one string, heredoc, comment or run of `INSERT`
+///   data, such as `$a${% x %}` … `{% y %}$a$`; the whitespace inside that
+///   is the literal's text.
+/// - **The run keeps its left neighbour.** Where the renderer keeps the
+///   run's first character, the character before it in the rendered text is
+///   the one before it in the template, or whitespace with only comment tags
+///   between; or nothing but whitespace comes before the run. A run that
+///   directly follows a block or comment tag meets another character once
+///   rendered, and that character can depend on the whitespace: `#` is a
+///   comment only before a space, so `{%- x %}# {%- y %} ` renders the run
+///   after `{%- y %}` as the space of `# `.
+///
+/// Together these make every change local: the change keeps a run's last
+/// line, so the text after the run is the same as in the template, and the
+/// text before it is the same character or whitespace that the change does
+/// not touch; the tokens on both sides meet the neighbours they meet in the
+/// template. Where a `-` marker strips the run's start, it strips the old
+/// and the new whitespace alike, up to the same last line. A run of a branch
+/// follows the same character in every render that includes it, because
+/// the character comes from the same text between two tags, comment tags
+/// render nothing in every render, and where only whitespace renders before
+/// a run with every branch taken, no render puts more. The guarantee rests on the
+/// rendered text the verifier checks, where every branch is taken: a
+/// render that leaves out a branch can open or close a string, comment or
+/// heredoc that the template's tokens do not show, which the cleanup does
+/// not follow.
+fn inside_rendered_tokens(
+    source: &str,
+    template: &Split,
+    removable: impl Fn(char) -> bool,
+) -> Rendered {
     let tokens = template.tokens();
     let (text, map) = rendered(source);
     let to_source = |offset: usize| {
         let i = map.partition_point(|&(at, _)| at <= offset) - 1;
         map[i].1 + (offset - map[i].0)
+    };
+    // Where the template's byte at `offset` lands in the rendered text, if
+    // the renderer keeps it.
+    let to_rendered = |offset: usize| {
+        let i = map
+            .partition_point(|&(_, from)| from <= offset)
+            .checked_sub(1)?;
+        let (at, from) = map[i];
+        let len = map.get(i + 1).map_or(text.len(), |&(next, _)| next) - at;
+        (offset < from + len).then(|| at + offset - from)
     };
     let mut kept = vec![false; tokens.len()];
     let rendered_split = split(&text, Mode::Jinja);
@@ -233,6 +281,28 @@ fn inside_rendered_tokens(source: &str, template: &Split) -> Rendered {
         let last = tokens.partition_point(|t| t.start() < end);
         if last - first > 1 {
             kept[first..last].fill(true);
+        }
+    }
+    for (i, token) in tokens.iter().enumerate() {
+        let start = match token.kind() {
+            TokenKind::Whitespace => token.start(),
+            TokenKind::LineComment => {
+                token.start() + token.text(source).trim_end_matches(&removable).len()
+            }
+            _ => continue,
+        };
+        let Some(at) = to_rendered(start) else {
+            continue;
+        };
+        if text[..at].chars().all(is_whitespace) {
+            continue;
+        }
+        let before = to_source(at - 1);
+        let same_neighbour = before + 1 == start
+            || (text[..at].ends_with(is_whitespace)
+                && jinja::tags(&source[before + 1..start]).all(|t| t.kind == TagKind::Comment));
+        if !same_neighbour {
+            kept[i] = true;
         }
     }
     // Where inline data starts and ends depends on the line breaks around

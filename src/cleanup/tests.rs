@@ -155,11 +155,43 @@ fn jinja_tags_keep_their_bytes() {
 #[test]
 fn whitespace_next_to_a_strip_marker() {
     // The renderer strips the comment's trailing spaces and the blank lines
-    // before `{%-` anyway; what follows the tag keeps a line break.
+    // before `{%-` anyway. What follows the tag meets the comment once
+    // rendered, not the tag, so it stays as it is.
     let source = "SELECT 1\nWHERE true -- c  \n\n\n  {%- if a %}  \n\n\n  AND a\n  {%- endif %}\n";
     assert_eq!(
         fmt_in(source, true),
-        "SELECT 1\nWHERE true -- c\n\n  {%- if a %}\n\n  AND a\n  {%- endif %}\n"
+        "SELECT 1\nWHERE true -- c\n\n  {%- if a %}  \n\n\n  AND a\n  {%- endif %}\n"
+    );
+}
+
+/// Whitespace right after a tag that renders nothing meets, once rendered,
+/// whatever comes before the tag; there it can decide a token.
+#[test]
+fn whitespace_after_a_tag_that_renders_nothing() {
+    // `{%- y %}` strips the space after `#`; the space after the tag makes
+    // `#` a comment once rendered, inside the template's comment `# {%- y %} `.
+    let comment = "{% x %}# {%- y %} \n1\n";
+    assert_eq!(fmt_in(comment, true), comment);
+    let comment = "{% x %}# {#- y #} \n1\n";
+    assert_eq!(fmt_in(comment, true), comment);
+    let whitespace = "SELECT 1{% x %}  \n\n\n2\n";
+    assert_eq!(fmt_in(whitespace, true), whitespace);
+    // Where only whitespace renders before the tag, no render puts anything
+    // else before the run.
+    assert_eq!(fmt_in("\n{% x %}\n  \n2\n", true), "{% x %}\n\n2\n");
+    // After whitespace with only comment tags between, after an expression,
+    // or where a `-` marker strips the run, the cleanup applies.
+    assert_eq!(
+        fmt_in("SELECT 1 {# c #}  \n\n\n2  \n", true),
+        "SELECT 1 {# c #}\n\n2\n"
+    );
+    assert_eq!(
+        fmt_in("SELECT {{ x }}  \n\n\n2\n", true),
+        "SELECT {{ x }}\n\n2\n"
+    );
+    assert_eq!(
+        fmt_in("SELECT 1 {% x -%}  \n\n\n2\n", true),
+        "SELECT 1 {% x -%}\n\n2\n"
     );
 }
 
