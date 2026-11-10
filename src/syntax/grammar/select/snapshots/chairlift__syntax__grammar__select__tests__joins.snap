@@ -1,0 +1,360 @@
+---
+source: src/syntax/grammar/select/tests.rs
+expression: "trees(&[\"SELECT * FROM a JOIN b ON a.x = b.x AND a.y = b.y\",\n\"SELECT * FROM a LEFT JOIN b USING (x, y) INNER JOIN c USING x\",\n\"SELECT * FROM a GLOBAL ANY LEFT OUTER JOIN b ON 1 ASOF LEFT JOIN c ON 1\",\n\"SELECT * FROM a LEFT ANY JOIN b USING x SEMI LEFT JOIN c USING x RIGHT ANTI JOIN d USING x\",\n\"SELECT * FROM a CROSS JOIN b PASTE JOIN c NATURAL JOIN d\",\n\"SELECT * FROM a FULL OUTER JOIN b ON 1, c\",\n\"SELECT * FROM a, b ARRAY JOIN arr AS e, [1, 2] AS n LEFT ARRAY JOIN m\",\n\"SELECT * FROM a JOIN LATERAL (SELECT 1) AS l ON true\",\n\"SELECT * FROM a AS x LOCAL JOIN b ON 1\",])"
+---
+> SELECT * FROM a JOIN b ON a.x = b.x AND a.y = b.y
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "a"
+  JoinClause
+    Keyword "JOIN"
+    TableExpr
+      Name
+        BareWord "b"
+    JoinOn
+      Keyword "ON"
+      AndExpr
+        BinaryExpr
+          QualifiedName
+            Name
+              BareWord "a"
+            Dot "."
+            Name
+              BareWord "x"
+          Equals "="
+          QualifiedName
+            Name
+              BareWord "b"
+            Dot "."
+            Name
+              BareWord "x"
+        Keyword "AND"
+        BinaryExpr
+          QualifiedName
+            Name
+              BareWord "a"
+            Dot "."
+            Name
+              BareWord "y"
+          Equals "="
+          QualifiedName
+            Name
+              BareWord "b"
+            Dot "."
+            Name
+              BareWord "y"
+
+> SELECT * FROM a LEFT JOIN b USING (x, y) INNER JOIN c USING x
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "a"
+  JoinClause
+    Keyword "LEFT"
+    Keyword "JOIN"
+    TableExpr
+      Name
+        BareWord "b"
+    JoinUsing
+      Keyword "USING"
+      ParenList
+        OpeningRoundBracket "("
+        Name
+          BareWord "x"
+        Comma ","
+        Name
+          BareWord "y"
+        ClosingRoundBracket ")"
+  JoinClause
+    Keyword "INNER"
+    Keyword "JOIN"
+    TableExpr
+      Name
+        BareWord "c"
+    JoinUsing
+      Keyword "USING"
+      ExprList
+        Name
+          BareWord "x"
+
+> SELECT * FROM a GLOBAL ANY LEFT OUTER JOIN b ON 1 ASOF LEFT JOIN c ON 1
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "a"
+  JoinClause
+    Keyword "GLOBAL"
+    Keyword "ANY"
+    Keyword "LEFT"
+    Keyword "OUTER"
+    Keyword "JOIN"
+    TableExpr
+      Name
+        BareWord "b"
+    JoinOn
+      Keyword "ON"
+      Literal
+        Number "1"
+  JoinClause
+    Keyword "ASOF"
+    Keyword "LEFT"
+    Keyword "JOIN"
+    TableExpr
+      Name
+        BareWord "c"
+    JoinOn
+      Keyword "ON"
+      Literal
+        Number "1"
+
+> SELECT * FROM a LEFT ANY JOIN b USING x SEMI LEFT JOIN c USING x RIGHT ANTI JOIN d USING x
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "a"
+  JoinClause
+    Keyword "LEFT"
+    Keyword "ANY"
+    Keyword "JOIN"
+    TableExpr
+      Name
+        BareWord "b"
+    JoinUsing
+      Keyword "USING"
+      ExprList
+        Name
+          BareWord "x"
+  JoinClause
+    Keyword "SEMI"
+    Keyword "LEFT"
+    Keyword "JOIN"
+    TableExpr
+      Name
+        BareWord "c"
+    JoinUsing
+      Keyword "USING"
+      ExprList
+        Name
+          BareWord "x"
+  JoinClause
+    Keyword "RIGHT"
+    Keyword "ANTI"
+    Keyword "JOIN"
+    TableExpr
+      Name
+        BareWord "d"
+    JoinUsing
+      Keyword "USING"
+      ExprList
+        Name
+          BareWord "x"
+
+> SELECT * FROM a CROSS JOIN b PASTE JOIN c NATURAL JOIN d
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "a"
+  JoinClause
+    Keyword "CROSS"
+    Keyword "JOIN"
+    TableExpr
+      Name
+        BareWord "b"
+  JoinClause
+    Keyword "PASTE"
+    Keyword "JOIN"
+    TableExpr
+      Name
+        BareWord "c"
+  JoinClause
+    Keyword "NATURAL"
+    Keyword "JOIN"
+    TableExpr
+      Name
+        BareWord "d"
+
+> SELECT * FROM a FULL OUTER JOIN b ON 1, c
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "a"
+  JoinClause
+    Keyword "FULL"
+    Keyword "OUTER"
+    Keyword "JOIN"
+    TableExpr
+      Name
+        BareWord "b"
+    JoinOn
+      Keyword "ON"
+      Literal
+        Number "1"
+  JoinClause
+    Comma ","
+    TableExpr
+      Name
+        BareWord "c"
+
+> SELECT * FROM a, b ARRAY JOIN arr AS e, [1, 2] AS n LEFT ARRAY JOIN m
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "a"
+      Comma ","
+      TableExpr
+        Name
+          BareWord "b"
+  ArrayJoinClause
+    Keyword "ARRAY"
+    Keyword "JOIN"
+    ExprList
+      AliasedExpr
+        Name
+          BareWord "arr"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "e"
+      Comma ","
+      AliasedExpr
+        ArrayExpr
+          OpeningSquareBracket "["
+          Literal
+            Number "1"
+          Comma ","
+          Literal
+            Number "2"
+          ClosingSquareBracket "]"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "n"
+  ArrayJoinClause
+    Keyword "LEFT"
+    Keyword "ARRAY"
+    Keyword "JOIN"
+    ExprList
+      Name
+        BareWord "m"
+
+> SELECT * FROM a JOIN LATERAL (SELECT 1) AS l ON true
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "a"
+  JoinClause
+    Keyword "JOIN"
+    Keyword "LATERAL"
+    TableExpr
+      AliasedExpr
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                Literal
+                  Number "1"
+          ClosingRoundBracket ")"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "l"
+    JoinOn
+      Keyword "ON"
+      Literal
+        LiteralWord "true"
+
+> SELECT * FROM a AS x LOCAL JOIN b ON 1
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        AliasedExpr
+          Name
+            BareWord "a"
+          Alias
+            Keyword "AS"
+            Name
+              BareWord "x"
+  JoinClause
+    Keyword "LOCAL"
+    Keyword "JOIN"
+    TableExpr
+      Name
+        BareWord "b"
+    JoinOn
+      Keyword "ON"
+      Literal
+        Number "1"

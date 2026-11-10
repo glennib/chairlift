@@ -35,10 +35,11 @@
 //! positional rules, each as ClickHouse has it:
 //!
 //! - `SETTINGS` opens a clause only before `name =`, `FORMAT` only before a
-//!   name, `WINDOW` only before `name AS`, and `FETCH` only before `FIRST`
-//!   or `NEXT`.
+//!   name, `WINDOW` only before `name AS`, `FETCH` only before `FIRST` or
+//!   `NEXT`, and a join's words only when `JOIN` follows them.
 //! - An alias without `AS` cannot be one of the restricted words, so in
-//!   `FROM t FINAL` the `FINAL` is a keyword.
+//!   `FROM t FINAL` the `FINAL` is a keyword; it can be `LOCAL`, so `FROM t
+//!   LOCAL JOIN u` joins `t AS LOCAL`, as ClickHouse reads it.
 //! - `ALL`, `DISTINCT` and `TOP n` right after `SELECT`, `ALL`, `ROLLUP(`,
 //!   `CUBE(` and `GROUPING SETS (` right after `GROUP BY`, and `ALL` after
 //!   `ORDER BY` unless a comma follows it, are keywords.
@@ -273,6 +274,8 @@ enum Clause {
     GroupByModifiers,
     Select,
     From,
+    Join,
+    ArrayJoin,
     Prewhere,
     Where,
     GroupBy,
@@ -310,6 +313,8 @@ fn clause_at(p: &Parser<'_>) -> Option<Clause> {
         Some(K::Settings) if common::at_settings(p) => Clause::Settings,
         Some(K::Format) if names::at_name(p, 1) => Clause::Format,
         Some(K::Into) if p.nth_at_kw(1, K::Outfile) => Clause::IntoOutfile,
+        _ if tables::at_array_join(p) => Clause::ArrayJoin,
+        _ if tables::at_join(p) => Clause::Join,
         _ => return None,
     })
 }
@@ -323,20 +328,59 @@ fn at_clause(p: &Parser<'_>) -> bool {
         || (p.at_kw(K::Comment) && p.nth_at(1, T::StringLiteral))
 }
 
+/// [`at_clause`], or a comma, which may follow a join to join another table.
+fn at_clause_or_comma(p: &Parser<'_>) -> bool {
+    at_clause(p) || p.at(T::Comma)
+}
+
 /// The clauses from the current token, each with [`fallback::clause`], up
 /// to anything that starts no clause.
 fn clauses(p: &mut Parser<'_>) {
+    let mut after_join = false;
     let mut first = true;
     loop {
-        let Some(mut clause) = clause_at(p) else {
-            return;
-        };
+        let mut clause = clause_at(p);
         // `WITH totals SELECT …` starts with a `WITH` clause.
-        if first && clause == Clause::GroupByModifiers {
-            clause = Clause::With;
+        if first && clause == Some(Clause::GroupByModifiers) {
+            clause = Some(Clause::With);
         }
         first = false;
-        fallback::clause(p, &at_clause, |p| parse_clause(p, clause));
+        let comma_join = clause.is_none() && after_join && p.at(T::Comma);
+        if clause.is_none() && !comma_join {
+            return;
+        }
+        let join = comma_join || matches!(clause, Some(Clause::Join));
+        // A clause that does not parse is verbatim up to the next clause,
+        // which cannot start among its own keywords: the `JOIN` of `LEFT
+        // JOIN`, or the `ARRAY JOIN` of `LEFT ARRAY JOIN`.
+        let after_keywords = p.position() + clause.map_or(1, |c| keyword_count(p, c));
+        let ends = |p: &Parser<'_>| {
+            p.position() >= after_keywords
+                && if join {
+                    at_clause_or_comma(p)
+                } else {
+                    at_clause(p)
+                }
+        };
+        fallback::clause(p, &ends, |p| match clause {
+            None => tables::comma_join(p),
+            Some(clause) => parse_clause(p, clause),
+        });
+        after_join = join;
+    }
+}
+
+/// How many keywords start `clause` at the current token.
+fn keyword_count(p: &Parser<'_>, clause: Clause) -> usize {
+    match clause {
+        Clause::GroupByModifiers
+        | Clause::GroupBy
+        | Clause::OrderBy
+        | Clause::Fetch
+        | Clause::IntoOutfile => 2,
+        Clause::ArrayJoin => 2 + usize::from(!p.at_kw(K::Array)),
+        Clause::Join => tables::join_keywords(p).unwrap_or(1),
+        _ => 1,
     }
 }
 
@@ -345,6 +389,8 @@ fn parse_clause(p: &mut Parser<'_>, clause: Clause) -> Option<()> {
         Clause::With => with_clause(p),
         Clause::Select => select_clause(p),
         Clause::From => tables::from_clause(p),
+        Clause::Join => tables::join_clause(p),
+        Clause::ArrayJoin => tables::array_join_clause(p),
         Clause::Prewhere => expression_clause(p, SyntaxKind::PrewhereClause),
         Clause::Where => expression_clause(p, SyntaxKind::WhereClause),
         Clause::GroupBy | Clause::GroupByModifiers => group_by_clause(p),

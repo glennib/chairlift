@@ -437,7 +437,9 @@ syntax_kinds! {
         /// order, with repeats, since each clause is parsed (or kept
         /// verbatim) on its own: [`WithClause`](Self::WithClause),
         /// [`SelectClause`](Self::SelectClause),
-        /// [`FromClause`](Self::FromClause),
+        /// [`FromClause`](Self::FromClause), then any
+        /// [`JoinClause`](Self::JoinClause) and
+        /// [`ArrayJoinClause`](Self::ArrayJoinClause),
         /// [`PrewhereClause`](Self::PrewhereClause),
         /// [`WhereClause`](Self::WhereClause),
         /// [`GroupByClause`](Self::GroupByClause),
@@ -508,15 +510,18 @@ syntax_kinds! {
         /// A table in `FROM` or a join: a [`Name`](Self::Name) or
         /// [`QualifiedName`](Self::QualifiedName), a table function (a
         /// [`FunctionCall`](Self::FunctionCall)), a
-        /// [`Subquery`](Self::Subquery), or a file name as a string
-        /// [`Literal`](Self::Literal), in an
-        /// [`AliasedExpr`](Self::AliasedExpr) if it has an alias; then any
-        /// [`ParenList`](Self::ParenList) of column aliases, `FINAL`,
+        /// [`Subquery`](Self::Subquery), a file name as a string
+        /// [`Literal`](Self::Literal), or a [`ParenJoin`](Self::ParenJoin),
+        /// in an [`AliasedExpr`](Self::AliasedExpr) if it has an alias; then
+        /// any [`ParenList`](Self::ParenList) of column aliases, `FINAL`,
         /// [`SampleClause`](Self::SampleClause) and
         /// [`StreamClause`](Self::StreamClause). A query as the argument of
         /// `view(…)` is the only item of the call's
         /// [`ArgList`](Self::ArgList).
         TableExpr: Node,
+        /// `( tables )`: a [`TableList`](Self::TableList) and joins in
+        /// parentheses, standing for one table.
+        ParenJoin: Node,
         /// `SAMPLE k [OFFSET m]` after a table; `k` and `m` are expressions
         /// (`1 / 10`).
         SampleClause: Node,

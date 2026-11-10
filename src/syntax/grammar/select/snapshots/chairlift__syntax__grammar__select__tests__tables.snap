@@ -1,6 +1,6 @@
 ---
 source: src/syntax/grammar/select/tests.rs
-expression: "trees(&[\"SELECT * FROM db.t AS x FINAL SAMPLE 1 / 10 OFFSET 1 / 2\",\n\"SELECT * FROM t x\", \"SELECT * FROM (SELECT 1) AS daily\",\n\"SELECT * FROM numbers(10) n\",\n\"SELECT * FROM remote('host', db.t), cluster('c', view(SELECT 1))\",\n\"SELECT * FROM view(SELECT a FROM t UNION ALL SELECT b FROM u)\",\n\"SELECT * FROM viewIfPermitted(SELECT 1 ELSE null('x UInt8'))\",\n\"SELECT * FROM file('a.csv', SETTINGS format_csv_delimiter = ';', input_format_csv_skip_first_lines = 1)\",\n\"SELECT * FROM VALUES('a UInt8', 1, 2)\", \"SELECT * FROM 'data.csv'\",\n\"SELECT * FROM t AS x (a, b)\",\n\"SELECT * FROM t STREAM BOUNDED WATERMARK FOR ts AS ts - INTERVAL 10 SECOND\",\n\"SELECT * FROM {db:Identifier}.{t:Identifier}\",\n\"SELECT * FROM {{ ref('events') }} AS e\",])"
+expression: "trees(&[\"SELECT * FROM db.t AS x FINAL SAMPLE 1 / 10 OFFSET 1 / 2\",\n\"SELECT * FROM t x\", \"SELECT * FROM (SELECT 1) AS daily\",\n\"SELECT * FROM numbers(10) n\",\n\"SELECT * FROM remote('host', db.t), cluster('c', view(SELECT 1))\",\n\"SELECT * FROM view(SELECT a FROM t UNION ALL SELECT b FROM u)\",\n\"SELECT * FROM viewIfPermitted(SELECT 1 ELSE null('x UInt8'))\",\n\"SELECT * FROM file('a.csv', SETTINGS format_csv_delimiter = ';', input_format_csv_skip_first_lines = 1)\",\n\"SELECT * FROM VALUES('a UInt8', 1, 2)\", \"SELECT * FROM 'data.csv'\",\n\"SELECT * FROM t AS x (a, b)\",\n\"SELECT * FROM t STREAM BOUNDED WATERMARK FOR ts AS ts - INTERVAL 10 SECOND\",\n\"SELECT * FROM {db:Identifier}.{t:Identifier}\",\n\"SELECT * FROM {{ ref('events') }} AS e\",\n\"SELECT * FROM (a JOIN b ON a.x = b.x) AS j\",])"
 ---
 > SELECT * FROM db.t AS x FINAL SAMPLE 1 / 10 OFFSET 1 / 2
 SelectQuery
@@ -420,3 +420,48 @@ SelectQuery
             Keyword "AS"
             Name
               BareWord "e"
+
+> SELECT * FROM (a JOIN b ON a.x = b.x) AS j
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        AliasedExpr
+          ParenJoin
+            OpeningRoundBracket "("
+            TableList
+              TableExpr
+                Name
+                  BareWord "a"
+            JoinClause
+              Keyword "JOIN"
+              TableExpr
+                Name
+                  BareWord "b"
+              JoinOn
+                Keyword "ON"
+                BinaryExpr
+                  QualifiedName
+                    Name
+                      BareWord "a"
+                    Dot "."
+                    Name
+                      BareWord "x"
+                  Equals "="
+                  QualifiedName
+                    Name
+                      BareWord "b"
+                    Dot "."
+                    Name
+                      BareWord "x"
+            ClosingRoundBracket ")"
+          Alias
+            Keyword "AS"
+            Name
+              BareWord "j"

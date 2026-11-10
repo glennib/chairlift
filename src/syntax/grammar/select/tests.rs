@@ -87,6 +87,22 @@ fn tables() {
         "SELECT * FROM t STREAM BOUNDED WATERMARK FOR ts AS ts - INTERVAL 10 SECOND",
         "SELECT * FROM {db:Identifier}.{t:Identifier}",
         "SELECT * FROM {{ ref('events') }} AS e",
+        "SELECT * FROM (a JOIN b ON a.x = b.x) AS j",
+    ]));
+}
+
+#[test]
+fn joins() {
+    insta::assert_snapshot!(trees(&[
+        "SELECT * FROM a JOIN b ON a.x = b.x AND a.y = b.y",
+        "SELECT * FROM a LEFT JOIN b USING (x, y) INNER JOIN c USING x",
+        "SELECT * FROM a GLOBAL ANY LEFT OUTER JOIN b ON 1 ASOF LEFT JOIN c ON 1",
+        "SELECT * FROM a LEFT ANY JOIN b USING x SEMI LEFT JOIN c USING x RIGHT ANTI JOIN d USING x",
+        "SELECT * FROM a CROSS JOIN b PASTE JOIN c NATURAL JOIN d",
+        "SELECT * FROM a FULL OUTER JOIN b ON 1, c",
+        "SELECT * FROM a, b ARRAY JOIN arr AS e, [1, 2] AS n LEFT ARRAY JOIN m",
+        "SELECT * FROM a JOIN LATERAL (SELECT 1) AS l ON true",
+        "SELECT * FROM a AS x LOCAL JOIN b ON 1",
     ]));
 }
 
@@ -155,6 +171,7 @@ fn clauses_in_any_order_and_repeated() {
         "SELECT a\nFROM t\n-- a comment\nWHERE a\n/* another */\nLIMIT 1;",
         "SELECT a FROM t WHERE a b c GROUP BY a",
         "SELECT a, f(x y), b FROM t",
+        "SELECT a FROM t LEFT JOIN u ON a = garbage garbage JOIN v USING (x)",
     ]));
     // Each failure is the smallest region that works.
     assert_eq!(
@@ -206,6 +223,10 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
         "select left(s, 1), any(x), format('{}', y) from t",
         "SELECT left(s, 1), any(x), format('{}', y) FROM t",
     ),
+    (
+        "select * from a left join b on 1 any join c on 1",
+        "SELECT * FROM a LEFT JOIN b ON 1 ANY JOIN c ON 1",
+    ),
     ("select 1 format JSON", "SELECT 1 FORMAT JSON"),
     (
         "select format from format format JSON",
@@ -231,6 +252,10 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
         "SELECT limit FROM limit LIMIT limit",
     ),
     ("select a, limit from t", "SELECT a, limit FROM t"),
+    (
+        "select array from t array join array",
+        "SELECT array FROM t ARRAY JOIN array",
+    ),
     ("select a from all", "SELECT a FROM all"),
     ("select with from with", "SELECT with FROM with"),
     ("select window from window", "SELECT window FROM window"),
@@ -254,6 +279,14 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
     ),
     ("select a as b from t as c", "SELECT a AS b FROM t AS c"),
     ("select a b from t c", "SELECT a b FROM t c"),
+    (
+        "select * from t local join u on 1",
+        "SELECT * FROM t local JOIN u ON 1",
+    ),
+    (
+        "select * from a join lateral on 1",
+        "SELECT * FROM a JOIN lateral ON 1",
+    ),
     (
         "select * from t prewhere a qualify b",
         "SELECT * FROM t PREWHERE a QUALIFY b",
@@ -336,6 +369,14 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
     ("select distinct in (1)", "SELECT DISTINCT in (1)"),
     // Expressions where ClickHouse reads expressions, names where it reads
     // identifiers.
+    (
+        "select * from a join b using (null)",
+        "SELECT * FROM a JOIN b USING (NULL)",
+    ),
+    (
+        "select * from t array join null",
+        "SELECT * FROM t ARRAY JOIN NULL",
+    ),
     (
         "with null as (select 1) select * from null",
         "WITH null AS (SELECT 1) SELECT * FROM null",
