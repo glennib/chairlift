@@ -46,6 +46,10 @@ run = "cargo build"
 description = "Check the library compiles with no default features"
 run = "cargo build --lib --no-default-features"
 
+[tasks.bench]
+description = "Run benchmarks"
+run = "cargo bench --bench throughput"
+
 [tasks."oracle:smoke"]
 description = "Check that the pinned clickhouse-format runs"
 run = "echo 'select 1' | clickhouse-format -n --oneline --show_secrets"

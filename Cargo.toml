@@ -25,6 +25,10 @@ name = "cli"
 path = "tests/cli.rs"
 required-features = ["cli"]
 
+[[bench]]
+name = "throughput"
+harness = false
+
 [features]
 default = ["cli"]
 # The `chairlift` binary. The library needs none of these; a consumer that only
@@ -36,6 +40,7 @@ cli = ["dep:clap"]
 clap = { version = "4.6", features = ["derive"], optional = true }
 
 [dev-dependencies]
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 insta = "1.49"
 
 [lints.clippy]
