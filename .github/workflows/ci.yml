@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache mise
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.local/bin/mise
+            ~/.local/share/mise
+          key: ${{ runner.os }}-mise-${{ hashFiles('mise.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-mise-
+
+      - name: Install mise
+        run: |
+          if [ ! -f ~/.local/bin/mise ]; then
+            curl https://mise.run | sh
+          fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install tools
+        run: mise install
+
+      - name: Run CI checks
+        run: mise run ci
+
+  corpus:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # The fetch script holds every pin, so its hash is the cache key. An older
+      # cache is still restored: the script moves it to the new pins, which is
+      # cheaper than a fresh clone.
+      - name: Cache corpus
+        uses: actions/cache@v6
+        with:
+          path: corpus
+          key: corpus-${{ hashFiles('scripts/fetch-corpus.sh') }}
+          restore-keys: |
+            corpus-
+
+      - name: Fetch corpus
+        run: scripts/fetch-corpus.sh

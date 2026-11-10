@@ -1,4 +1,5 @@
 [tools]
+actionlint = "1.7.12"
 cargo-binstall = "1.26.2"
 "cargo:cargo-dist" = "0.34.0"
 "cargo:cargo-edit" = "0.13.14"
@@ -9,6 +10,7 @@ cargo-binstall = "1.26.2"
 # The oracle: provides `clickhouse-format` and `clickhouse local`. Keep in step
 # with `CLICKHOUSE_VERSION` in src/lib.rs.
 clickhouse = "26.10.2.103-stable"
+shellcheck = "0.11.0"
 
 [tasks.fmt]
 description = "Format code"
@@ -25,6 +27,14 @@ run = "cargo clippy --all-targets --all-features -- -D warnings"
 [tasks."clippy:lib"]
 description = "Run clippy on the library with no features (consumer contract)"
 run = "cargo clippy --lib --no-default-features -- -D warnings"
+
+[tasks."lint:actions"]
+description = "Lint GitHub workflows"
+run = "actionlint .github/workflows/*.yml"
+
+[tasks."lint:scripts"]
+description = "Lint shell scripts"
+run = "shellcheck scripts/*.sh"
 
 [tasks.test]
 description = "Run tests"
@@ -64,6 +74,8 @@ depends = [
   "fmt:check",
   "clippy",
   "clippy:lib",
+  "lint:actions",
+  "lint:scripts",
   "test",
   "test:doc",
   "build:debug",

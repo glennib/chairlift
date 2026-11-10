@@ -1,0 +1,54 @@
+name: Oracle
+
+# Checks against the pinned `clickhouse-format`. Too slow for every push, so it
+# runs weekly and on demand.
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  oracle:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Cache mise
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.local/bin/mise
+            ~/.local/share/mise
+          key: ${{ runner.os }}-mise-oracle-${{ hashFiles('mise.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-mise-oracle-
+
+      - name: Install mise
+        run: |
+          if [ ! -f ~/.local/bin/mise ]; then
+            curl https://mise.run | sh
+          fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install ClickHouse
+        run: mise install clickhouse
+
+      - name: Cache corpus
+        uses: actions/cache@v6
+        with:
+          path: corpus
+          key: corpus-${{ hashFiles('scripts/fetch-corpus.sh') }}
+          restore-keys: |
+            corpus-
+
+      - name: Fetch corpus
+        run: scripts/fetch-corpus.sh
+
+      - name: Check that clickhouse-format runs
+        run: mise run oracle:smoke
