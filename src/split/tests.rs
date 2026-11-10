@@ -261,6 +261,47 @@ fn select_from_input_reads_data() {
     );
 }
 
+/// A column, alias or function named `format` before the `FORMAT` clause
+/// does not hide the clause.
+#[test]
+fn format_as_a_name_in_the_select() {
+    assert_eq!(
+        sql("INSERT INTO t SELECT format FROM input('format String') FORMAT TSV\nab  \n"),
+        [
+            "INSERT INTO t SELECT format FROM input('format String') FORMAT TSV\nab  \n <data:\"ab  \\n\"> <no ;>"
+        ]
+    );
+    assert_eq!(
+        sql("INSERT INTO t SELECT * FROM input('s String') WHERE format = 'a' FORMAT TSV\nab  \n"),
+        [
+            "INSERT INTO t SELECT * FROM input('s String') WHERE format = 'a' FORMAT TSV\nab  \n <data:\"ab  \\n\"> <no ;>"
+        ]
+    );
+    assert_eq!(
+        sql("INSERT INTO t SELECT format(s) FROM input('s String') FORMAT TSV\nab\n"),
+        [
+            "INSERT INTO t SELECT format(s) FROM input('s String') FORMAT TSV\nab\n <data:\"ab\\n\"> <no ;>"
+        ]
+    );
+}
+
+/// An expression can render as whole statements, so an `INSERT` after one
+/// is looked at as the start of a statement.
+#[test]
+fn insert_after_an_expression() {
+    assert_eq!(
+        statements(
+            "{{ create }}\ninsert into t format TSV\na  \nb\n",
+            Mode::Jinja
+        ),
+        ["{{ create }}\ninsert into t format TSV\na  \nb\n <data:\"a  \\nb\\n\"> <no ;>"]
+    );
+    assert_eq!(
+        statements("{{ a }} {{ b }} INSERT INTO t VALUES (1);", Mode::Jinja),
+        ["{{ a }} {{ b }} INSERT INTO t VALUES (1); <values:\"(1)\">"]
+    );
+}
+
 #[test]
 fn format_values_uses_the_values_rule() {
     assert_eq!(

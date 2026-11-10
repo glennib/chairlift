@@ -17,7 +17,11 @@
 //!   renderer replaces the tags. Such a statement has no `;`: what follows the data is the next
 //!   statement. `INSERT … SELECT … FORMAT name` has data only when its
 //!   `SELECT` reads from the `input` table function, and `FROM INFILE` has
-//!   none.
+//!   none. A `format` that leads to no data, such as a column or function
+//!   of that name in the `SELECT`, does not end the search: the `FORMAT`
+//!   clause may still follow.
+//! - in Jinja mode, an `INSERT` right after a `{{ … }}` expression starts an
+//!   `INSERT` head, since the expression can render as whole statements.
 //!
 //! ClickHouse does not lex inline data, so neither does the splitter: each
 //! data region is a single [`InsertData`](TokenKind::InsertData) token, and
@@ -468,6 +472,8 @@ enum Prev {
     Input,
     /// Another name: a `(` after it is a call.
     Name,
+    /// A Jinja expression, which is a name or anything else.
+    Expr,
 }
 
 impl Head {
@@ -500,20 +506,31 @@ impl Head {
                 Prev::From
             } else if word("input") {
                 Prev::Input
+            } else if kind == TokenKind::JinjaExpr {
+                Prev::Expr
             } else if is_name {
                 Prev::Name
             } else {
                 Prev::Other
             },
         );
-        let call =
-            kind == TokenKind::OpeningRoundBracket && matches!(prev, Prev::Name | Prev::Input);
+        let call = kind == TokenKind::OpeningRoundBracket
+            && matches!(prev, Prev::Name | Prev::Input | Prev::Expr);
         if call && prev == Prev::Input {
             self.input = true;
         }
 
         let mut step = Step::Continue;
         self.state = match self.state {
+            // An expression can render as whole statements, `;` included, so
+            // an `INSERT` after one may start a statement of the rendered SQL.
+            _ if prev == Prev::Expr && depth == 0 && word("INSERT") => {
+                self.infile = false;
+                self.select = false;
+                self.input = false;
+                State::Insert
+            }
+            State::Start if kind == TokenKind::JinjaExpr => State::Start,
             State::Start if word("INSERT") => State::Insert,
             State::Start if word("WITH") || word("EXPLAIN") => State::Prefix,
             State::Prefix if depth == 0 && word("INSERT") => State::Insert,
@@ -571,8 +588,11 @@ impl Head {
                         Step::Format
                     };
                 }
-                State::Done
+                // A column or function named `format` in the `SELECT` is no
+                // `FORMAT` clause: the real one may still come.
+                State::Rest
             }
+            State::FormatName => State::Rest,
             _ => State::Done,
         };
         step

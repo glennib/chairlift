@@ -21,6 +21,8 @@ use chairlift::lexer::jinja::TagKind;
 use chairlift::lexer::tokenize;
 use chairlift::split::DataFormat;
 use chairlift::split::split;
+use chairlift::verify::Facts;
+use chairlift::verify::verify;
 
 struct Corpus {
     name: String,
@@ -202,6 +204,83 @@ fn every_corpus_file_formats_idempotently() {
         );
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The text after each `FORMAT name` of an `INSERT` (no `;` between the two
+/// words), past an optional line break, up to the first blank line: text
+/// that may be inline data. Found from the lexer's words, not by the
+/// splitter, so a head the splitter misreads still counts.
+fn maybe_data(source: &str, mode: Mode) -> Vec<&str> {
+    let mut found = Vec::new();
+    let mut insert = false;
+    for token in tokenize(source, mode) {
+        let word = |w: &str| {
+            token.kind() == chairlift::lexer::TokenKind::BareWord
+                && token.text(source).eq_ignore_ascii_case(w)
+        };
+        if token.kind() == chairlift::lexer::TokenKind::Semicolon {
+            insert = false;
+        } else if word("INSERT") {
+            insert = true;
+        } else if insert && word("FORMAT") {
+            let rest = &source[token.end()..];
+            let name = rest.trim_start_matches([' ', '\t']);
+            let name_len = name
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(name.len());
+            let after = name[name_len..].trim_start_matches([' ', '\t', '\x0c', '\r']);
+            if name_len == 0 || name.starts_with("Values") || after.starts_with([';', ')']) {
+                continue;
+            }
+            let data = after.strip_prefix('\n').unwrap_or(after);
+            found.push(&data[..data.find("\n\n").unwrap_or(data.len())]);
+        }
+    }
+    found
+}
+
+/// Formatting keeps every byte of text that may be an `INSERT`'s inline
+/// data in a format other than `Values`, however the head before it reads.
+#[test]
+fn every_corpus_file_keeps_its_data() {
+    let mut failures = Vec::new();
+    for corpus in corpora() {
+        let mut regions = 0;
+        for path in &corpus.files {
+            let Some(source) = read(path) else {
+                continue;
+            };
+            let options = Options::default().with_jinja(corpus.mode(path) == Mode::Jinja);
+            let Ok(output) = chairlift::format(&source, &options) else {
+                continue;
+            };
+            for data in maybe_data(&source, corpus.mode(path)) {
+                regions += 1;
+                if !output.contains(data) {
+                    failures.push(format!("{}: {:?} changed", path.display(), excerpt(data)));
+                }
+                // The verifier sees a trailing space added to the data.
+                let Some(line_end) = data.find('\n') else {
+                    continue;
+                };
+                let at = data.as_ptr() as usize - source.as_ptr() as usize + line_end;
+                let changed = format!("{} {}", &source[..at], &source[at..]);
+                if verify(&source, &changed, corpus.mode(path), &Facts::new()).is_ok() {
+                    failures.push(format!(
+                        "{}: a space added to {:?} verifies",
+                        path.display(),
+                        excerpt(data)
+                    ));
+                }
+            }
+        }
+        eprintln!("{}: {regions} possible data regions kept", corpus.name);
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+fn excerpt(text: &str) -> &str {
+    &text[..text.char_indices().nth(60).map_or(text.len(), |(i, _)| i)]
 }
 
 /// The splitter's tokens cover every file, and the counts of statements and
