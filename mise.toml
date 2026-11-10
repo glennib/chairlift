@@ -49,6 +49,14 @@ run = "cargo nextest run --all-features --test corpus --test keywords --test lex
 description = "Run doctests (nextest does not run them)"
 run = "cargo test --doc --all-features"
 
+[tasks.corpus]
+description = "Format every corpus, checking verification and idempotence (release build); pass more options after --, e.g. --csv FILE"
+run = "cargo run --release --features corpus-tool --bin corpus -- --default"
+
+[tasks."corpus:oracle"]
+description = "Like corpus, and run clickhouse-format on every input and output; fails on any difference not in tests/oracle-allowlist.txt"
+run = "cargo run --release --features corpus-tool --bin corpus -- --default --oracle --allowlist tests/oracle-allowlist.txt"
+
 [tasks.build]
 description = "Build release binary"
 run = "cargo build --release"

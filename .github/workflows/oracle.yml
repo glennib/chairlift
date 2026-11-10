@@ -19,15 +19,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # The same cache as the CI workflow's jobs: the sweep runs a mise task,
+      # which wants every tool installed.
       - name: Cache mise
         uses: actions/cache@v6
         with:
           path: |
             ~/.local/bin/mise
             ~/.local/share/mise
-          key: ${{ runner.os }}-mise-oracle-${{ hashFiles('mise.toml') }}
+          key: ${{ runner.os }}-mise-${{ hashFiles('mise.toml') }}
           restore-keys: |
-            ${{ runner.os }}-mise-oracle-
+            ${{ runner.os }}-mise-
 
       - name: Install mise
         run: |
@@ -36,8 +41,8 @@ jobs:
           fi
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Install ClickHouse
-        run: mise install clickhouse
+      - name: Install tools
+        run: mise install
 
       - name: Cache corpus
         uses: actions/cache@v6
@@ -52,3 +57,10 @@ jobs:
 
       - name: Check that clickhouse-format runs
         run: mise run oracle:smoke
+
+      # Every input and output of every corpus through clickhouse-format;
+      # fails on any difference that tests/oracle-allowlist.txt does not list.
+      - name: Run the oracle sweep
+        env:
+          CHAIRLIFT_REQUIRE_CORPUS: "1"
+        run: mise run corpus:oracle

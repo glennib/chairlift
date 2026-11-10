@@ -100,3 +100,10 @@ jobs:
       # fetched source with the runner's clang.
       - name: Run the corpus tests
         run: mise run test:corpus
+
+      # Formats every corpus with a release build: verification and
+      # idempotence on every file. The oracle sweep is in oracle.yml.
+      - name: Run the corpus tool
+        env:
+          CHAIRLIFT_REQUIRE_CORPUS: "1"
+        run: mise run corpus

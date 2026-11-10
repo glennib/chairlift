@@ -20,6 +20,11 @@ name = "chairlift"
 path = "src/bin/chairlift.rs"
 required-features = ["cli"]
 
+[[bin]]
+name = "corpus"
+path = "src/bin/corpus.rs"
+required-features = ["corpus-tool"]
+
 [[test]]
 name = "cli"
 path = "tests/cli.rs"
@@ -29,6 +34,11 @@ required-features = ["cli"]
 name = "oracle"
 path = "tests/oracle.rs"
 required-features = ["oracle"]
+
+[[test]]
+name = "corpus_tool"
+path = "tests/corpus_tool.rs"
+required-features = ["corpus-tool"]
 
 [[bench]]
 name = "throughput"
@@ -42,6 +52,9 @@ cli = ["dep:clap", "dep:ignore", "dep:similar"]
 # `chairlift::oracle`, which runs `clickhouse-format` to check formatting kept
 # a text's meaning. No dependencies.
 oracle = []
+# The `corpus` binary, a development tool that formats, verifies and checks
+# whole directory trees. Not part of the published binary.
+corpus-tool = ["cli", "oracle"]
 
 [dependencies]
 thiserror = "2"

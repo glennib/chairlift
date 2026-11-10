@@ -1,0 +1,8 @@
+# Files whose `clickhouse-format` canonical form may differ between chairlift's
+# input and output because of a quirk of the oracle, not a change chairlift
+# made. One `CORPUS/PATH` per line, as the corpus tool names files, with the
+# reason in a comment. The known quirks (docs/MILESTONES.md, "Corpora and
+# tooling") are the source text of the left operand of `::`, and
+# `INSERT … VALUES (…); SELECT 1;` on one line.
+#
+# Empty: the safe cleanup moves no token across a line.
