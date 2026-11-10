@@ -1,0 +1,198 @@
+---
+source: src/syntax/grammar/create/tests.rs
+expression: "trees(&[\"CREATE TABLE t ENGINE = Memory AS SELECT 1\",\n\"CREATE TABLE t (a Int8) ENGINE = Memory AS SELECT 1\",\n\"CREATE TABLE t AS db.t2 ENGINE = Memory COMMENT 'x'\",\n\"CREATE TABLE t AS remote('host', db, t2, SETTINGS connect_timeout = 1, x = 2)\",\n\"CREATE TABLE t EMPTY AS SELECT 1\", \"CREATE TABLE t CLONE AS t2\",\n\"CREATE TABLE t (a Int8) ENGINE = MergeTree ORDER BY a DEFINER = default SQL SECURITY DEFINER\",\n\"CREATE TABLE t (a Int8) ENGINE = Memory FORMAT Null\",])"
+---
+> CREATE TABLE t ENGINE = Memory AS SELECT 1
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "Memory"
+  AsClause
+    Keyword "AS"
+    <query>
+
+> CREATE TABLE t (a Int8) ENGINE = Memory AS SELECT 1
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    ClosingRoundBracket ")"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "Memory"
+  AsClause
+    Keyword "AS"
+    <query>
+
+> CREATE TABLE t AS db.t2 ENGINE = Memory COMMENT 'x'
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  AsClause
+    Keyword "AS"
+    QualifiedName
+      Name
+        BareWord "db"
+      Dot "."
+      Name
+        BareWord "t2"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "Memory"
+  CommentClause
+    Keyword "COMMENT"
+    Literal
+      StringLiteral "'x'"
+
+> CREATE TABLE t AS remote('host', db, t2, SETTINGS connect_timeout = 1, x = 2)
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  AsClause
+    Keyword "AS"
+    FunctionCall
+      Name
+        BareWord "remote"
+      ArgList
+        OpeningRoundBracket "("
+        Literal
+          StringLiteral "'host'"
+        Comma ","
+        Name
+          BareWord "db"
+        Comma ","
+        Name
+          BareWord "t2"
+        Comma ","
+        SettingsClause
+          Keyword "SETTINGS"
+          SettingsList
+            SettingItem
+              Name
+                BareWord "connect_timeout"
+              Equals "="
+              Literal
+                Number "1"
+            Comma ","
+            SettingItem
+              Name
+                BareWord "x"
+              Equals "="
+              Literal
+                Number "2"
+        ClosingRoundBracket ")"
+
+> CREATE TABLE t EMPTY AS SELECT 1
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  PopulateClause
+    Keyword "EMPTY"
+  AsClause
+    Keyword "AS"
+    <query>
+
+> CREATE TABLE t CLONE AS t2
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  PopulateClause
+    Keyword "CLONE"
+  AsClause
+    Keyword "AS"
+    Name
+      BareWord "t2"
+
+> CREATE TABLE t (a Int8) ENGINE = MergeTree ORDER BY a DEFINER = default SQL SECURITY DEFINER
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    ClosingRoundBracket ")"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "MergeTree"
+  OrderByClause
+    Keyword "ORDER"
+    Keyword "BY"
+    Name
+      BareWord "a"
+  SqlSecurityClause
+    Keyword "DEFINER"
+    Equals "="
+    Name
+      BareWord "default"
+    Keyword "SQL"
+    Keyword "SECURITY"
+    Keyword "DEFINER"
+
+> CREATE TABLE t (a Int8) ENGINE = Memory FORMAT Null
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    ClosingRoundBracket ")"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "Memory"
+  FormatClause
+    Keyword "FORMAT"
+    Name
+      BareWord "Null"

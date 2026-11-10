@@ -151,6 +151,22 @@ fn ttl_rules() {
     ]));
 }
 
+#[test]
+fn as_forms() {
+    insta::assert_snapshot!(trees(&[
+        "CREATE TABLE t ENGINE = Memory AS SELECT 1",
+        "CREATE TABLE t (a Int8) ENGINE = Memory AS SELECT 1",
+        "CREATE TABLE t AS db.t2 ENGINE = Memory COMMENT 'x'",
+        "CREATE TABLE t AS remote('host', db, t2, SETTINGS connect_timeout = 1, x = 2)",
+        "CREATE TABLE t EMPTY AS SELECT 1",
+        "CREATE TABLE t CLONE AS t2",
+        "CREATE TABLE t (a Int8) ENGINE = MergeTree ORDER BY a DEFINER = default SQL SECURITY DEFINER",
+        // Any query may end with `FORMAT`.
+        "CREATE TABLE t (a Int8) ENGINE = Memory FORMAT Null",
+    ]));
+    assert_parses("CREATE TABLE t AS view(SELECT 1)");
+}
+
 /// A clause that does not parse is kept verbatim up to the next clause, and
 /// a column up to the next comma; Jinja block tags and comments between
 /// clauses and columns are trivia.
@@ -319,6 +335,27 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
     (
         "create table {{ db }}.t_{{ s }} (a Int8) engine = {{ engine }} settings a = {{ a }}",
         "CREATE TABLE {{ db }}.t_{{ s }} (a Int8) ENGINE = {{ engine }} SETTINGS a = {{ a }}",
+    ),
+    (
+        "create table t (a Int8) engine = Memory format Null",
+        "CREATE TABLE t (a Int8) ENGINE = Memory FORMAT Null",
+    ),
+    (
+        "create table t (a Int8) engine = MergeTree order by a definer = default sql security definer",
+        "CREATE TABLE t (a Int8) ENGINE = MergeTree ORDER BY a DEFINER = default SQL SECURITY DEFINER",
+    ),
+    (
+        "create table t engine = Memory empty as SELECT 1",
+        "CREATE TABLE t ENGINE = Memory EMPTY AS SELECT 1",
+    ),
+    ("create table t clone as t2", "CREATE TABLE t CLONE AS t2"),
+    (
+        "create table t as db.t2 engine = Memory",
+        "CREATE TABLE t AS db.t2 ENGINE = Memory",
+    ),
+    (
+        "create table t as remote('a', db, t, settings x = 1)",
+        "CREATE TABLE t AS remote('a', db, t, SETTINGS x = 1)",
     ),
 ];
 

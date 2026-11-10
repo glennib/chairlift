@@ -614,12 +614,18 @@ syntax_kinds! {
         Assignment: Node,
         /// `COMMENT '…'` of a table or view.
         CommentClause: Clause,
-        /// `AS SELECT …`, `AS db.table` or `AS table_function(…)`.
+        /// `AS` and a query, a [`FunctionCall`](Self::FunctionCall) of a table
+        /// function, or a table's name.
         AsClause: Clause,
         /// `TO db.table` of a materialized view.
         ToClause: Clause,
-        /// `POPULATE` of a materialized view.
+        /// `POPULATE`, `EMPTY` or `CLONE`: whether a materialized view starts
+        /// with the data its query selects, or a table created `AS …` with
+        /// none or a copy.
         PopulateClause: Clause,
+        /// `DEFINER = user` and `SQL SECURITY DEFINER|INVOKER|NONE`, either or
+        /// both.
+        SqlSecurityClause: Clause,
     }
 }
 

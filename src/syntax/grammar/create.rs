@@ -7,13 +7,14 @@
 //! name, `UUID`, `ON CLUSTER`), the
 //! [`TableElementList`](SyntaxKind::TableElementList) if there is one (see
 //! [`elements`]), and then clauses, one node each in the order written: the
-//! storage clauses (see [`storage`]) and `COMMENT`. ClickHouse fixes their
-//! order; here they may come in any order and repeat, so that each branch of
-//! a Jinja `{% if %}` can hold its own clause, and a clause that does not
-//! parse is kept verbatim on its own.
+//! storage clauses (see [`storage`]), `COMMENT`, `EMPTY` or `CLONE`, `SQL
+//! SECURITY`, `AS …` and `FORMAT`. ClickHouse fixes their order; here they
+//! may come in any order and repeat, so that each branch of a Jinja `{% if
+//! %}` can hold its own clause, and a clause that does not parse is kept
+//! verbatim on its own.
 //!
-//! A projection's query goes through
-//! [`select::subquery`](crate::syntax::grammar::select::subquery).
+//! The query after `AS`, and a projection's query, go through
+//! [`select::query`] and [`select::subquery`].
 
 mod elements;
 mod storage;
@@ -23,8 +24,10 @@ use crate::lexer::TokenKind as T;
 use crate::syntax::SyntaxKind;
 use crate::syntax::grammar::common;
 use crate::syntax::grammar::exprs;
+use crate::syntax::grammar::exprs::AliasMode;
 use crate::syntax::grammar::fallback;
 use crate::syntax::grammar::names;
+use crate::syntax::grammar::select;
 use crate::syntax::parser::CompletedMarker;
 use crate::syntax::parser::Parser;
 
@@ -117,13 +120,34 @@ fn clauses(p: &mut Parser<'_>) {
 ///
 /// This is also where lists inside clauses (`TTL`, `SETTINGS`) end, so a
 /// word that starts a clause only does so when what follows cannot continue
-/// an expression: `ttl + 1` and `engine = 1` are not clauses.
+/// an expression: `ttl + 1` and `engine = 1` are not clauses, nor is
+/// `empty(s)`.
 fn at_clause(p: &Parser<'_>) -> bool {
-    storage::at_storage_clause(p) || (p.at_kw(K::Comment) && p.nth_at(1, T::StringLiteral))
+    if storage::at_storage_clause(p) {
+        return true;
+    }
+    match p.nth_keyword(0) {
+        Some(K::Definer) => p.nth_at(1, T::Equals) || names::at_name(p, 1),
+        Some(K::As) => at_operand(p, 1),
+        Some(K::Comment) => p.nth_at(1, T::StringLiteral),
+        Some(K::Populate | K::Empty | K::Clone) => p.nth(1).is_none() || at_clause_word(p, 1),
+        Some(K::Sql) => p.nth_at_kw(1, K::Security),
+        Some(K::Format) => names::at_name(p, 1),
+        _ => false,
+    }
+}
+
+/// Whether the `n`th token is a word that can start a clause after
+/// `POPULATE`, `EMPTY` or `CLONE`.
+fn at_clause_word(p: &Parser<'_>, n: usize) -> bool {
+    matches!(
+        p.nth_keyword(n),
+        Some(K::As | K::Comment | K::Definer | K::Sql | K::Empty | K::Clone | K::Populate)
+    )
 }
 
 /// Whether the `n`th token can start an operand, and is not an operator:
-/// what follows `TTL` when it starts a clause.
+/// what follows `TTL` or `AS` when they start a clause.
 fn at_operand(p: &Parser<'_>, n: usize) -> bool {
     matches!(
         p.nth(n),
@@ -149,6 +173,21 @@ fn clause(p: &mut Parser<'_>) -> Option<()> {
     }
     match p.nth_keyword(0) {
         Some(K::Comment) => comment(p),
+        Some(K::Populate | K::Empty | K::Clone) => {
+            let m = p.start();
+            p.bump_keyword();
+            m.complete(p, SyntaxKind::PopulateClause);
+            Some(())
+        }
+        Some(K::Definer | K::Sql) => sql_security(p),
+        Some(K::As) => as_clause(p),
+        Some(K::Format) => {
+            let m = p.start();
+            p.bump_keyword();
+            names::name(p)?;
+            m.complete(p, SyntaxKind::FormatClause);
+            Some(())
+        }
         _ => p.expected("a clause"),
     }
 }
@@ -168,6 +207,102 @@ fn string(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         return p.expected("a string");
     }
     exprs::literal(p)
+}
+
+/// `AS` and a query, a table function or a table, as an
+/// [`AsClause`](SyntaxKind::AsClause). ClickHouse takes a table function
+/// only where it rules out a query (`CREATE TABLE t (…) AS f(…)` without an
+/// engine), and a table only where it rules out both; here the next tokens
+/// decide.
+fn as_clause(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    p.bump_keyword();
+    if select::at_statement(p) {
+        select::query(p)?;
+    } else if names::at_name(p, 0) && p.nth_at(1, T::OpeningRoundBracket) {
+        table_function(p)?;
+    } else {
+        names::compound_name(p)?;
+    }
+    m.complete(p, SyntaxKind::AsClause);
+    Some(())
+}
+
+/// A table function, `remote('host', db, t, SETTINGS a = 1)`, as a
+/// [`FunctionCall`](SyntaxKind::FunctionCall): its name keeps its case, and
+/// its arguments may end with a [`SettingsClause`](SyntaxKind::SettingsClause).
+/// `view(…)` and `viewIfPermitted(…)` take a query.
+fn table_function(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    let takes_query = ["view", "viewIfPermitted"]
+        .iter()
+        .any(|n| n.eq_ignore_ascii_case(p.nth_text(0)));
+    let name = names::name(p)?;
+    let m = name.precede(p);
+    let args = p.start();
+    p.expect(T::OpeningRoundBracket)?;
+    fallback::comma_separated(p, &fallback::never, &mut |p| {
+        if common::at_settings(p) {
+            common::settings_clause(p, &fallback::never).map(drop)
+        } else if takes_query && (p.at_kw(K::Select) || p.at_kw(K::With)) {
+            select::query(p).map(drop)
+        } else {
+            exprs::expr_with_alias(p, AliasMode::As).map(drop)
+        }
+    });
+    p.expect(T::ClosingRoundBracket)?;
+    args.complete(p, SyntaxKind::ArgList);
+    Some(m.complete(p, SyntaxKind::FunctionCall))
+}
+
+/// `DEFINER = user` and `SQL SECURITY DEFINER|INVOKER|NONE`, in either order,
+/// as a [`SqlSecurityClause`](SyntaxKind::SqlSecurityClause)
+/// (`ParserSQLSecurity`).
+fn sql_security(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    let mut definer = false;
+    let mut security = false;
+    loop {
+        if !definer && p.at_kw(K::Definer) {
+            definer = true;
+            p.bump_keyword();
+            p.eat(T::Equals);
+            if !p.eat_kw(K::CurrentUser) {
+                user_name(p)?;
+            }
+        } else if !security && p.at_kws(&[K::Sql, K::Security]) {
+            security = true;
+            p.bump_keyword();
+            p.bump_keyword();
+            if !matches!(p.nth_keyword(0), Some(K::Definer | K::Invoker | K::None)) {
+                return p.expected("DEFINER, INVOKER or NONE");
+            }
+            p.bump_keyword();
+        } else {
+            break;
+        }
+    }
+    if !definer && !security {
+        return p.expected("DEFINER or SQL SECURITY");
+    }
+    m.complete(p, SyntaxKind::SqlSecurityClause);
+    Some(())
+}
+
+/// A user name: `'name'`, or `name` with an optional `@host`
+/// (`parseUserNameWithHost`).
+fn user_name(p: &mut Parser<'_>) -> Option<()> {
+    if p.at(T::StringLiteral) {
+        return exprs::literal(p).map(drop);
+    }
+    names::name(p)?;
+    if p.eat(T::At) {
+        if p.at(T::StringLiteral) {
+            exprs::literal(p)?;
+        } else {
+            names::name(p)?;
+        }
+    }
+    Some(())
 }
 
 /// A name, or a name with arguments as a
