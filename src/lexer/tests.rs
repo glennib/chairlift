@@ -85,6 +85,9 @@ fn touching_tokens() {
         (None, (DollarSign, "$"), word("a"), false),
         (None, (DollarSign, "$"), (DollarSign, "$"), false),
         (None, (HereDoc, "$$a$$"), (DollarSign, "$"), false),
+        (Some(BareWord), (HereDoc, "$$$$"), (Number, "6"), false),
+        (None, (HereDoc, "$$a$$"), word("_b"), false),
+        (None, (HereDoc, "$$a$$"), (Comma, ","), true),
         (None, (Comma, ","), (Number, "1e"), true),
         (None, (Colon, ":"), (Colon, ":"), false),
     ];

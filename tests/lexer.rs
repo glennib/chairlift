@@ -125,6 +125,12 @@ const CASES: &[Case] = cases! {
     sql "$ " => [DollarSign "$", Whitespace " "];
     sql "$" => [DollarSign "$"];
     sql "a$b" => [BareWord "a$b"];
+    // `$$$$`, `6` and `$$$$` touching hold a closer for the earlier `$6$`.
+    sql "$6$ $$$$ 6 $$$$" => [
+        BareWord "$6$", Whitespace " ", HereDoc "$$$$", Whitespace " ", Number "6",
+        Whitespace " ", HereDoc "$$$$",
+    ];
+    sql "$6$ $$$$6$$$$" => [HereDoc "$6$ $$$$6$", DollarSign "$", DollarSign "$", DollarSign "$"];
 
     // Operators
     sql "{name:UInt8}" => [OpeningCurlyBrace "{", BareWord "name", Colon ":", BareWord "UInt8", ClosingCurlyBrace "}"];
@@ -254,6 +260,48 @@ fn edge_cases_agree_with_clickhouse() {
     for (input, clickhouse) in inputs.iter().zip(oracle.lex(&inputs)) {
         let chairlift = clickhouse_lexer::as_clickhouse(&tokenize(input, Mode::Sql));
         if chairlift != clickhouse {
+            failures.push(format!(
+                "{input:?}\n  ClickHouse {clickhouse:?}\n  chairlift  {chairlift:?}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Random text over an alphabet heavy in `$` and word characters, where
+/// heredoc openers, closers and bare words with `$` meet, lexes as
+/// ClickHouse lexes it. The corpus has few heredocs, so it does not reach
+/// these cases.
+#[test]
+fn heredoc_heavy_text_agrees_with_clickhouse() {
+    const ALPHABET: &[&str] = &[
+        "$", "$", "$", "$", "$$", "a", "b", "_", "6", "0", " ", "\n", "%", "'", "x'", "\u{feff}",
+        "é",
+    ];
+    let Some(oracle) = clickhouse_lexer::Oracle::build() else {
+        return;
+    };
+    // xorshift64, seeded: the inputs are the same on every run.
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        usize::try_from(state % 1024).unwrap()
+    };
+    let inputs: Vec<String> = (0..50_000)
+        .map(|_| {
+            let len = next() % 40;
+            (0..len)
+                .map(|_| ALPHABET[next() % ALPHABET.len()])
+                .collect()
+        })
+        .collect();
+    let inputs: Vec<&str> = inputs.iter().map(String::as_str).collect();
+    let mut failures = Vec::new();
+    for (input, clickhouse) in inputs.iter().zip(oracle.lex(&inputs)) {
+        let chairlift = clickhouse_lexer::as_clickhouse(&tokenize(input, Mode::Sql));
+        if chairlift != clickhouse && failures.len() < 10 {
             failures.push(format!(
                 "{input:?}\n  ClickHouse {clickhouse:?}\n  chairlift  {chairlift:?}"
             ));

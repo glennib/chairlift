@@ -316,8 +316,13 @@ pub(crate) fn is_whitespace(c: char) -> bool {
 ///
 /// - a number that ends in an exponent marker (`1e`) followed by `+` or `-`
 ///   could absorb the sign and the digits after it;
-/// - a `$` followed by a `$` makes a heredoc opener (`$$`) that a later `$$`
-///   would close.
+/// - a `$` followed by a `$` or a word character can start a `$tag$`
+///   sequence across the tokens, which opens or closes a heredoc far away:
+///   `$$` then `$$` make an opener `$$` that a later `$$` would close, and
+///   `$$$$` `6` `$$$$` touching hold a `$6$` that closes an earlier `$6$`.
+///   A sequence across tokens that does not touch there has its first `$`
+///   and the word characters after it in one token, a bare word, which would
+///   take in the word characters or `$` after it.
 ///
 /// ```
 /// use chairlift::lexer::{Mode, TokenKind, can_touch};
@@ -343,7 +348,9 @@ pub fn can_touch(
     {
         return false;
     }
-    if left_text.ends_with('$') && right_text.starts_with('$') {
+    if left_text.ends_with('$')
+        && right_text.starts_with(|c: char| c == '$' || c == '_' || c.is_ascii_alphanumeric())
+    {
         return false;
     }
     // A newline stands in for whatever follows `right`: some rules lex the

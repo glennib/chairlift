@@ -33,6 +33,13 @@ fn inputs() -> impl Strategy<Value = String> {
     prop_oneof![fragments(), "[ -~\n\t]{0,64}", any::<String>(),]
 }
 
+/// Text where heredoc openers and closers meet bare words, numbers and `$`.
+fn heredoc_inputs() -> impl Strategy<Value = String> {
+    let piece =
+        prop::sample::select(&["$", "$$", "$$$$", "$a$", "$6$", "a", "6", "_", " ", "%"][..]);
+    prop::collection::vec(piece, 0..24).prop_map(|v| v.concat())
+}
+
 /// Pieces of statements, for the splitter and the formatter: `INSERT` heads
 /// and their data, among the lexer's fragments.
 #[rustfmt::skip]
@@ -160,7 +167,7 @@ proptest! {
     /// A printer that drops all whitespace and spaces tokens only where
     /// [`can_touch`] forbids them to touch produces the same tokens.
     #[test]
-    fn can_touch_keeps_tokens_apart(source in inputs(), mode in modes()) {
+    fn can_touch_keeps_tokens_apart(source in prop_oneof![inputs(), heredoc_inputs()], mode in modes()) {
         // A formatter leaves input with error tokens alone, so only the text
         // before the first error is of interest.
         let error = tokenize(&source, mode).into_iter().find(|t| t.kind().is_error());
