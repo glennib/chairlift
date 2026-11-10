@@ -9,7 +9,7 @@ M9 (chum integration) is not part of this run.
 | --- | --- | --- |
 | M0. Repository scaffolding | done | CI green |
 | M1. Lossless lexer | done | reviewed; CI green |
-| M2. Verifier, splitter, safe-cleanup CLI | implemented | independent review running |
+| M2. Verifier, splitter, safe-cleanup CLI | fixes in progress | review found a blocker, see the M2 notes |
 | M3. Parser core | in progress | part 1 of 3: infrastructure and expressions; then `SELECT`; then `CREATE TABLE` and materialized views |
 | M4. Formatting rules and printer | not started | |
 | M5. Jinja templates | not started | |
@@ -155,3 +155,17 @@ Corpus numbers:
   hard links to a formatted file are broken by the rename-based write;
   whether cargo-dist would ship the `corpus` binary is unchecked.
 - `mise run corpus` and `mise run corpus:oracle` run the corpus tool; `--csv FILE` writes one row per file.
+- Review: acceptance numbers re-measured correctly, but **not accepted yet**.
+  Fixes are in progress for:
+  - **Blocker**: `INSERT` data is not recognised when the statement starts with a `{{ }}` tag,
+    or when a bare word `format` appears earlier in it.
+    Cleanup then strips trailing spaces inside the data and the verifier accepts it.
+  - `{% raw %}` blocks are not modelled by the verifier's rendered-text check.
+  - Whitespace next to a `{{ }}` tag can be removed unchecked, although the tag can render to anything.
+  - The keyword re-case exemption accepts any bare word, not only keywords in their canonical case.
+  - A read-only file is rewritten.
+  - The oracle judges whole files, so one rejected statement hides the file:
+    about 11,800 statements in the stateless corpus are not judged.
+- A 30-minute fuzz run after the milestone found two more bugs, also being fixed: a heredoc closed by the wrong closer
+  (from the linear closer search), and a `#` comment in a template losing the space that makes it a comment.
+- Known limitation, owned by M5: the verifier models only the render in which every `{% if %}` branch is taken.
