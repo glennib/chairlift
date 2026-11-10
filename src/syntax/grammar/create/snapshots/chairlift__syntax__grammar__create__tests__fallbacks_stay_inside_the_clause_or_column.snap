@@ -1,0 +1,115 @@
+---
+source: src/syntax/grammar/create/tests.rs
+expression: "trees(&[\"CREATE TABLE t (a Int8, b ?, {% if x %} c Int8 {% endif %}) ENGINE = MergeTree ORDER BY a ?? b TTL d\",\n\"CREATE TABLE t (a Int8)\\n{% if prod %}\\nENGINE = ReplicatedMergeTree\\n{% else %}\\nENGINE = MergeTree\\n{% endif %}\\n-- the key\\nORDER BY a\",\n\"CREATE TABLE t (index UInt8, `index` UInt8)\",])"
+---
+> CREATE TABLE t (a Int8, b ?, {% if x %} c Int8 {% endif %}) ENGINE = MergeTree ORDER BY a ?? b TTL d
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    Comma ","
+    VerbatimItem
+      BareWord "b"
+      QuestionMark "?"
+    Comma ","
+    JinjaBlock "{% if x %}"
+    ColumnDef
+      Name
+        BareWord "c"
+      DataType
+        Name
+          BareWord "Int8"
+    JinjaBlock "{% endif %}"
+    ClosingRoundBracket ")"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "MergeTree"
+  VerbatimClause
+    BareWord "ORDER"
+    BareWord "BY"
+    BareWord "a"
+    QuestionMark "?"
+    QuestionMark "?"
+    BareWord "b"
+  TtlClause
+    Keyword "TTL"
+    TtlList
+      TtlElement
+        Name
+          BareWord "d"
+
+> CREATE TABLE t (a Int8)
+{% if prod %}
+ENGINE = ReplicatedMergeTree
+{% else %}
+ENGINE = MergeTree
+{% endif %}
+-- the key
+ORDER BY a
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    ClosingRoundBracket ")"
+  JinjaBlock "{% if prod %}"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "ReplicatedMergeTree"
+  JinjaBlock "{% else %}"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "MergeTree"
+  JinjaBlock "{% endif %}"
+  LineComment "-- the key"
+  OrderByClause
+    Keyword "ORDER"
+    Keyword "BY"
+    Name
+      BareWord "a"
+
+> CREATE TABLE t (index UInt8, `index` UInt8)
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    VerbatimItem
+      BareWord "index"
+      BareWord "UInt8"
+    Comma ","
+    ColumnDef
+      Name
+        QuotedIdentifier "`index`"
+      DataType
+        Name
+          BareWord "UInt8"
+    ClosingRoundBracket ")"

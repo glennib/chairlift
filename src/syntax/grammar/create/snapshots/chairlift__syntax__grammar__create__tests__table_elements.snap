@@ -1,0 +1,213 @@
+---
+source: src/syntax/grammar/create/tests.rs
+expression: "trees(&[\"CREATE TABLE t (a Int8, INDEX i a TYPE minmax GRANULARITY 1, INDEX j (a, lower(s)) TYPE bloom_filter(0.01), INDEX k s TYPE text(tokenizer = 'ngrams'))\",\n\"CREATE TABLE t (a Int8, PROJECTION p (SELECT a ORDER BY a), PROJECTION q INDEX a, b TYPE basic WITH SETTINGS (index_granularity = 1))\",\n\"CREATE TABLE t (a Int8, CONSTRAINT c CHECK a > 0, CONSTRAINT d ASSUME a < 10, PRIMARY KEY (a), FOREIGN KEY (a) REFERENCES db.p(b) ON DELETE CASCADE ON UPDATE SET NULL,)\",])"
+---
+> CREATE TABLE t (a Int8, INDEX i a TYPE minmax GRANULARITY 1, INDEX j (a, lower(s)) TYPE bloom_filter(0.01), INDEX k s TYPE text(tokenizer = 'ngrams'))
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    Comma ","
+    IndexDef
+      Keyword "INDEX"
+      Name
+        BareWord "i"
+      Name
+        BareWord "a"
+      Keyword "TYPE"
+      Name
+        BareWord "minmax"
+      Keyword "GRANULARITY"
+      Literal
+        Number "1"
+    Comma ","
+    IndexDef
+      Keyword "INDEX"
+      Name
+        BareWord "j"
+      TupleExpr
+        OpeningRoundBracket "("
+        Name
+          BareWord "a"
+        Comma ","
+        FunctionCall
+          Name
+            BareWord "lower"
+          ArgList
+            OpeningRoundBracket "("
+            Name
+              BareWord "s"
+            ClosingRoundBracket ")"
+        ClosingRoundBracket ")"
+      Keyword "TYPE"
+      FunctionCall
+        Name
+          BareWord "bloom_filter"
+        ArgList
+          OpeningRoundBracket "("
+          Literal
+            Number "0.01"
+          ClosingRoundBracket ")"
+    Comma ","
+    IndexDef
+      Keyword "INDEX"
+      Name
+        BareWord "k"
+      Name
+        BareWord "s"
+      Keyword "TYPE"
+      FunctionCall
+        Name
+          BareWord "text"
+        ArgList
+          OpeningRoundBracket "("
+          BinaryExpr
+            Name
+              BareWord "tokenizer"
+            Equals "="
+            Literal
+              StringLiteral "'ngrams'"
+          ClosingRoundBracket ")"
+    ClosingRoundBracket ")"
+
+> CREATE TABLE t (a Int8, PROJECTION p (SELECT a ORDER BY a), PROJECTION q INDEX a, b TYPE basic WITH SETTINGS (index_granularity = 1))
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    Comma ","
+    ProjectionDef
+      Keyword "PROJECTION"
+      Name
+        BareWord "p"
+      Subquery
+        OpeningRoundBracket "("
+        <query>
+        ClosingRoundBracket ")"
+    Comma ","
+    ProjectionDef
+      Keyword "PROJECTION"
+      Name
+        BareWord "q"
+      Keyword "INDEX"
+      ExprList
+        Name
+          BareWord "a"
+        Comma ","
+        Name
+          BareWord "b"
+      Keyword "TYPE"
+      Name
+        BareWord "basic"
+      ProjectionSettings
+        Keyword "WITH"
+        Keyword "SETTINGS"
+        OpeningRoundBracket "("
+        SettingsList
+          SettingItem
+            Name
+              BareWord "index_granularity"
+            Equals "="
+            Literal
+              Number "1"
+        ClosingRoundBracket ")"
+    ClosingRoundBracket ")"
+
+> CREATE TABLE t (a Int8, CONSTRAINT c CHECK a > 0, CONSTRAINT d ASSUME a < 10, PRIMARY KEY (a), FOREIGN KEY (a) REFERENCES db.p(b) ON DELETE CASCADE ON UPDATE SET NULL,)
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    Comma ","
+    ConstraintDef
+      Keyword "CONSTRAINT"
+      Name
+        BareWord "c"
+      Keyword "CHECK"
+      BinaryExpr
+        Name
+          BareWord "a"
+        Greater ">"
+        Literal
+          Number "0"
+    Comma ","
+    ConstraintDef
+      Keyword "CONSTRAINT"
+      Name
+        BareWord "d"
+      Keyword "ASSUME"
+      BinaryExpr
+        Name
+          BareWord "a"
+        Less "<"
+        Literal
+          Number "10"
+    Comma ","
+    TablePrimaryKey
+      Keyword "PRIMARY"
+      Keyword "KEY"
+      ParenExpr
+        OpeningRoundBracket "("
+        Name
+          BareWord "a"
+        ClosingRoundBracket ")"
+    Comma ","
+    ForeignKeyDef
+      Keyword "FOREIGN"
+      Keyword "KEY"
+      ParenExpr
+        OpeningRoundBracket "("
+        Name
+          BareWord "a"
+        ClosingRoundBracket ")"
+      Keyword "REFERENCES"
+      QualifiedName
+        Name
+          BareWord "db"
+        Dot "."
+        Name
+          BareWord "p"
+      ParenExpr
+        OpeningRoundBracket "("
+        Name
+          BareWord "b"
+        ClosingRoundBracket ")"
+      Keyword "ON"
+      Keyword "DELETE"
+      Keyword "CASCADE"
+      Keyword "ON"
+      Keyword "UPDATE"
+      Keyword "SET"
+      Keyword "NULL"
+    Comma ","
+    ClosingRoundBracket ")"

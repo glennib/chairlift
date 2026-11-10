@@ -1,0 +1,238 @@
+---
+source: src/syntax/grammar/create/tests.rs
+expression: "trees(&[\"CREATE TABLE t (d Date) ENGINE = MergeTree ORDER BY d TTL d + INTERVAL 1 MONTH DELETE WHERE x = 1, d + INTERVAL 2 MONTH TO DISK 'a', d + INTERVAL 3 MONTH TO VOLUME IF EXISTS 'b'\",\n\"CREATE TABLE t (d Date) ENGINE = MergeTree ORDER BY d TTL d RECOMPRESS CODEC(ZSTD(12)), d + 1 GROUP BY k, l SET v = max(v), w = any(w), d + 2 WHERE y\",\n\"CREATE TABLE t (ttl Date) ENGINE = MergeTree ORDER BY ttl TTL ttl, ttl + 1 SETTINGS a = 1\",])"
+---
+> CREATE TABLE t (d Date) ENGINE = MergeTree ORDER BY d TTL d + INTERVAL 1 MONTH DELETE WHERE x = 1, d + INTERVAL 2 MONTH TO DISK 'a', d + INTERVAL 3 MONTH TO VOLUME IF EXISTS 'b'
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "d"
+      DataType
+        Name
+          BareWord "Date"
+    ClosingRoundBracket ")"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "MergeTree"
+  OrderByClause
+    Keyword "ORDER"
+    Keyword "BY"
+    Name
+      BareWord "d"
+  TtlClause
+    Keyword "TTL"
+    TtlList
+      TtlElement
+        BinaryExpr
+          Name
+            BareWord "d"
+          Plus "+"
+          IntervalExpr
+            Keyword "INTERVAL"
+            Literal
+              Number "1"
+            IntervalUnit
+              Keyword "MONTH"
+        Keyword "DELETE"
+        Keyword "WHERE"
+        BinaryExpr
+          Name
+            BareWord "x"
+          Equals "="
+          Literal
+            Number "1"
+      Comma ","
+      TtlElement
+        BinaryExpr
+          Name
+            BareWord "d"
+          Plus "+"
+          IntervalExpr
+            Keyword "INTERVAL"
+            Literal
+              Number "2"
+            IntervalUnit
+              Keyword "MONTH"
+        Keyword "TO"
+        Keyword "DISK"
+        Literal
+          StringLiteral "'a'"
+      Comma ","
+      TtlElement
+        BinaryExpr
+          Name
+            BareWord "d"
+          Plus "+"
+          IntervalExpr
+            Keyword "INTERVAL"
+            Literal
+              Number "3"
+            IntervalUnit
+              Keyword "MONTH"
+        Keyword "TO"
+        Keyword "VOLUME"
+        IfExists
+          Keyword "IF"
+          Keyword "EXISTS"
+        Literal
+          StringLiteral "'b'"
+
+> CREATE TABLE t (d Date) ENGINE = MergeTree ORDER BY d TTL d RECOMPRESS CODEC(ZSTD(12)), d + 1 GROUP BY k, l SET v = max(v), w = any(w), d + 2 WHERE y
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "d"
+      DataType
+        Name
+          BareWord "Date"
+    ClosingRoundBracket ")"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "MergeTree"
+  OrderByClause
+    Keyword "ORDER"
+    Keyword "BY"
+    Name
+      BareWord "d"
+  TtlClause
+    Keyword "TTL"
+    TtlList
+      TtlElement
+        Name
+          BareWord "d"
+        Keyword "RECOMPRESS"
+        ColumnCodec
+          Keyword "CODEC"
+          CodecList
+            OpeningRoundBracket "("
+            FunctionCall
+              Name
+                BareWord "ZSTD"
+              ArgList
+                OpeningRoundBracket "("
+                Literal
+                  Number "12"
+                ClosingRoundBracket ")"
+            ClosingRoundBracket ")"
+      Comma ","
+      TtlElement
+        BinaryExpr
+          Name
+            BareWord "d"
+          Plus "+"
+          Literal
+            Number "1"
+        Keyword "GROUP"
+        Keyword "BY"
+        ExprList
+          Name
+            BareWord "k"
+          Comma ","
+          Name
+            BareWord "l"
+        Keyword "SET"
+        AssignmentList
+          Assignment
+            Name
+              BareWord "v"
+            Equals "="
+            FunctionCall
+              Name
+                BareWord "max"
+              ArgList
+                OpeningRoundBracket "("
+                Name
+                  BareWord "v"
+                ClosingRoundBracket ")"
+          Comma ","
+          Assignment
+            Name
+              BareWord "w"
+            Equals "="
+            FunctionCall
+              Name
+                BareWord "any"
+              ArgList
+                OpeningRoundBracket "("
+                Name
+                  BareWord "w"
+                ClosingRoundBracket ")"
+      Comma ","
+      TtlElement
+        BinaryExpr
+          Name
+            BareWord "d"
+          Plus "+"
+          Literal
+            Number "2"
+        Keyword "WHERE"
+        Name
+          BareWord "y"
+
+> CREATE TABLE t (ttl Date) ENGINE = MergeTree ORDER BY ttl TTL ttl, ttl + 1 SETTINGS a = 1
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "ttl"
+      DataType
+        Name
+          BareWord "Date"
+    ClosingRoundBracket ")"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "MergeTree"
+  OrderByClause
+    Keyword "ORDER"
+    Keyword "BY"
+    Name
+      BareWord "ttl"
+  TtlClause
+    Keyword "TTL"
+    TtlList
+      TtlElement
+        Name
+          BareWord "ttl"
+      Comma ","
+      TtlElement
+        BinaryExpr
+          Name
+            BareWord "ttl"
+          Plus "+"
+          Literal
+            Number "1"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "a"
+        Equals "="
+        Literal
+          Number "1"

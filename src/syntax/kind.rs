@@ -502,56 +502,116 @@ syntax_kinds! {
         IntoOutfileClause: Clause,
 
         // ---- CREATE ----------------------------------------------------
-        // Grammar in `grammar/create.rs`.
-        /// `CREATE [OR REPLACE] [TEMPORARY] TABLE …`.
+        // Grammar in `grammar/create.rs`. A statement is its
+        // `CreateHeader`, then for a table its `TableElementList`, then its
+        // clauses, each a child of the statement in the order written.
+        /// `CREATE [OR REPLACE] [TEMPORARY] TABLE …`: a
+        /// [`CreateHeader`](Self::CreateHeader), an optional
+        /// [`TableElementList`](Self::TableElementList), then clauses.
         CreateTable: Statement,
         /// `CREATE MATERIALIZED VIEW …`.
         CreateMaterializedView: Statement,
-        /// What comes before a `CREATE` statement's body: keywords, name,
-        /// `ON CLUSTER`, `TO …` and the like.
+        /// The statement's keywords up to the object kind (`CREATE OR
+        /// REPLACE TABLE`), an [`IfNotExists`](Self::IfNotExists), the name
+        /// (a [`Name`](Self::Name) or [`QualifiedName`](Self::QualifiedName)),
+        /// any [`TableUuid`](Self::TableUuid)s and an
+        /// [`OnCluster`](Self::OnCluster).
         CreateHeader: Node,
-        /// `( columns, indexes, … )` of `CREATE TABLE`.
+        /// `UUID '…'` after a table's name, or `TO INNER UUID '…'`.
+        TableUuid: Node,
+        /// `( columns, indexes, … )` of `CREATE TABLE` or a view: `(`, the
+        /// elements ([`ColumnDef`](Self::ColumnDef), [`IndexDef`](Self::IndexDef),
+        /// [`ProjectionDef`](Self::ProjectionDef),
+        /// [`ConstraintDef`](Self::ConstraintDef),
+        /// [`TablePrimaryKey`](Self::TablePrimaryKey),
+        /// [`ForeignKeyDef`](Self::ForeignKeyDef)) separated by commas, a
+        /// trailing comma if written, `)`.
         TableElementList: List,
-        /// A column definition.
+        /// A column definition: the column's [`Name`](Self::Name), its
+        /// [`DataType`](Self::DataType) unless a default stands in for it, then
+        /// one node per modifier in the order written: [`ColumnCollate`](Self::ColumnCollate),
+        /// [`ColumnNull`](Self::ColumnNull), [`ColumnDefault`](Self::ColumnDefault),
+        /// [`ColumnComment`](Self::ColumnComment), [`ColumnCodec`](Self::ColumnCodec),
+        /// [`ColumnStatistics`](Self::ColumnStatistics), [`ColumnTtl`](Self::ColumnTtl),
+        /// [`ColumnPrimaryKey`](Self::ColumnPrimaryKey) and
+        /// [`ColumnSettings`](Self::ColumnSettings).
         ColumnDef: Node,
-        /// `NULL` or `NOT NULL` after a column's type.
+        /// `COLLATE name` of a column.
+        ColumnCollate: Node,
+        /// `NULL` or `NOT NULL` of a column.
         ColumnNull: Node,
-        /// `DEFAULT …`, `MATERIALIZED …`, `ALIAS …` or `EPHEMERAL [ …]`.
+        /// `DEFAULT expr`, `MATERIALIZED expr`, `ALIAS expr`, `EPHEMERAL
+        /// [expr]` or `AUTO_INCREMENT`.
         ColumnDefault: Node,
-        /// `CODEC(…)`.
+        /// `CODEC` and a [`CodecList`](Self::CodecList), of a column or after
+        /// `RECOMPRESS` in a TTL rule.
         ColumnCodec: Node,
-        /// `STATISTICS(…)`.
+        /// `STATISTICS` and a [`CodecList`](Self::CodecList) of statistics
+        /// kinds.
         ColumnStatistics: Node,
-        /// `TTL …` of a column.
+        /// `( … )` after `CODEC` or `STATISTICS`: names, each a
+        /// [`Name`](Self::Name) or, with arguments, a
+        /// [`FunctionCall`](Self::FunctionCall) of a `Name` and an
+        /// [`ArgList`](Self::ArgList). The names keep their case.
+        CodecList: List,
+        /// `TTL expr` of a column.
         ColumnTtl: Node,
         /// `COMMENT '…'` of a column.
         ColumnComment: Node,
-        /// `SETTINGS (…)` of a column.
+        /// `SETTINGS (` a [`SettingsList`](Self::SettingsList) `)` of a column.
         ColumnSettings: Node,
-        /// `PRIMARY KEY` after a column.
+        /// `PRIMARY KEY` of a column.
         ColumnPrimaryKey: Node,
-        /// `INDEX name expr TYPE type [GRANULARITY n]`.
+        /// `INDEX name expr TYPE type [GRANULARITY n]`, where the type is a
+        /// [`Name`](Self::Name) or a [`FunctionCall`](Self::FunctionCall) of a
+        /// `Name` and an [`ArgList`](Self::ArgList).
         IndexDef: Node,
-        /// `PROJECTION name (query)`.
+        /// `PROJECTION name`, then a [`Subquery`](Self::Subquery) or `INDEX
+        /// exprs TYPE type`, then any [`ProjectionSettings`](Self::ProjectionSettings).
         ProjectionDef: Node,
+        /// `WITH SETTINGS (` a [`SettingsList`](Self::SettingsList) `)` of a
+        /// projection.
+        ProjectionSettings: Node,
         /// `CONSTRAINT name CHECK|ASSUME expr`.
         ConstraintDef: Node,
-        /// `PRIMARY KEY (…)` inside the element list.
+        /// `PRIMARY KEY expr` inside the element list.
         TablePrimaryKey: Node,
-        /// `ENGINE = name[(args)]`.
+        /// `FOREIGN KEY expr REFERENCES table expr [ON DELETE|UPDATE action]…`,
+        /// which ClickHouse reads and ignores.
+        ForeignKeyDef: Node,
+        /// `ENGINE [=] name[(args)]`: the engine is a [`Name`](Self::Name),
+        /// or a [`FunctionCall`](Self::FunctionCall) of a `Name` and an
+        /// [`ArgList`](Self::ArgList); its name keeps its case (`Null`).
         EngineClause: Clause,
-        /// `PARTITION BY …`.
+        /// `PARTITION BY expr`.
         PartitionByClause: Clause,
-        /// `PRIMARY KEY …`.
+        /// `PRIMARY KEY expr`.
         PrimaryKeyClause: Clause,
-        /// `SAMPLE BY …`.
+        /// `UNIQUE KEY expr`.
+        UniqueKeyClause: Clause,
+        /// `SAMPLE BY expr`.
         SampleByClause: Clause,
-        /// `TTL …` of a table.
+        /// `( … )` or `tuple( … )` of a table's `ORDER BY` whose keys have a
+        /// direction: an optional [`Name`](Self::Name) `tuple`, `(`, an
+        /// [`OrderByList`](Self::OrderByList), `)`. Without directions the
+        /// keys are an ordinary expression, a [`TupleExpr`](Self::TupleExpr)
+        /// or a [`FunctionCall`](Self::FunctionCall).
+        OrderByTuple: Node,
+        /// `TTL` and a [`TtlList`](Self::TtlList), of a table.
         TtlClause: Clause,
-        /// The rules of a table's `TTL`.
+        /// The rules of a table's `TTL`, [`TtlElement`](Self::TtlElement)s
+        /// separated by commas.
         TtlList: List,
-        /// One rule of a table's `TTL`.
+        /// One rule of a table's `TTL`: an expression, then its action as
+        /// keywords and nodes: `[DELETE] [WHERE expr]`, `TO DISK|VOLUME [IF
+        /// EXISTS] '…'`, `RECOMPRESS` and a [`ColumnCodec`](Self::ColumnCodec),
+        /// or `GROUP BY` an [`ExprList`](Self::ExprList) with `SET` and an
+        /// [`AssignmentList`](Self::AssignmentList).
         TtlElement: Node,
+        /// [`Assignment`](Self::Assignment)s separated by commas.
+        AssignmentList: List,
+        /// `column = expr`.
+        Assignment: Node,
         /// `COMMENT '…'` of a table or view.
         CommentClause: Clause,
         /// `AS SELECT …`, `AS db.table` or `AS table_function(…)`.

@@ -1,0 +1,131 @@
+---
+source: src/syntax/grammar/create/tests.rs
+expression: dump(table)
+---
+CreateTable
+  CreateHeader
+    Keyword "create"
+    Keyword "table"
+    QualifiedName
+      Name
+        BareWord "analytics"
+      Dot "."
+      Name
+        BareWord "page_views_1h"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "hour"
+      DataType
+        Name
+          BareWord "DateTime"
+        TypeArgList
+          OpeningRoundBracket "("
+          Literal
+            StringLiteral "'UTC'"
+          ClosingRoundBracket ")"
+      ColumnCodec
+        Keyword "CODEC"
+        CodecList
+          OpeningRoundBracket "("
+          Name
+            BareWord "Delta"
+          Comma ","
+          FunctionCall
+            Name
+              BareWord "ZSTD"
+            ArgList
+              OpeningRoundBracket "("
+              Literal
+                Number "1"
+              ClosingRoundBracket ")"
+          ClosingRoundBracket ")"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "site"
+      DataType
+        Name
+          BareWord "LowCardinality"
+        TypeArgList
+          OpeningRoundBracket "("
+          DataType
+            Name
+              BareWord "String"
+          ClosingRoundBracket ")"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "views"
+      DataType
+        Name
+          BareWord "UInt64"
+    Comma ","
+    LineComment "-- A comment inside a column list must survive."
+    ColumnDef
+      Name
+        BareWord "visitors"
+      DataType
+        Name
+          BareWord "AggregateFunction"
+        TypeArgList
+          OpeningRoundBracket "("
+          Name
+            BareWord "uniq"
+          Comma ","
+          DataType
+            Name
+              BareWord "String"
+          ClosingRoundBracket ")"
+    ClosingRoundBracket ")"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "AggregatingMergeTree"
+  PartitionByClause
+    Keyword "PARTITION"
+    Keyword "BY"
+    FunctionCall
+      Name
+        BareWord "toStartOfDay"
+      ArgList
+        OpeningRoundBracket "("
+        Name
+          BareWord "hour"
+        ClosingRoundBracket ")"
+  OrderByClause
+    Keyword "ORDER"
+    Keyword "BY"
+    TupleExpr
+      OpeningRoundBracket "("
+      Name
+        BareWord "site"
+      Comma ","
+      Name
+        BareWord "hour"
+      ClosingRoundBracket ")"
+  TtlClause
+    Keyword "TTL"
+    TtlList
+      TtlElement
+        BinaryExpr
+          Name
+            BareWord "hour"
+          Plus "+"
+          IntervalExpr
+            Keyword "INTERVAL"
+            Literal
+              Number "90"
+            IntervalUnit
+              Keyword "DAY"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "ttl_only_drop_parts"
+        Equals "="
+        Literal
+          Number "1"

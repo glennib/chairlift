@@ -1,0 +1,370 @@
+---
+source: src/syntax/grammar/create/tests.rs
+expression: "trees(&[\"CREATE TABLE t (a Int8, b Nullable(String) NOT NULL, c Int8 NULL, d NULL DEFAULT 1)\",\n\"CREATE TABLE t (a Int8 DEFAULT 1, b MATERIALIZED a + 1, c Int8 ALIAS a, d Int8 EPHEMERAL, e Int8 EPHEMERAL 0, f EPHEMERAL now(), g Int8 EPHEMERAL COMMENT 'x', h UInt8 AUTO_INCREMENT, i AUTO_INCREMENT)\",\n\"CREATE TABLE t (a DateTime CODEC(Delta, ZSTD(3)) TTL a + INTERVAL 1 DAY COMMENT 'x', b Int8 COMMENT 'y' STATISTICS(tdigest, uniq) CODEC(NONE))\",\n\"CREATE TABLE t (a String COLLATE utf8_unicode_ci NOT NULL, b String NULL COLLATE binary, c Int8 PRIMARY KEY SETTINGS (max_compress_block_size = 1))\",\n\"CREATE TABLE t (a Int8 DEFAULT 1 NOT NULL, `b c` Array(Tuple(x Int8, y String)), n Nested(k String, v UInt64))\",])"
+---
+> CREATE TABLE t (a Int8, b Nullable(String) NOT NULL, c Int8 NULL, d NULL DEFAULT 1)
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "b"
+      DataType
+        Name
+          BareWord "Nullable"
+        TypeArgList
+          OpeningRoundBracket "("
+          DataType
+            Name
+              BareWord "String"
+          ClosingRoundBracket ")"
+      ColumnNull
+        Keyword "NOT"
+        Keyword "NULL"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "c"
+      DataType
+        Name
+          BareWord "Int8"
+      ColumnNull
+        Keyword "NULL"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "d"
+      ColumnNull
+        Keyword "NULL"
+      ColumnDefault
+        Keyword "DEFAULT"
+        Literal
+          Number "1"
+    ClosingRoundBracket ")"
+
+> CREATE TABLE t (a Int8 DEFAULT 1, b MATERIALIZED a + 1, c Int8 ALIAS a, d Int8 EPHEMERAL, e Int8 EPHEMERAL 0, f EPHEMERAL now(), g Int8 EPHEMERAL COMMENT 'x', h UInt8 AUTO_INCREMENT, i AUTO_INCREMENT)
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+      ColumnDefault
+        Keyword "DEFAULT"
+        Literal
+          Number "1"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "b"
+      ColumnDefault
+        Keyword "MATERIALIZED"
+        BinaryExpr
+          Name
+            BareWord "a"
+          Plus "+"
+          Literal
+            Number "1"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "c"
+      DataType
+        Name
+          BareWord "Int8"
+      ColumnDefault
+        Keyword "ALIAS"
+        Name
+          BareWord "a"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "d"
+      DataType
+        Name
+          BareWord "Int8"
+      ColumnDefault
+        Keyword "EPHEMERAL"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "e"
+      DataType
+        Name
+          BareWord "Int8"
+      ColumnDefault
+        Keyword "EPHEMERAL"
+        Literal
+          Number "0"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "f"
+      ColumnDefault
+        Keyword "EPHEMERAL"
+        FunctionCall
+          Name
+            BareWord "now"
+          ArgList
+            OpeningRoundBracket "("
+            ClosingRoundBracket ")"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "g"
+      DataType
+        Name
+          BareWord "Int8"
+      ColumnDefault
+        Keyword "EPHEMERAL"
+      ColumnComment
+        Keyword "COMMENT"
+        Literal
+          StringLiteral "'x'"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "h"
+      DataType
+        Name
+          BareWord "UInt8"
+      ColumnDefault
+        Keyword "AUTO_INCREMENT"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "i"
+      ColumnDefault
+        Keyword "AUTO_INCREMENT"
+    ClosingRoundBracket ")"
+
+> CREATE TABLE t (a DateTime CODEC(Delta, ZSTD(3)) TTL a + INTERVAL 1 DAY COMMENT 'x', b Int8 COMMENT 'y' STATISTICS(tdigest, uniq) CODEC(NONE))
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "DateTime"
+      ColumnCodec
+        Keyword "CODEC"
+        CodecList
+          OpeningRoundBracket "("
+          Name
+            BareWord "Delta"
+          Comma ","
+          FunctionCall
+            Name
+              BareWord "ZSTD"
+            ArgList
+              OpeningRoundBracket "("
+              Literal
+                Number "3"
+              ClosingRoundBracket ")"
+          ClosingRoundBracket ")"
+      ColumnTtl
+        Keyword "TTL"
+        BinaryExpr
+          Name
+            BareWord "a"
+          Plus "+"
+          IntervalExpr
+            Keyword "INTERVAL"
+            Literal
+              Number "1"
+            IntervalUnit
+              Keyword "DAY"
+      ColumnComment
+        Keyword "COMMENT"
+        Literal
+          StringLiteral "'x'"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "b"
+      DataType
+        Name
+          BareWord "Int8"
+      ColumnComment
+        Keyword "COMMENT"
+        Literal
+          StringLiteral "'y'"
+      ColumnStatistics
+        Keyword "STATISTICS"
+        CodecList
+          OpeningRoundBracket "("
+          Name
+            BareWord "tdigest"
+          Comma ","
+          Name
+            BareWord "uniq"
+          ClosingRoundBracket ")"
+      ColumnCodec
+        Keyword "CODEC"
+        CodecList
+          OpeningRoundBracket "("
+          Name
+            BareWord "NONE"
+          ClosingRoundBracket ")"
+    ClosingRoundBracket ")"
+
+> CREATE TABLE t (a String COLLATE utf8_unicode_ci NOT NULL, b String NULL COLLATE binary, c Int8 PRIMARY KEY SETTINGS (max_compress_block_size = 1))
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "String"
+      ColumnCollate
+        Keyword "COLLATE"
+        Name
+          BareWord "utf8_unicode_ci"
+      ColumnNull
+        Keyword "NOT"
+        Keyword "NULL"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "b"
+      DataType
+        Name
+          BareWord "String"
+      ColumnNull
+        Keyword "NULL"
+      ColumnCollate
+        Keyword "COLLATE"
+        Name
+          BareWord "binary"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "c"
+      DataType
+        Name
+          BareWord "Int8"
+      ColumnPrimaryKey
+        Keyword "PRIMARY"
+        Keyword "KEY"
+      ColumnSettings
+        Keyword "SETTINGS"
+        OpeningRoundBracket "("
+        SettingsList
+          SettingItem
+            Name
+              BareWord "max_compress_block_size"
+            Equals "="
+            Literal
+              Number "1"
+        ClosingRoundBracket ")"
+    ClosingRoundBracket ")"
+
+> CREATE TABLE t (a Int8 DEFAULT 1 NOT NULL, `b c` Array(Tuple(x Int8, y String)), n Nested(k String, v UInt64))
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+      ColumnDefault
+        Keyword "DEFAULT"
+        Literal
+          Number "1"
+      ColumnNull
+        Keyword "NOT"
+        Keyword "NULL"
+    Comma ","
+    ColumnDef
+      Name
+        QuotedIdentifier "`b c`"
+      DataType
+        Name
+          BareWord "Array"
+        TypeArgList
+          OpeningRoundBracket "("
+          DataType
+            Name
+              BareWord "Tuple"
+            TypeArgList
+              OpeningRoundBracket "("
+              NameTypePair
+                Name
+                  BareWord "x"
+                DataType
+                  Name
+                    BareWord "Int8"
+              Comma ","
+              NameTypePair
+                Name
+                  BareWord "y"
+                DataType
+                  Name
+                    BareWord "String"
+              ClosingRoundBracket ")"
+          ClosingRoundBracket ")"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "n"
+      DataType
+        Name
+          BareWord "Nested"
+        TypeArgList
+          OpeningRoundBracket "("
+          NameTypePair
+            Name
+              BareWord "k"
+            DataType
+              Name
+                BareWord "String"
+          Comma ","
+          NameTypePair
+            Name
+              BareWord "v"
+            DataType
+              Name
+                BareWord "UInt64"
+          ClosingRoundBracket ")"
+    ClosingRoundBracket ")"

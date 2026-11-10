@@ -1,0 +1,130 @@
+---
+source: src/syntax/grammar/create/tests.rs
+expression: "trees(&[\"CREATE TABLE t (a Int8)\",\n\"create or replace temporary table if not exists db.t uuid '00000000-0000-0000-0000-000000000001' on cluster '{cluster}' (a Int8)\",\n\"CREATE TABLE {{ db }}.events_{{ suffix }} ON CLUSTER {{ cluster }} (a Int8)\",\n\"CREATE TABLE {db:Identifier}.t (a Int8)\",\n\"CREATE TABLE t TO INNER UUID '00000000-0000-0000-0000-000000000001' ENGINE = SharedSet\",])"
+---
+> CREATE TABLE t (a Int8)
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    ClosingRoundBracket ")"
+
+> create or replace temporary table if not exists db.t uuid '00000000-0000-0000-0000-000000000001' on cluster '{cluster}' (a Int8)
+CreateTable
+  CreateHeader
+    Keyword "create"
+    Keyword "or"
+    Keyword "replace"
+    Keyword "temporary"
+    Keyword "table"
+    IfNotExists
+      Keyword "if"
+      Keyword "not"
+      Keyword "exists"
+    QualifiedName
+      Name
+        BareWord "db"
+      Dot "."
+      Name
+        BareWord "t"
+    TableUuid
+      Keyword "uuid"
+      Literal
+        StringLiteral "'00000000-0000-0000-0000-000000000001'"
+    OnCluster
+      Keyword "on"
+      Keyword "cluster"
+      Literal
+        StringLiteral "'{cluster}'"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    ClosingRoundBracket ")"
+
+> CREATE TABLE {{ db }}.events_{{ suffix }} ON CLUSTER {{ cluster }} (a Int8)
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    QualifiedName
+      Name
+        JinjaExpr "{{ db }}"
+      Dot "."
+      Name
+        BareWord "events_{{ suffix }}"
+    OnCluster
+      Keyword "ON"
+      Keyword "CLUSTER"
+      Name
+        JinjaExpr "{{ cluster }}"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    ClosingRoundBracket ")"
+
+> CREATE TABLE {db:Identifier}.t (a Int8)
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    QualifiedName
+      QueryParameter
+        OpeningCurlyBrace "{"
+        Name
+          BareWord "db"
+        Colon ":"
+        DataType
+          Name
+            BareWord "Identifier"
+        ClosingCurlyBrace "}"
+      Dot "."
+      Name
+        BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    ClosingRoundBracket ")"
+
+> CREATE TABLE t TO INNER UUID '00000000-0000-0000-0000-000000000001' ENGINE = SharedSet
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+    TableUuid
+      Keyword "TO"
+      Keyword "INNER"
+      Keyword "UUID"
+      Literal
+        StringLiteral "'00000000-0000-0000-0000-000000000001'"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "SharedSet"
