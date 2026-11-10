@@ -33,12 +33,14 @@ harness = false
 default = ["cli"]
 # The `chairlift` binary. The library needs none of these; a consumer that only
 # uses the library can disable default features.
-cli = ["dep:clap"]
+cli = ["dep:clap", "dep:ignore", "dep:similar"]
 
 [dependencies]
 thiserror = "2"
 # CLI-only dependencies (gated behind the `cli` feature).
 clap = { version = "4.6", features = ["derive"], optional = true }
+ignore = { version = "0.4.34", optional = true }
+similar = { version = "2.7", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
