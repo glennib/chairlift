@@ -62,6 +62,12 @@ impl Tag {
     /// The markers on the tag's two sides, as `(before, after)`; `text` is the
     /// text the tag was found in.
     ///
+    /// For a raw block these are its outer markers, the one after the `{%` of
+    /// `{% raw %}` and the one before the `%}` of `{% endraw %}`, which act on
+    /// the whitespace around the block. The inner markers (`{% raw -%}`,
+    /// `{%- endraw %}`) act on the block's own text, which belongs to the
+    /// block's token and is never changed.
+    ///
     /// ```
     /// use chairlift::lexer::jinja::{WhitespaceControl, tags};
     ///
@@ -70,6 +76,13 @@ impl Tag {
     /// assert_eq!(
     ///     tag.whitespace_control(text),
     ///     (WhitespaceControl::Strip, WhitespaceControl::Preserve)
+    /// );
+    ///
+    /// let raw = "{%+ raw -%} x {%- endraw %}";
+    /// let tag = tags(raw).next().unwrap();
+    /// assert_eq!(
+    ///     tag.whitespace_control(raw),
+    ///     (WhitespaceControl::Preserve, WhitespaceControl::Default)
     /// );
     /// ```
     #[must_use]

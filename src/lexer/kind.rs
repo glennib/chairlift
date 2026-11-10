@@ -22,9 +22,19 @@ pub enum TokenKind {
     /// U+205F, U+2060, U+3000) and the byte-order mark U+FEFF, in any mix.
     /// Adjacent whitespace is always one token.
     Whitespace,
-    /// `-- …`, `// …`, `# …` or `#!…`, up to but not including the newline.
+    /// `-- …`, `// …`, `# …` or `#!…`, up to but not including the `\n` that
+    /// ends its line, as ClickHouse lexes it:
+    ///
+    /// - the `\n` is never part of the comment, but a `\r` before it is, so
+    ///   on CRLF input the comment ends in `\r`; so is any other whitespace at
+    ///   the end of the line;
+    /// - in [Jinja mode](super::Mode::Jinja) a tag inside the comment is
+    ///   skipped whole, so a comment can span lines when a tag in it does
+    ///   (`-- {{ x\n }}` is one comment); outside tags it never contains a
+    ///   `\n`.
     LineComment,
-    /// `/* … */`, nesting: `/* /* */ */` is one comment.
+    /// `/* … */`, nesting: `/* /* */ */` is one comment. It may span lines and
+    /// keeps whatever line endings it has.
     BlockComment,
 
     /// A keyword or identifier: `[A-Za-z0-9_$]+`, which may start with a digit

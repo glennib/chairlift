@@ -48,6 +48,11 @@ const CASES: &[Case] = cases! {
     sql "#\tc" => [Error "#", Whitespace "\t", BareWord "c"];
     sql "#" => [Error "#"];
     sql "/* a /* b */ c */x" => [BlockComment "/* a /* b */ c */", BareWord "x"];
+    sql "-- c \r\nx" => [LineComment "-- c \r", Whitespace "\n", BareWord "x"];
+    sql "/* a\r\nb */\r\n'c\r\nd'" => [
+        BlockComment "/* a\r\nb */", Whitespace "\r\n", StringLiteral "'c\r\nd'",
+    ];
+    jinja "-- {{ x\r\n }}\r\ny" => [LineComment "-- {{ x\r\n }}\r", Whitespace "\n", BareWord "y"];
     sql "/* a /* b */" => [ErrorMultilineCommentIsNotClosed "/* a /* b */"];
     sql "/*/" => [ErrorMultilineCommentIsNotClosed "/*/"];
     sql "a/b" => [BareWord "a", Slash "/", BareWord "b"];
