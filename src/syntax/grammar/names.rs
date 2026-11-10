@@ -22,6 +22,16 @@ pub(crate) fn at_name(p: &Parser<'_>, n: usize) -> bool {
     }
 }
 
+/// How many tokens the name at the `n`th token spans, if one is there: one,
+/// or the five of a `{name:Identifier}` parameter.
+pub(crate) fn name_tokens(p: &Parser<'_>, n: usize) -> Option<usize> {
+    if !at_query_parameter(p, n) {
+        return at_name(p, n).then_some(1);
+    }
+    (p.nth_at(n + 3, TokenKind::BareWord) && p.nth_at(n + 4, TokenKind::ClosingCurlyBrace))
+        .then_some(5)
+}
+
 /// Whether the `n`th token starts `{name:Type}`.
 pub(crate) fn at_query_parameter(p: &Parser<'_>, n: usize) -> bool {
     p.nth_at(n, TokenKind::OpeningCurlyBrace)
@@ -51,9 +61,9 @@ pub(crate) fn compound_name(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     compound_name_with(p, false)
 }
 
-/// [`compound_name`], stopping before `.COLUMNS(` when `before_columns` is
-/// set, so that an expression can parse `t.COLUMNS(…)` as a matcher, as
-/// ClickHouse does for exactly that spelling.
+/// [`compound_name`], stopping before a `.COLUMNS(…)` matcher when
+/// `before_columns` is set, so that an expression can parse `t.COLUMNS(…)`
+/// as one, as ClickHouse does for exactly that spelling.
 pub(crate) fn compound_name_with(
     p: &mut Parser<'_>,
     before_columns: bool,
@@ -78,7 +88,7 @@ pub(crate) fn compound_name_with(
         if before_columns
             && separator == 1
             && p.nth_text(1) == "COLUMNS"
-            && p.nth_at(2, TokenKind::OpeningRoundBracket)
+            && super::exprs::at_columns_matcher(p, 1)
         {
             break;
         }

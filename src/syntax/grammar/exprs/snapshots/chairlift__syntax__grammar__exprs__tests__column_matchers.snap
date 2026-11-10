@@ -94,7 +94,7 @@ AsteriskExpr
 > COLUMNS('a.*')
 ColumnsMatcher
   Keyword "COLUMNS"
-  ArgList
+  ColumnList
     OpeningRoundBracket "("
     Literal
       StringLiteral "'a.*'"
@@ -103,7 +103,7 @@ ColumnsMatcher
 > COLUMNS(a, b) APPLY sum
 ColumnsMatcher
   Keyword "COLUMNS"
-  ArgList
+  ColumnList
     OpeningRoundBracket "("
     Name
       BareWord "a"

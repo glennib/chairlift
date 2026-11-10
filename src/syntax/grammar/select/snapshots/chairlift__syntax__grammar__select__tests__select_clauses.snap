@@ -165,7 +165,7 @@ SelectQuery
       Comma ","
       ColumnsMatcher
         Keyword "COLUMNS"
-        ArgList
+        ColumnList
           OpeningRoundBracket "("
           Literal
             StringLiteral "'^x'"

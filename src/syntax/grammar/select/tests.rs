@@ -567,11 +567,6 @@ fn keyword_words_as_names_agree_with_clickhouse() {
     eprintln!("{} re-cased, {judged} judged", pairs.len());
     let mut differences = String::new();
     for ((source, recased), formatted) in pairs.iter().zip(formatted.chunks(2)) {
-        // `COLUMNS(1)`, without a pattern or names, is a function call to
-        // ClickHouse; the expression grammar reads a matcher.
-        if source.contains("olumns(1)") {
-            continue;
-        }
         // An input ClickHouse rejects cannot be judged.
         if formatted[0].is_some() && formatted[0] != formatted[1] {
             let _ = writeln!(

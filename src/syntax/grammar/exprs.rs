@@ -416,7 +416,7 @@ fn apply(p: &mut Parser<'_>, lhs: CompletedMarker, op: Op) -> Option<CompletedMa
 fn dot(p: &mut Parser<'_>, lhs: CompletedMarker) -> Option<CompletedMarker> {
     match p.nth(1) {
         Some(T::Asterisk) => asterisk(p, Some(lhs)),
-        _ if p.nth_text(1) == "COLUMNS" && p.nth_at(2, T::OpeningRoundBracket) => {
+        _ if p.nth_text(1) == "COLUMNS" && at_columns_matcher(p, 1) => {
             columns_matcher(p, Some(lhs))
         }
         Some(T::Number) => {
@@ -575,7 +575,7 @@ fn word(p: &mut Parser<'_>) -> Option<CompletedMarker> {
             literal(p);
             return Some(m.complete(p, SyntaxKind::TypedLiteral));
         }
-        Some(K::Columns) if p.nth_at(1, T::OpeningRoundBracket) => {
+        Some(K::Columns) if at_columns_matcher(p, 0) => {
             return columns_matcher(p, None);
         }
         Some(K::Array) if p.nth_at(1, T::OpeningSquareBracket) && array_constructor(p) => {
@@ -1210,7 +1210,33 @@ fn asterisk(p: &mut Parser<'_>, qualifier: Option<CompletedMarker>) -> Option<Co
     Some(m.complete(p, SyntaxKind::AsteriskExpr))
 }
 
-/// `COLUMNS(…)` or `qualifier.COLUMNS(…)`, then column transformers.
+/// Whether the `n`th token, `COLUMNS`, starts a columns matcher: `(`, a
+/// string or dotted names separated by commas, then `)`. Anything else in
+/// the brackets makes it a call of a function named `columns`, as
+/// ClickHouse reads it.
+pub(crate) fn at_columns_matcher(p: &Parser<'_>, n: usize) -> bool {
+    if !p.nth_at(n + 1, T::OpeningRoundBracket) {
+        return false;
+    }
+    if p.nth_at(n + 2, T::StringLiteral) {
+        return p.nth_at(n + 3, T::ClosingRoundBracket);
+    }
+    let mut i = n + 2;
+    loop {
+        let Some(name) = names::name_tokens(p, i) else {
+            return false;
+        };
+        i += name;
+        match p.nth(i) {
+            Some(T::Dot | T::Comma) => i += 1,
+            Some(T::ClosingRoundBracket) => return true,
+            _ => return false,
+        }
+    }
+}
+
+/// `COLUMNS(…)` or `qualifier.COLUMNS(…)`, then column transformers; see
+/// [`at_columns_matcher`].
 fn columns_matcher(
     p: &mut Parser<'_>,
     qualifier: Option<CompletedMarker>,
@@ -1224,7 +1250,18 @@ fn columns_matcher(
         None => p.start(),
     };
     p.bump_keyword();
-    arg_list(p)?;
+    let list = p.start();
+    p.expect(T::OpeningRoundBracket)?;
+    if p.at(T::StringLiteral) {
+        literal(p)?;
+    } else {
+        names::compound_name(p)?;
+        while p.eat(T::Comma) {
+            names::compound_name(p)?;
+        }
+    }
+    p.expect(T::ClosingRoundBracket)?;
+    list.complete(p, SyntaxKind::ColumnList);
     column_transformers(p)?;
     Some(m.complete(p, SyntaxKind::ColumnsMatcher))
 }

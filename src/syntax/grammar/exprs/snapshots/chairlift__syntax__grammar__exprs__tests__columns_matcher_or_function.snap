@@ -1,0 +1,110 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"columns(null)\", \"COLUMNS(t.a, {c:Identifier})\", \"t.COLUMNS(a)\",\n\"columns(a + 1)\", \"COLUMNS()\", \"columns('a', 'b')\", \"t.COLUMNS(1)\",\n\"t.columns('a')\",])"
+---
+> columns(null)
+ColumnsMatcher
+  Keyword "columns"
+  ColumnList
+    OpeningRoundBracket "("
+    Name
+      BareWord "null"
+    ClosingRoundBracket ")"
+
+> COLUMNS(t.a, {c:Identifier})
+ColumnsMatcher
+  Keyword "COLUMNS"
+  ColumnList
+    OpeningRoundBracket "("
+    QualifiedName
+      Name
+        BareWord "t"
+      Dot "."
+      Name
+        BareWord "a"
+    Comma ","
+    QueryParameter
+      OpeningCurlyBrace "{"
+      Name
+        BareWord "c"
+      Colon ":"
+      DataType
+        Name
+          BareWord "Identifier"
+      ClosingCurlyBrace "}"
+    ClosingRoundBracket ")"
+
+> t.COLUMNS(a)
+ColumnsMatcher
+  Name
+    BareWord "t"
+  Dot "."
+  Keyword "COLUMNS"
+  ColumnList
+    OpeningRoundBracket "("
+    Name
+      BareWord "a"
+    ClosingRoundBracket ")"
+
+> columns(a + 1)
+FunctionCall
+  Name
+    BareWord "columns"
+  ArgList
+    OpeningRoundBracket "("
+    BinaryExpr
+      Name
+        BareWord "a"
+      Plus "+"
+      Literal
+        Number "1"
+    ClosingRoundBracket ")"
+
+> COLUMNS()
+FunctionCall
+  Name
+    BareWord "COLUMNS"
+  ArgList
+    OpeningRoundBracket "("
+    ClosingRoundBracket ")"
+
+> columns('a', 'b')
+FunctionCall
+  Name
+    BareWord "columns"
+  ArgList
+    OpeningRoundBracket "("
+    Literal
+      StringLiteral "'a'"
+    Comma ","
+    Literal
+      StringLiteral "'b'"
+    ClosingRoundBracket ")"
+
+> t.COLUMNS(1)
+FunctionCall
+  QualifiedName
+    Name
+      BareWord "t"
+    Dot "."
+    Name
+      BareWord "COLUMNS"
+  ArgList
+    OpeningRoundBracket "("
+    Literal
+      Number "1"
+    ClosingRoundBracket ")"
+
+> t.columns('a')
+FunctionCall
+  QualifiedName
+    Name
+      BareWord "t"
+    Dot "."
+    Name
+      BareWord "columns"
+  ArgList
+    OpeningRoundBracket "("
+    Literal
+      StringLiteral "'a'"
+    ClosingRoundBracket ")"

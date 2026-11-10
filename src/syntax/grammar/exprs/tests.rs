@@ -232,6 +232,22 @@ fn column_matchers() {
     ]));
 }
 
+/// `COLUMNS(…)` is a matcher only with a string or names in its brackets;
+/// otherwise it calls a function named `columns`.
+#[test]
+fn columns_matcher_or_function() {
+    insta::assert_snapshot!(trees(&[
+        "columns(null)",
+        "COLUMNS(t.a, {c:Identifier})",
+        "t.COLUMNS(a)",
+        "columns(a + 1)",
+        "COLUMNS()",
+        "columns('a', 'b')",
+        "t.COLUMNS(1)",
+        "t.columns('a')",
+    ]));
+}
+
 #[test]
 fn casts_and_parameters() {
     insta::assert_snapshot!(trees(&[
@@ -490,6 +506,10 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
     ("x like 'a' escape 'b'", "x LIKE 'a' ESCAPE 'b'"),
     ("dateDiff(day, a, b)", "dateDiff(DAY, a, b)"),
     ("columns('a')", "COLUMNS('a')"),
+    ("columns(null, true)", "COLUMNS(null, true)"),
+    ("columns(null + 1)", "columns(NULL + 1)"),
+    ("columns(a, 'b')", "columns(a, 'b')"),
+    ("columns()", "columns()"),
     ("* except (a)", "* EXCEPT (a)"),
     ("not(x)", "NOT(x)"),
     ("array(1, 2)", "array(1, 2)"),

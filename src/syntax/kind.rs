@@ -390,8 +390,13 @@ syntax_kinds! {
         Over: Node,
         /// `*` or `t.*`, with any `LIKE '…'` and column transformers.
         AsteriskExpr: Node,
-        /// `COLUMNS(…)` or `t.COLUMNS(…)`, with any column transformers.
+        /// `COLUMNS(…)` or `t.COLUMNS(…)`: `COLUMNS`, a
+        /// [`ColumnList`](Self::ColumnList), then any column transformers.
         ColumnsMatcher: Node,
+        /// `( a, t.b )` or `( '…' )`: the names or the pattern of a columns
+        /// matcher, as `COLUMNS(…)` and `EXCEPT (…)` take them, or the
+        /// replacements of `REPLACE (…)`.
+        ColumnList: List,
         /// `APPLY …`, `EXCEPT [STRICT] …` or `REPLACE [STRICT] …` after
         /// `*` or `COLUMNS(…)`.
         ColumnTransformer: Node,

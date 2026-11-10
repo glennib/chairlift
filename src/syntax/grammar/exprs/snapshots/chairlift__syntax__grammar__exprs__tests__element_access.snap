@@ -93,7 +93,7 @@ ColumnsMatcher
     BareWord "t"
   Dot "."
   Keyword "COLUMNS"
-  ArgList
+  ColumnList
     OpeningRoundBracket "("
     Literal
       StringLiteral "'re'"
