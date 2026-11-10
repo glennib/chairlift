@@ -85,6 +85,41 @@ fn errors_are_classified() {
 }
 
 #[test]
+fn classes_index_their_counts() {
+    // `Counts` indexes its rejections by discriminant.
+    for (i, class) in RejectionClass::ALL.into_iter().enumerate() {
+        assert_eq!(class as usize, i);
+    }
+    let rejected = |class: RejectionClass| StatementReport {
+        line: 1,
+        output_line: 1,
+        changed: true,
+        judgement: Judgement::Unjudgeable(Rejection {
+            class,
+            message: String::new(),
+        }),
+    };
+    let report = Report {
+        whole: Judgement::Same,
+        statements: vec![
+            rejected(RejectionClass::Syntax),
+            rejected(RejectionClass::Failed),
+            rejected(RejectionClass::Syntax),
+        ],
+        mismatch: None,
+    };
+    let mut counts = report.counts();
+    counts.add(&report.counts());
+    assert_eq!(counts.statements, 6);
+    assert_eq!(counts.changed, 6);
+    assert_eq!(counts.changed_judged, 0);
+    assert_eq!(counts.judged(), 0);
+    assert_eq!(counts.rejected(RejectionClass::Syntax), 4);
+    assert_eq!(counts.rejected(RejectionClass::Failed), 2);
+    assert_eq!(counts.rejected_total(), 6);
+}
+
+#[test]
 fn judgements() {
     let yes = |s: &str| Verdict::Accepted(s.to_owned());
     let no = Verdict::Rejected(Rejection {

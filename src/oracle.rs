@@ -21,9 +21,28 @@
 //!   output that the oracle rejects or prints differently, for an input it
 //!   accepts, is a formatter bug; an input it rejects cannot be judged, and
 //!   [`RejectionClass`] says why.
+//! - [`Oracle::judge_pairs`] judges formatted files: whole texts first, and
+//!   statement by statement wherever the whole texts do not come out the
+//!   same, so that one statement the oracle rejects (as the stateless tests'
+//!   deliberate errors are) does not hide the rest of its file. [`Report`]
+//!   holds the verdicts and [`Counts`] sums them up.
 //!
 //! Templates must be rendered before the oracle can judge them; unrendered
-//! Jinja is classified as [`RejectionClass::UnrenderedJinja`].
+//! Jinja is classified as [`RejectionClass::UnrenderedJinja`]. A rendering is
+//! judged as a [`Pair`] of its own, in [`Mode::Sql`].
+//!
+//! # Blind spots
+//!
+//! The oracle compares what `clickhouse-format` prints, so a change to
+//! something it does not print, or prints the same either way, goes unseen:
+//!
+//! - comments, which it drops;
+//! - the case of the keywords it prints in a fixed case (clause words,
+//!   operators, `NULL`, `true`, `false`); identifiers and function, type,
+//!   engine and setting names keep their case, so re-casing one of those as
+//!   a keyword shows;
+//! - the `GRANULARITY` of a `text` index, which it always prints as
+//!   `GRANULARITY 100000000` (other index types keep theirs).
 
 use std::io::Read as _;
 use std::io::Write as _;
@@ -44,12 +63,24 @@ use crate::lexer::tokenize;
 use crate::split::DataFormat;
 use crate::split::split;
 
+mod statements;
+
+pub use statements::Counts;
+pub use statements::Mismatch;
+pub use statements::Pair;
+pub use statements::Report;
+pub use statements::StatementReport;
+
 /// `clickhouse-format`, with how to batch work for it.
 #[derive(Clone, Debug)]
 pub struct Oracle {
     program: PathBuf,
-    /// Texts per process, at most.
+    /// Texts per process, at most, in [`canonical`](Oracle::canonical) and
+    /// for the whole texts of [`judge_pairs`](Oracle::judge_pairs).
     pub batch_files: usize,
+    /// Statements per process, at most, where
+    /// [`judge_pairs`](Oracle::judge_pairs) judges statement by statement.
+    pub batch_statements: usize,
     /// Bytes per process, roughly: a batch takes texts until it passes this.
     pub batch_bytes: usize,
     /// How long one process may run before it is killed.
@@ -96,6 +127,16 @@ pub enum RejectionClass {
 }
 
 impl RejectionClass {
+    /// Every class, in declaration order.
+    pub const ALL: [RejectionClass; 6] = [
+        RejectionClass::UnrenderedJinja,
+        RejectionClass::InsertData,
+        RejectionClass::EmptyQuery,
+        RejectionClass::Syntax,
+        RejectionClass::Other,
+        RejectionClass::Failed,
+    ];
+
     /// A short name, for tables and CSV.
     #[must_use]
     pub const fn name(self) -> &'static str {
@@ -183,13 +224,15 @@ pub fn prepare(text: &str, mode: Mode) -> String {
 
 impl Oracle {
     /// The oracle run as `program` (such as `clickhouse-format`, found on
-    /// `PATH`), with batches of up to 200 texts or 32 KiB, a 60 s timeout per
-    /// process, and one process per available CPU.
+    /// `PATH`), with batches of up to 200 texts (50 when they are statements)
+    /// or 32 KiB, a 60 s timeout per process, and one process per available
+    /// CPU.
     #[must_use]
     pub fn new(program: impl Into<PathBuf>) -> Oracle {
         Oracle {
             program: program.into(),
             batch_files: 200,
+            batch_statements: 50,
             batch_bytes: 32 << 10,
             timeout: Duration::from_secs(60),
             jobs: thread::available_parallelism().map_or(1, usize::from),
@@ -205,17 +248,22 @@ impl Oracle {
     /// The oracle's verdict on each text, in order.
     #[must_use]
     pub fn canonical(&self, texts: &[&str]) -> Vec<Verdict> {
-        self.canonical_in_batches(texts, self.batch_files)
+        self.canonical_in_batches(texts, self.batch_files, Fallback::Alone)
     }
 
     /// The verdict on each text, in order, with up to `batch_texts` texts to
     /// a process.
     ///
     /// Batches are tasks on a queue that every job takes from, and so is the
-    /// work a failed batch leaves: the text that failed, to run alone, and
-    /// the texts after it, as a batch. The fallbacks of one batch thus run
-    /// in parallel.
-    fn canonical_in_batches(&self, texts: &[&str], batch_texts: usize) -> Vec<Verdict> {
+    /// work a failed batch leaves: the texts after the one that failed, as a
+    /// batch, and with [`Fallback::Alone`] the one that failed, to run alone.
+    /// The fallbacks of one batch thus run in parallel.
+    fn canonical_in_batches(
+        &self,
+        texts: &[&str],
+        batch_texts: usize,
+        fallback: Fallback,
+    ) -> Vec<Verdict> {
         let jobs = self.jobs.max(1);
         // A few texts still go to every job.
         let per_batch = batch_texts.min(texts.len().div_ceil(jobs)).max(1);
@@ -251,7 +299,7 @@ impl Oracle {
                                 queue: &queue,
                                 more: Vec::new(),
                             };
-                            running.more = self.task(task, texts, &mut done);
+                            running.more = self.task(task, texts, fallback, &mut done);
                         }
                         done
                     })
@@ -280,7 +328,13 @@ impl Oracle {
 
     /// Runs `task` on `texts`, pushing the verdicts it reaches onto `done`,
     /// and returns the tasks it leaves.
-    fn task(&self, task: Task, texts: &[&str], done: &mut Vec<(usize, Verdict)>) -> Vec<Task> {
+    fn task(
+        &self,
+        task: Task,
+        texts: &[&str],
+        fallback: Fallback,
+        done: &mut Vec<(usize, Verdict)>,
+    ) -> Vec<Task> {
         let range = match task {
             Task::Alone(k) => {
                 done.push((k, self.alone(texts[k])));
@@ -297,9 +351,9 @@ impl Oracle {
             .enumerate()
             .map(|(n, k)| [texts[k], &*terminator(texts[k]), &boundary(n)].concat())
             .collect();
-        let outputs = match self.run(&input) {
-            Ok(run) => split_batch_output(&run.stdout),
-            Err(_) => Vec::new(),
+        let (outputs, stderr) = match self.run(&input) {
+            Ok(run) => (split_batch_output(&run.stdout), run.stderr),
+            Err(_) => (Vec::new(), String::new()),
         };
         let completed = outputs.len().min(range.len());
         for (k, output) in range.clone().zip(outputs) {
@@ -309,12 +363,16 @@ impl Oracle {
         if failed == range.end {
             return Vec::new();
         }
-        // The text after the last boundary printed failed; it may have
-        // failed only because of what the batch put around it, so it is
-        // judged on its own.
-        let mut more = vec![Task::Alone(failed)];
+        let mut more = Vec::new();
         if failed + 1 < range.end {
             more.push(Task::Batch(failed + 1..range.end));
+        }
+        // The text after the last boundary printed failed.
+        let rejection = classify(&stderr);
+        if fallback == Fallback::BatchError && rejection.class != RejectionClass::Failed {
+            done.push((failed, Verdict::Rejected(rejection)));
+        } else {
+            more.push(Task::Alone(failed));
         }
         more
     }
@@ -386,6 +444,19 @@ struct Run {
     success: bool,
     stdout: String,
     stderr: String,
+}
+
+/// What becomes of a text that fails in a batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Fallback {
+    /// It is run again on its own, since it may have failed only because of
+    /// what the batch put after it. Each failure costs a process.
+    Alone,
+    /// It is rejected with the batch's error, unless the process failed
+    /// outright. A batch rejects a text that passes alone only where the
+    /// text runs into what follows it, which [`terminator`] is there to
+    /// prevent; callers re-run alone the rejections a judgement turns on.
+    BatchError,
 }
 
 /// Work for one `clickhouse-format` process, as indices into the texts.
