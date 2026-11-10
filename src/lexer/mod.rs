@@ -311,9 +311,12 @@ pub(crate) fn is_whitespace(c: char) -> bool {
 /// `.` and digits lex differently after some tokens.
 ///
 /// This is what keeps a printer from turning `-` `-1` into a comment, `x`
-/// `'0'` into a hex string, or `{{ a }}` `b` into one rendered word. Two rules
-/// reach beyond the pair, so those pairs never touch:
+/// `'0'` into a hex string, or `{{ a }}` `b` into one rendered word. Three
+/// rules reach beyond the pair, so those pairs never touch:
 ///
+/// - a Jinja expression or raw block can render as anything, so no token is
+///   known to be safe next to it: a printer keeps the input's whitespace, or
+///   its absence, on both sides of one, which the verifier checks;
 /// - a number that ends in an exponent marker (`1e`) followed by `+` or `-`
 ///   could absorb the sign and the digits after it;
 /// - a `$` followed by a `$` or a word character can start a `$tag$`
@@ -342,6 +345,10 @@ pub fn can_touch(
 ) -> bool {
     let (left_kind, left_text) = left;
     let (right_kind, right_text) = right;
+    let opaque = |kind| matches!(kind, TokenKind::JinjaExpr | TokenKind::Verbatim);
+    if opaque(left_kind) || opaque(right_kind) {
+        return false;
+    }
     if left_kind == TokenKind::Number
         && left_text.ends_with(['e', 'E', 'p', 'P'])
         && right_text.starts_with(['+', '-'])

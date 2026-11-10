@@ -120,8 +120,9 @@ fn touching_tokens_in_jinja_mode() {
             (JinjaBlock, "{% endif %}"),
             true,
         ),
-        ((JinjaExpr, "{{ a }}"), (Comma, ","), true),
-        ((Dot, "."), (JinjaExpr, "{{ c }}"), true),
+        ((JinjaExpr, "{{ a }}"), (Comma, ","), false),
+        ((Dot, "."), (JinjaExpr, "{{ c }}"), false),
+        ((Verbatim, "{% raw %}-{% endraw %}"), (Number, "1"), false),
         ((OpeningCurlyBrace, "{"), (OpeningCurlyBrace, "{"), false),
     ];
     for (left, right, expected) in cases {

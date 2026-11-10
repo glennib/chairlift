@@ -198,7 +198,7 @@ fn jinja_tags_keep_their_bytes() {
     );
     verify(
         "SELECT {{ x }} ,1",
-        "SELECT {{ x }},\n1",
+        "SELECT {{ x }}\n, 1",
         Mode::Jinja,
         &none,
     )
@@ -269,6 +269,44 @@ fn rendering_as_the_renderer_joins_text() {
     );
     assert_eq!(rendered("a {% raw %}").0, "a ");
     assert_eq!(rendered("no tags").0, "no tags");
+}
+
+/// What an expression renders as is unknown, so whitespace next to it may
+/// change but not appear or disappear.
+#[test]
+fn whitespace_next_to_an_expression_stays_or_stays_absent() {
+    let none = Facts::new();
+    let jinja_ok = |input: &str, output: &str| {
+        verify(input, output, Mode::Jinja, &none).unwrap_or_else(|e| panic!("{input:?}: {e}"));
+    };
+    let e = fails("SELECT - {{ x }}", "SELECT -{{ x }}", Mode::Jinja, &none);
+    assert!(e.detail.contains("glued"), "{e}");
+    fails("SELECT {{ x }},1", "SELECT {{ x }} ,1", Mode::Jinja, &none);
+    fails(
+        "SELECT 1 {% raw %}x{% endraw %} 1",
+        "SELECT 1{% raw %}x{% endraw %} 1",
+        Mode::Jinja,
+        &none,
+    );
+    jinja_ok(
+        "SELECT 1 {% raw %}-{% endraw %} 1",
+        "SELECT 1 {% raw %}-{% endraw %}\n\n1",
+    );
+    jinja_ok("SELECT - {{ x }}", "SELECT -\n  {{ x }}\n");
+    jinja_ok("SELECT {{ x }},1", "SELECT {{ x }},1\n");
+    // Once rendered, the block tag is gone and `-` meets the expression.
+    fails(
+        "SELECT - {% if a %}{{ x }}",
+        "SELECT -{% if a %}{{ x }}",
+        Mode::Jinja,
+        &none,
+    );
+    // `-}}` strips the space either way.
+    jinja_ok("SELECT {{- x -}} ,1", "SELECT {{- x -}},\n1");
+    // A word with a tag glued into it is a word.
+    jinja_ok("SELECT -events_{{ s }}", "SELECT -events_{{ s }}\n");
+    // The ends of the text are not neighbouring tokens.
+    jinja_ok("{{ x }}", "{{ x }}\n");
 }
 
 /// A raw block renders as its text, which joins the SQL around it.

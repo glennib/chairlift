@@ -16,11 +16,15 @@
 //! printer that glues tokens: `-` `-1` printed as `--1` is a comment, and a
 //! line comment that loses its newline swallows what follows.
 //!
-//! Two checks reach beyond single tokens:
+//! Three checks reach beyond single tokens:
 //!
 //! - text the formatter recorded as verbatim (see [`Facts::keep_verbatim`]),
 //!   such as the left operand of `::` whose source text ClickHouse reads, must
 //!   be byte-identical, whitespace included;
+//! - next to a Jinja expression, whitespace between it and the
+//!   neighbouring token is present in the output exactly where it is in the
+//!   input (in the rendered texts, when rendering joins text, see below),
+//!   since what the expression renders as could join its neighbour;
 //! - in Jinja mode, when the text has a block or comment tag or a `-` marker,
 //!   both texts are compared once more as the renderer would join them: with
 //!   block and comment tags removed, raw blocks replaced by their text and
@@ -155,6 +159,8 @@ pub fn verify_split(
     }
     if mode == Mode::Jinja && render_joins_text(input) {
         check_rendered(input, output)?;
+    } else {
+        check_opaque_spacing(&before, &after)?;
     }
     Ok(())
 }
@@ -301,6 +307,43 @@ fn check_verbatim(
     })
 }
 
+/// Between an expression and the token on either side,
+/// whitespace is present in the output exactly where it is in the input: a
+/// `{{ … }}` can render as anything, so `- {{ x }}` printed as `-{{ x }}`
+/// turns into a comment when `x` renders as `-1`.
+///
+/// Where rendering joins text, this runs on the rendered texts, where block
+/// tags and stripped whitespace are gone and raw blocks are text, so the
+/// neighbours are the ones the SQL ends up with.
+fn check_opaque_spacing(before: &Side<'_>, after: &Side<'_>) -> Result<(), VerifyError> {
+    let opaque = |n: usize| {
+        matches!(
+            before.tokens[before.solid[n]].kind(),
+            TokenKind::JinjaExpr | TokenKind::Verbatim
+        )
+    };
+    let spaced = |side: &Side<'_>, n: usize| side.solid[n + 1] > side.solid[n] + 1;
+    for n in 0..before.solid.len().saturating_sub(1) {
+        if (opaque(n) || opaque(n + 1)) && spaced(before, n) != spaced(after, n) {
+            return Err(VerifyError {
+                input: before.position(n + 1),
+                output: after.position(n + 1),
+                detail: format!(
+                    "{} and {} are {} in the output, and one of them renders as anything",
+                    before.describe(n),
+                    before.describe(n + 1),
+                    if spaced(before, n) {
+                        "glued"
+                    } else {
+                        "separated"
+                    }
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Whether rendering the template can join its text differently from how
 /// its tokens lie: it has a block or comment tag, which renders nothing, or
 /// a `-` marker, which strips whitespace.
@@ -406,6 +449,7 @@ fn check_rendered(input: &str, output: &str) -> Result<(), VerifyError> {
     compare(&before, &after, |_, kind, a, b| {
         kind.is_error() || same_text(kind, a, b, kind == TokenKind::BareWord)
     })
+    .and_then(|()| check_opaque_spacing(&before, &after))
     .map_err(|e| VerifyError {
         input: Position::new(input, 0),
         output: Position::new(output, 0),
