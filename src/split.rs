@@ -8,8 +8,9 @@
 //! - every `;` token ends a statement; a `;` inside a string, quoted
 //!   identifier, heredoc, comment or Jinja tag is part of that token and never
 //!   does;
-//! - the data after `INSERT … VALUES` (or `FORMAT Values`) runs up to the
-//!   `;` that ends the statement, or the end of the input;
+//! - the data after `INSERT … VALUES` (or `FORMAT Values`, the name
+//!   possibly quoted but in exactly that case) runs up to the `;` that ends
+//!   the statement, or the end of the input;
 //! - the data after `INSERT … FORMAT name` for any other format starts after
 //!   the format name, past spaces, tabs and form feeds and then one line
 //!   break, and runs up to the first blank line (`\n\n`) or the end of the
@@ -582,7 +583,9 @@ impl Head {
             }
             State::FormatName if is_name => {
                 if !self.infile && (!self.select || self.input) {
-                    step = if text == "Values" {
+                    // clickhouse-client compares the name exactly, after
+                    // unquoting: `Values`, `"Values"` and `` `Values` ``.
+                    step = if matches!(text, "Values" | "\"Values\"" | "`Values`") {
                         Step::Values
                     } else {
                         Step::Format

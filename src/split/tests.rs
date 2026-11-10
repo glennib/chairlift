@@ -313,6 +313,19 @@ fn format_values_uses_the_values_rule() {
         sql("INSERT INTO t FORMAT values (1);\n\n"),
         ["INSERT INTO t FORMAT values (1); <data:\"(1);\"> <no ;>"]
     );
+    // After unquoting, as `clickhouse local` shows.
+    assert_eq!(
+        sql("INSERT INTO t FORMAT \"Values\" (1),\n\n(2);"),
+        ["INSERT INTO t FORMAT \"Values\" (1),\n\n(2); <values:\"(1),\\n\\n(2)\">"]
+    );
+    assert_eq!(
+        sql("INSERT INTO t FORMAT `Values` (1);"),
+        ["INSERT INTO t FORMAT `Values` (1); <values:\"(1)\">"]
+    );
+    assert_eq!(
+        sql("INSERT INTO t FORMAT \"values\" (1);\n\n"),
+        ["INSERT INTO t FORMAT \"values\" (1); <data:\"(1);\"> <no ;>"]
+    );
 }
 
 #[test]
