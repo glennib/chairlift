@@ -200,6 +200,14 @@ const CASES: &[Case] = cases! {
     jinja "‘{{ \"’\" }}’" => [StringLiteral "‘{{ \"’\" }}’"];
     jinja "x'{{ h }}'" => [StringLiteral "x'{{ h }}'"];
     jinja "$$ {{ \"$$\" }} $$" => [HereDoc "$$ {{ \"$$\" }} $$"];
+    // After an opener finds no closer, later openers look theirs up in an
+    // index; it must agree with the search, tags skipped.
+    sql "$x$ $a$ 1 $$a$ $a$" => [
+        BareWord "$x$", Whitespace " ", HereDoc "$a$ 1 $$a$", Whitespace " ", BareWord "$a$",
+    ];
+    jinja "$x$ $a$ {{ '$a$' }} $a$" => [
+        BareWord "$x$", Whitespace " ", HereDoc "$a$ {{ '$a$' }} $a$",
+    ];
     jinja "-- {{ x\n }}\ny" => [LineComment "-- {{ x\n }}", Whitespace "\n", BareWord "y"];
     jinja "1 -- it's {# not closed\nSELECT 2;" => [
         Number "1", Whitespace " ", ErrorJinjaTagIsNotClosed "-- it's {# not closed\nSELECT 2;",

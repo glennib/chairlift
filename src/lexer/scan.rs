@@ -8,6 +8,8 @@
 //! identifier, heredoc or comment steps over whole tags ([`Scanner::tag_at`]),
 //! so a quote or closer inside a tag never ends the SQL construct around it.
 
+use std::collections::HashMap;
+
 use super::Mode;
 use super::Token;
 use super::TokenKind;
@@ -30,7 +32,19 @@ pub(super) struct Scanner<'s> {
     /// been scanned and found to have nothing to join: its tags are single
     /// tokens.
     separate_tags_until: usize,
+    /// Every heredoc closer candidate, built the first time a heredoc opener
+    /// finds no closer: searching the rest of the input once per opener is
+    /// quadratic on a text of many unclosed openers.
+    closers: Option<Closers<'s>>,
+    /// Bytes visited looking for heredoc closers, for a test that the search
+    /// stays linear.
+    #[cfg(test)]
+    pub(super) closer_steps: usize,
 }
+
+/// For each tag, the offsets of the `$tag$` sequences in the input outside
+/// Jinja tags, in order.
+type Closers<'s> = HashMap<&'s [u8], Vec<u32>>;
 
 /// A run of glued pieces: tags, and the word characters between them.
 struct Run {
@@ -58,6 +72,9 @@ impl<'s> Scanner<'s> {
             prev,
             continued,
             separate_tags_until: 0,
+            closers: None,
+            #[cfg(test)]
+            closer_steps: 0,
         }
     }
 
@@ -451,15 +468,72 @@ impl<'s> Scanner<'s> {
             return None;
         }
         let opener = &b[start..=tag_end];
-        let mut pos = tag_end + 1;
-        while pos + opener.len() <= b.len() {
-            if b[pos..].starts_with(opener) {
-                self.pos = pos + opener.len();
-                return Some(TokenKind::HereDoc);
+        let from = tag_end + 1;
+        let closer = if let Some(closers) = &self.closers {
+            closers.get(&b[start + 1..tag_end]).and_then(|offsets| {
+                let i = offsets.partition_point(|&p| (p as usize) < from);
+                offsets.get(i).map(|&p| p as usize)
+            })
+        } else {
+            let mut found = None;
+            let mut pos = from;
+            while pos + opener.len() <= b.len() {
+                #[cfg(test)]
+                {
+                    self.closer_steps += 1;
+                }
+                if b[pos..].starts_with(opener) {
+                    found = Some(pos);
+                    break;
+                }
+                pos = self.tag_at(pos).unwrap_or(pos + 1);
             }
-            pos = self.tag_at(pos).unwrap_or(pos + 1);
+            if found.is_none() {
+                self.closers = Some(self.find_closers());
+            }
+            found
+        };
+        let pos = closer?;
+        self.pos = pos + opener.len();
+        Some(TokenKind::HereDoc)
+    }
+
+    /// Every `$tag$` outside Jinja tags, found with the same steps the search
+    /// in [`heredoc`](Self::heredoc) takes, so a lookup finds the closer that
+    /// search would find. A `$` starts at most one: the word characters after
+    /// it, if a `$` follows them.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "`Lexer::new` rejects inputs of 4 GiB or more"
+    )]
+    fn find_closers(&mut self) -> Closers<'s> {
+        let b = self.bytes;
+        let mut closers = Closers::new();
+        let mut pos = 0;
+        while pos < b.len() {
+            #[cfg(test)]
+            {
+                self.closer_steps += 1;
+            }
+            if let Some(end) = self.tag_at(pos) {
+                pos = end;
+                continue;
+            }
+            if b[pos] == b'$' {
+                let mut end = pos + 1;
+                while end < b.len() && is_word_char(b[end]) {
+                    end += 1;
+                }
+                if b.get(end) == Some(&b'$') {
+                    closers
+                        .entry(&b[pos + 1..end])
+                        .or_default()
+                        .push(pos as u32);
+                }
+            }
+            pos += 1;
         }
-        None
+        closers
     }
 
     fn hex_or_bin_string(&mut self, start: usize) -> TokenKind {

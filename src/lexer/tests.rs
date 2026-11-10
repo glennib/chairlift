@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use super::*;
 
 fn kinds(source: &str) -> Vec<TokenKind> {
@@ -132,4 +134,30 @@ fn touching_tokens_in_jinja_mode() {
         (OpeningCurlyBrace, "{"),
         (OpeningCurlyBrace, "{")
     ));
+}
+
+/// Distinct heredoc openers without closers each search the rest of the input
+/// for theirs; the search stays linear in the input, not quadratic.
+#[test]
+fn heredoc_closer_search_is_linear() {
+    for mode in [Mode::Sql, Mode::Jinja] {
+        let mut source = String::new();
+        for i in 0..20_000 {
+            write!(source, "$t{i}$ {{{{ x }}}} ").unwrap();
+        }
+        let mut scanner = scan::Scanner::new(&source, mode, None, false);
+        let mut words = 0;
+        while let Some(token) = scanner.next_token() {
+            words += usize::from(
+                token.kind() == TokenKind::BareWord && token.text(&source).starts_with("$t"),
+            );
+        }
+        assert_eq!(words, 20_000);
+        assert!(
+            scanner.closer_steps <= 2 * source.len(),
+            "{mode:?}: {} steps for {} bytes",
+            scanner.closer_steps,
+            source.len()
+        );
+    }
 }
