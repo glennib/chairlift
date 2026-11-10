@@ -448,6 +448,179 @@ fn keyword_slots_agree_with_clickhouse() {
     assert!(differences.is_empty(), "{differences}");
 }
 
+/// Places of a query where a word may be a name, with `{}` for the word.
+const WORD_POSITIONS: &[&str] = &[
+    "SELECT {} FROM t",
+    "SELECT a, {} FROM t",
+    "SELECT a AS {} FROM t",
+    "SELECT a {} FROM t",
+    "SELECT DISTINCT {} FROM t",
+    "SELECT ({}) FROM t",
+    "SELECT ({}, 1) FROM t",
+    "SELECT {}(1) FROM t",
+    "SELECT * FROM {}",
+    "SELECT * FROM {}.t",
+    "SELECT * FROM db.{}",
+    "SELECT * FROM {}(1)",
+    "SELECT * FROM t AS {}",
+    "SELECT * FROM t {}",
+    "SELECT * FROM t {} WHERE 1",
+    "SELECT * FROM t AS x ({})",
+    "WITH {} AS (SELECT 1) SELECT * FROM {}",
+    "WITH 1 AS {} SELECT {}",
+    "SELECT * FROM a JOIN b USING ({})",
+    "SELECT * FROM a JOIN b USING {}",
+    "SELECT * FROM a JOIN b ON {} = 1",
+    "SELECT * FROM a JOIN {} ON 1",
+    "SELECT * FROM t ARRAY JOIN {}",
+    "SELECT * FROM t PREWHERE {}",
+    "SELECT * FROM t WHERE {}",
+    "SELECT * FROM t WHERE {} = 1",
+    "SELECT * FROM t GROUP BY {}",
+    "SELECT * FROM t GROUP BY a, {}",
+    "SELECT * FROM t HAVING {}",
+    "SELECT * FROM t QUALIFY {}",
+    "SELECT * FROM t WINDOW {} AS ()",
+    "SELECT * FROM t ORDER BY {}",
+    "SELECT * FROM t ORDER BY {} DESC",
+    "SELECT * FROM t ORDER BY a, {}",
+    "SELECT x FROM t ORDER BY x WITH FILL INTERPOLATE ({})",
+    "SELECT * FROM t LIMIT {}",
+    "SELECT * FROM t LIMIT 1 BY {}",
+    "SELECT * FROM t LIMIT 1 OFFSET {}",
+    "SELECT * FROM t SETTINGS {} = 1",
+    "SELECT * FROM t FORMAT {}",
+    "SELECT * FROM t LIMIT {} BY a",
+    "SELECT * FROM t OFFSET {}",
+    "SELECT * FROM t AS {} FINAL",
+    "SELECT * FROM t1 {} JOIN t2 ON 1",
+    "SELECT * FROM (SELECT 1) {}",
+    "SELECT * FROM numbers(1) {}",
+    "WITH {} SELECT 1",
+    "FROM {} SELECT 1",
+    "FROM t {} SELECT 1",
+    "SELECT {} FROM t UNION ALL SELECT 1",
+    "SELECT * FROM (SELECT {} FROM t)",
+    "SELECT * FROM t WHERE a IN (SELECT {} FROM u)",
+];
+
+/// Every ClickHouse keyword word, lower case and capitalised, in each of
+/// [`WORD_POSITIONS`]: wherever the parser re-cases it, ClickHouse must
+/// format the re-cased query as it formats the input (or reject the input),
+/// which it does not if a name was re-cased as a keyword. The rest of each
+/// query is upper case already, so only the word can change.
+#[test]
+fn keyword_words_as_names_agree_with_clickhouse() {
+    let Some(clickhouse) = clickhouse_local() else {
+        return;
+    };
+    let mut pairs = Vec::new();
+    for keyword in crate::keyword::Keyword::ALL {
+        let lower = keyword.as_str().to_ascii_lowercase();
+        let capitalised = format!("{}{}", &keyword.as_str()[..1], &lower[1..]);
+        for word in [lower, capitalised] {
+            for position in WORD_POSITIONS {
+                let source = position.replace("{}", &word);
+                let parse = crate::syntax::parse(&source, crate::lexer::Mode::Sql);
+                let recased = parse.recased();
+                crate::verify::verify(&source, &recased, crate::lexer::Mode::Sql, parse.facts())
+                    .unwrap_or_else(|e| panic!("{source}: {e}"));
+                if recased != source {
+                    pairs.push((source, recased));
+                }
+            }
+        }
+    }
+    assert_ne!(pairs.len(), 0);
+    let formatted = format_queries(
+        &clickhouse,
+        pairs.iter().flat_map(|(source, recased)| [source, recased]),
+    );
+    let judged = formatted.chunks(2).filter(|f| f[0].is_some()).count();
+    eprintln!("{} re-cased, {judged} judged", pairs.len());
+    let mut differences = String::new();
+    for ((source, recased), formatted) in pairs.iter().zip(formatted.chunks(2)) {
+        // `COLUMNS(1)`, without a pattern or names, is a function call to
+        // ClickHouse; the expression grammar reads a matcher.
+        if source.contains("olumns(1)") {
+            continue;
+        }
+        // An input ClickHouse rejects cannot be judged.
+        if formatted[0].is_some() && formatted[0] != formatted[1] {
+            let _ = writeln!(
+                differences,
+                "{source} → {recased}: {:?} vs {:?}",
+                formatted[0], formatted[1]
+            );
+        }
+    }
+    assert!(differences.is_empty(), "{differences}");
+}
+
+/// Each query formatted on one line by ClickHouse, or `None` where it does
+/// not parse, in one `clickhouse local` process.
+fn format_queries<'a>(
+    clickhouse: &std::ffi::OsStr,
+    queries: impl Iterator<Item = &'a String>,
+) -> Vec<Option<String>> {
+    use std::io::Write as _;
+    let mut input = String::new();
+    for query in queries {
+        assert!(!query.contains(['\t', '\n', '\\']), "{query}");
+        input.push_str(query);
+        input.push('\n');
+    }
+    let mut child = std::process::Command::new(clickhouse)
+        .args([
+            "local",
+            "--input-format",
+            "TSVRaw",
+            "--output-format",
+            "TSVRaw",
+            "--structure",
+            "q String",
+            "--query",
+            "SELECT ifNull(formatQuerySingleLineOrNull(q), '\\\\N') FROM table",
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("clickhouse local starts");
+    let mut stdin = child.stdin.take().expect("stdin");
+    let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
+    let output = child.wait_with_output().expect("clickhouse local runs");
+    writer.join().expect("writer").expect("input written");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout)
+        .expect("UTF-8")
+        .lines()
+        .map(|line| (line != "\\N").then(|| line.to_owned()))
+        .collect()
+}
+
+/// `clickhouse`, for `clickhouse local`, if it runs; `CHAIRLIFT_CLICKHOUSE`
+/// names the binary.
+fn clickhouse_local() -> Option<std::ffi::OsString> {
+    let program = std::env::var_os("CHAIRLIFT_CLICKHOUSE").unwrap_or_else(|| "clickhouse".into());
+    let runs = std::process::Command::new(&program)
+        .args(["local", "--query", "SELECT 1"])
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if runs {
+        return Some(program);
+    }
+    assert!(
+        std::env::var_os("CHAIRLIFT_REQUIRE_CORPUS").is_none_or(|v| v.is_empty()),
+        "clickhouse local is unavailable, and CHAIRLIFT_REQUIRE_CORPUS is set"
+    );
+    eprintln!("skipping: clickhouse local is unavailable");
+    None
+}
+
 #[test]
 fn deep_subqueries_become_verbatim_without_overflowing() {
     let deep = 5_000;
