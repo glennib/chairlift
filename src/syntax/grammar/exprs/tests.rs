@@ -541,6 +541,14 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
     ("array[1, 2]", "ARRAY[1, 2]"),
     ("x::Nullable(String)", "x::Nullable(String)"),
     ("x::nullable(string)", "x::nullable(string)"),
+    (
+        "x::AggregateFunction(1, null, String)",
+        "x::AggregateFunction(1, null, String)",
+    ),
+    (
+        "x::SimpleAggregateFunction(true, Nullable(String))",
+        "x::SimpleAggregateFunction(true, Nullable(String))",
+    ),
     ("{x:Int8}", "{x:Int8}"),
     (
         "sum(x) over (partition by y)",

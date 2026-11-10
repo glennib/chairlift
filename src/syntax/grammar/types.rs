@@ -147,7 +147,7 @@ fn type_arg(p: &mut Parser<'_>, name: &str, index: usize, function_at: &mut usiz
                 *function_at = 1;
                 exprs::literal(p).map(drop)
             } else if index == *function_at {
-                exprs::expr(p).map(drop)
+                aggregate_function(p).map(drop)
             } else {
                 data_type(p).map(drop)
             }
@@ -160,6 +160,22 @@ fn type_arg(p: &mut Parser<'_>, name: &str, index: usize, function_at: &mut usiz
         }
         _ => data_type(p).map(drop),
     }
+}
+
+/// The function of an aggregate function type: its name, or a call that
+/// gives its parameters (`quantiles(0.5, 0.9)`). It is never a literal, so
+/// `AggregateFunction(null, String)` names a function `null`.
+fn aggregate_function(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    let name = names::compound_name(p)?;
+    if !p.at(T::OpeningRoundBracket) {
+        return Some(name);
+    }
+    let call = name.precede(p);
+    exprs::arg_list(p)?;
+    if p.at(T::OpeningRoundBracket) {
+        exprs::arg_list(p)?;
+    }
+    Some(call.complete(p, SyntaxKind::FunctionCall))
 }
 
 /// `name Type`, where the name may be dotted (`JSON(a.b UInt32)`).

@@ -1,6 +1,6 @@
 ---
 source: src/syntax/grammar/types/tests.rs
-expression: "trees(&[\"UInt64\", \"Nullable(String)\", \"LowCardinality(Nullable(String))\",\n\"Array(Array(Int8))\", \"Map(String, UInt64)\", \"Tuple(a Int8, b String)\",\n\"Tuple(Int8, String)\", \"Tuple()\", \"Nested(a UInt8, b Array(String))\",\n\"Enum8('a' = 1, 'b' = -2)\", \"Enum('a', 'b')\", \"DateTime64(3, 'UTC')\",\n\"Decimal(10, 2)\", \"FixedString(16)\", \"AggregateFunction(uniq, String)\",\n\"AggregateFunction(quantiles(0.5, 0.9), UInt64)\",\n\"AggregateFunction(1, sum, UInt64)\",\n\"SimpleAggregateFunction(anyLast, String)\",\n\"JSON(max_dynamic_paths = 10, a.b UInt32, SKIP a.c, SKIP REGEXP 'x.*')\",\n\"Dynamic(max_types = 10)\", \"Object('json')\", \"DOUBLE PRECISION\",\n\"INT(11) UNSIGNED\", \"NATIONAL CHARACTER VARYING\", \"`UInt8`\",\n\"{{ column_type }}\",])"
+expression: "trees(&[\"UInt64\", \"Nullable(String)\", \"LowCardinality(Nullable(String))\",\n\"Array(Array(Int8))\", \"Map(String, UInt64)\", \"Tuple(a Int8, b String)\",\n\"Tuple(Int8, String)\", \"Tuple()\", \"Nested(a UInt8, b Array(String))\",\n\"Enum8('a' = 1, 'b' = -2)\", \"Enum('a', 'b')\", \"DateTime64(3, 'UTC')\",\n\"Decimal(10, 2)\", \"FixedString(16)\", \"AggregateFunction(uniq, String)\",\n\"AggregateFunction(quantiles(0.5, 0.9), UInt64)\",\n\"AggregateFunction(1, sum, UInt64)\",\n\"SimpleAggregateFunction(anyLast, String)\", \"AggregateFunction(null, String)\",\n\"AggregateFunction(1, true, String)\", \"SimpleAggregateFunction(nan, Float64)\",\n\"JSON(max_dynamic_paths = 10, a.b UInt32, SKIP a.c, SKIP REGEXP 'x.*')\",\n\"Dynamic(max_types = 10)\", \"Object('json')\", \"DOUBLE PRECISION\",\n\"INT(11) UNSIGNED\", \"NATIONAL CHARACTER VARYING\", \"`UInt8`\",\n\"{{ column_type }}\",])"
 ---
 > UInt64
 DataType
@@ -276,6 +276,51 @@ DataType
     DataType
       Name
         BareWord "String"
+    ClosingRoundBracket ")"
+
+> AggregateFunction(null, String)
+DataType
+  Name
+    BareWord "AggregateFunction"
+  TypeArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "null"
+    Comma ","
+    DataType
+      Name
+        BareWord "String"
+    ClosingRoundBracket ")"
+
+> AggregateFunction(1, true, String)
+DataType
+  Name
+    BareWord "AggregateFunction"
+  TypeArgList
+    OpeningRoundBracket "("
+    Literal
+      Number "1"
+    Comma ","
+    Name
+      BareWord "true"
+    Comma ","
+    DataType
+      Name
+        BareWord "String"
+    ClosingRoundBracket ")"
+
+> SimpleAggregateFunction(nan, Float64)
+DataType
+  Name
+    BareWord "SimpleAggregateFunction"
+  TypeArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "nan"
+    Comma ","
+    DataType
+      Name
+        BareWord "Float64"
     ClosingRoundBracket ")"
 
 > JSON(max_dynamic_paths = 10, a.b UInt32, SKIP a.c, SKIP REGEXP 'x.*')
