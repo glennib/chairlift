@@ -493,7 +493,7 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
     ("events_{{ s }}", "events_{{ s }}"),
     ("'{{ and }}' and y", "'{{ and }}' AND y"),
     ("f(x) filter (where y)", "f(x) FILTER (WHERE y)"),
-    ("x = any (select 1)", "x = ANY (select 1)"),
+    ("x = any (select 1)", "x = ANY (SELECT 1)"),
 ];
 
 #[test]

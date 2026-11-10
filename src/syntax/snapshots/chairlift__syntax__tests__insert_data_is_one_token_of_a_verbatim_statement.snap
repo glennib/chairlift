@@ -1,6 +1,6 @@
 ---
 source: src/syntax/tests.rs
-expression: "file_tree(\"INSERT INTO t VALUES (1, 'a'),\\n(2, 'b');\\nINSERT INTO t FORMAT CSV\\n1,2\\n\\nSELECT 1\",\nMode::Sql)"
+expression: "file_tree(\"INSERT INTO t VALUES (1, 'a'),\\n(2, 'b');\\nINSERT INTO t FORMAT CSV\\n1,2\\n\\nSELECT 1\",\nMode::Sql, Entry::File)"
 ---
 Root@0..79
   Statement@0..40
@@ -31,7 +31,10 @@ Root@0..79
       InsertData@66..69 "1,2"
   Whitespace@69..71 "\n\n"
   Statement@71..79
-    VerbatimStatement@71..79
-      BareWord@71..77 "SELECT"
-      Whitespace@77..78 " "
-      Number@78..79 "1"
+    SelectQuery@71..79
+      SelectClause@71..79
+        Keyword@71..77 "SELECT"
+        Whitespace@77..78 " "
+        SelectList@78..79
+          Literal@78..79
+            Number@78..79 "1"

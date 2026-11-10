@@ -1,0 +1,328 @@
+---
+source: src/syntax/grammar/select/tests.rs
+expression: "trees(&[\"WITH daily AS (SELECT 1 AS x) SELECT x FROM daily\",\n\"WITH a AS (SELECT 1), b AS (SELECT 2) SELECT * FROM a, b\",\n\"WITH 1 AS one, now() AS t, (SELECT max(x) FROM u) AS m SELECT one\",\n\"WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r\",\n\"WITH m AS MATERIALIZED (SELECT 1) SELECT * FROM m\",\n\"WITH c (a, b) AS (SELECT 1, 2) SELECT a FROM c\",\n\"WITH x AS materialized SELECT materialized\",\n\"WITH a AS (SELECT 1), SELECT * FROM a\",])"
+---
+> WITH daily AS (SELECT 1 AS x) SELECT x FROM daily
+SelectQuery
+  WithClause
+    Keyword "WITH"
+    WithList
+      CommonTableExpr
+        Name
+          BareWord "daily"
+        Keyword "AS"
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                AliasedExpr
+                  Literal
+                    Number "1"
+                  Alias
+                    Keyword "AS"
+                    Name
+                      BareWord "x"
+          ClosingRoundBracket ")"
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "x"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "daily"
+
+> WITH a AS (SELECT 1), b AS (SELECT 2) SELECT * FROM a, b
+SelectQuery
+  WithClause
+    Keyword "WITH"
+    WithList
+      CommonTableExpr
+        Name
+          BareWord "a"
+        Keyword "AS"
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                Literal
+                  Number "1"
+          ClosingRoundBracket ")"
+      Comma ","
+      CommonTableExpr
+        Name
+          BareWord "b"
+        Keyword "AS"
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                Literal
+                  Number "2"
+          ClosingRoundBracket ")"
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "a"
+      Comma ","
+      TableExpr
+        Name
+          BareWord "b"
+
+> WITH 1 AS one, now() AS t, (SELECT max(x) FROM u) AS m SELECT one
+SelectQuery
+  WithClause
+    Keyword "WITH"
+    WithList
+      AliasedExpr
+        Literal
+          Number "1"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "one"
+      Comma ","
+      AliasedExpr
+        FunctionCall
+          Name
+            BareWord "now"
+          ArgList
+            OpeningRoundBracket "("
+            ClosingRoundBracket ")"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "t"
+      Comma ","
+      AliasedExpr
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                FunctionCall
+                  Name
+                    BareWord "max"
+                  ArgList
+                    OpeningRoundBracket "("
+                    Name
+                      BareWord "x"
+                    ClosingRoundBracket ")"
+            FromClause
+              Keyword "FROM"
+              TableList
+                TableExpr
+                  Name
+                    BareWord "u"
+          ClosingRoundBracket ")"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "m"
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "one"
+
+> WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r
+SelectQuery
+  WithClause
+    Keyword "WITH"
+    Keyword "RECURSIVE"
+    WithList
+      CommonTableExpr
+        Name
+          BareWord "r"
+        Keyword "AS"
+        Subquery
+          OpeningRoundBracket "("
+          UnionQuery
+            SelectQuery
+              SelectClause
+                Keyword "SELECT"
+                SelectList
+                  AliasedExpr
+                    Literal
+                      Number "1"
+                    Alias
+                      Keyword "AS"
+                      Name
+                        BareWord "n"
+            SetOperator
+              Keyword "UNION"
+              Keyword "ALL"
+            SelectQuery
+              SelectClause
+                Keyword "SELECT"
+                SelectList
+                  BinaryExpr
+                    Name
+                      BareWord "n"
+                    Plus "+"
+                    Literal
+                      Number "1"
+              FromClause
+                Keyword "FROM"
+                TableList
+                  TableExpr
+                    Name
+                      BareWord "r"
+              WhereClause
+                Keyword "WHERE"
+                BinaryExpr
+                  Name
+                    BareWord "n"
+                  Less "<"
+                  Literal
+                    Number "3"
+          ClosingRoundBracket ")"
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "n"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "r"
+
+> WITH m AS MATERIALIZED (SELECT 1) SELECT * FROM m
+SelectQuery
+  WithClause
+    Keyword "WITH"
+    WithList
+      CommonTableExpr
+        Name
+          BareWord "m"
+        Keyword "AS"
+        Keyword "MATERIALIZED"
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                Literal
+                  Number "1"
+          ClosingRoundBracket ")"
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "m"
+
+> WITH c (a, b) AS (SELECT 1, 2) SELECT a FROM c
+SelectQuery
+  WithClause
+    Keyword "WITH"
+    WithList
+      CommonTableExpr
+        Name
+          BareWord "c"
+        ParenList
+          OpeningRoundBracket "("
+          Name
+            BareWord "a"
+          Comma ","
+          Name
+            BareWord "b"
+          ClosingRoundBracket ")"
+        Keyword "AS"
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                Literal
+                  Number "1"
+                Comma ","
+                Literal
+                  Number "2"
+          ClosingRoundBracket ")"
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "a"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "c"
+
+> WITH x AS materialized SELECT materialized
+SelectQuery
+  WithClause
+    Keyword "WITH"
+    WithList
+      AliasedExpr
+        Name
+          BareWord "x"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "materialized"
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "materialized"
+
+> WITH a AS (SELECT 1), SELECT * FROM a
+SelectQuery
+  WithClause
+    Keyword "WITH"
+    WithList
+      CommonTableExpr
+        Name
+          BareWord "a"
+        Keyword "AS"
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                Literal
+                  Number "1"
+          ClosingRoundBracket ")"
+      Comma ","
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "a"

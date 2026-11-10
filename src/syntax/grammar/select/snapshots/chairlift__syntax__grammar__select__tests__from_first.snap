@@ -1,0 +1,75 @@
+---
+source: src/syntax/grammar/select/tests.rs
+expression: "trees(&[\"FROM t SELECT x WHERE y\", \"FROM t\", \"FROM t AS s SELECT s.x\",\n\"SELECT * FROM (FROM t)\",])"
+---
+> FROM t SELECT x WHERE y
+SelectQuery
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "x"
+  WhereClause
+    Keyword "WHERE"
+    Name
+      BareWord "y"
+
+> FROM t
+SelectQuery
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+
+> FROM t AS s SELECT s.x
+SelectQuery
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        AliasedExpr
+          Name
+            BareWord "t"
+          Alias
+            Keyword "AS"
+            Name
+              BareWord "s"
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      QualifiedName
+        Name
+          BareWord "s"
+        Dot "."
+        Name
+          BareWord "x"
+
+> SELECT * FROM (FROM t)
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            FromClause
+              Keyword "FROM"
+              TableList
+                TableExpr
+                  Name
+                    BareWord "t"
+          ClosingRoundBracket ")"

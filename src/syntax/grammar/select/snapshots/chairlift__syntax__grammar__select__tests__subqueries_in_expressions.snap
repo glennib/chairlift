@@ -1,0 +1,168 @@
+---
+source: src/syntax/grammar/select/tests.rs
+expression: "trees(&[\"SELECT (SELECT max(x) FROM t) AS m\",\n\"SELECT * FROM t WHERE x IN (SELECT x FROM u) AND exists(SELECT 1 FROM v)\",\n\"SELECT * FROM t WHERE x = ANY (SELECT 1 UNION ALL SELECT 2)\",\n\"SELECT * FROM t WHERE x GLOBAL NOT IN (FROM u SELECT x)\",])"
+---
+> SELECT (SELECT max(x) FROM t) AS m
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AliasedExpr
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                FunctionCall
+                  Name
+                    BareWord "max"
+                  ArgList
+                    OpeningRoundBracket "("
+                    Name
+                      BareWord "x"
+                    ClosingRoundBracket ")"
+            FromClause
+              Keyword "FROM"
+              TableList
+                TableExpr
+                  Name
+                    BareWord "t"
+          ClosingRoundBracket ")"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "m"
+
+> SELECT * FROM t WHERE x IN (SELECT x FROM u) AND exists(SELECT 1 FROM v)
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  WhereClause
+    Keyword "WHERE"
+    AndExpr
+      BinaryExpr
+        Name
+          BareWord "x"
+        Keyword "IN"
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                Name
+                  BareWord "x"
+            FromClause
+              Keyword "FROM"
+              TableList
+                TableExpr
+                  Name
+                    BareWord "u"
+          ClosingRoundBracket ")"
+      Keyword "AND"
+      FunctionCall
+        Name
+          BareWord "exists"
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                Literal
+                  Number "1"
+            FromClause
+              Keyword "FROM"
+              TableList
+                TableExpr
+                  Name
+                    BareWord "v"
+          ClosingRoundBracket ")"
+
+> SELECT * FROM t WHERE x = ANY (SELECT 1 UNION ALL SELECT 2)
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  WhereClause
+    Keyword "WHERE"
+    BinaryExpr
+      Name
+        BareWord "x"
+      Equals "="
+      QuantifiedExpr
+        Keyword "ANY"
+        Subquery
+          OpeningRoundBracket "("
+          UnionQuery
+            SelectQuery
+              SelectClause
+                Keyword "SELECT"
+                SelectList
+                  Literal
+                    Number "1"
+            SetOperator
+              Keyword "UNION"
+              Keyword "ALL"
+            SelectQuery
+              SelectClause
+                Keyword "SELECT"
+                SelectList
+                  Literal
+                    Number "2"
+          ClosingRoundBracket ")"
+
+> SELECT * FROM t WHERE x GLOBAL NOT IN (FROM u SELECT x)
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  WhereClause
+    Keyword "WHERE"
+    BinaryExpr
+      Name
+        BareWord "x"
+      Keyword "GLOBAL"
+      Keyword "NOT"
+      Keyword "IN"
+      Subquery
+        OpeningRoundBracket "("
+        SelectQuery
+          FromClause
+            Keyword "FROM"
+            TableList
+              TableExpr
+                Name
+                  BareWord "u"
+          SelectClause
+            Keyword "SELECT"
+            SelectList
+              Name
+                BareWord "x"
+        ClosingRoundBracket ")"

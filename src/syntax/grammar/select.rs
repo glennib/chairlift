@@ -1,62 +1,822 @@
-//! `SELECT` queries.
+//! `SELECT` queries, after ClickHouse's `ParserSelectWithUnionQuery`,
+//! `ParserSelectQuery`, `ParserQueryWithOutput` and
+//! `ParserTablesInSelectQuery`.
 //!
-//! Not parsed yet: a query statement is kept verbatim, and a query anywhere
-//! else is [`Opaque`](SyntaxKind::Opaque). The functions here are the seams
-//! the rest of the grammar calls:
+//! The functions here are also the seams the rest of the grammar calls:
 //!
 //! - [`at_statement`] and [`statement`] from the statement dispatch;
 //! - [`at_subquery`] and [`subquery`] from expressions: `(SELECT …)`,
 //!   `IN (SELECT …)`, `exists(SELECT …)`, `x = ANY (SELECT …)`;
 //! - [`query`] wherever a query follows without parentheses of its own, such
 //!   as `CREATE MATERIALIZED VIEW … AS SELECT …`.
+//!
+//! # Clauses
+//!
+//! A query is a run of clauses, each recognised by its leading keywords
+//! ([`clause_at`]) and parsed inside [`fallback::clause`], so clauses may
+//! come in any order and repeat, and one that does not parse is kept
+//! verbatim up to the next clause keyword. That is what lets a template's
+//! `{% if %} WHERE a {% else %} WHERE b {% endif %}` parse as two clauses.
+//! ClickHouse reads its clauses in a fixed order; for valid queries both
+//! readings give the same clauses.
+//!
+//! # Lists
+//!
+//! The lists of clauses ([`list`]) read an item after every comma, whatever
+//! word it starts with, as ClickHouse's `ParserList` does: in `SELECT a,
+//! limit FROM t` the second item is a column named `limit`. An item that
+//! does not parse is kept verbatim up to the next comma or clause keyword.
+//! A comma that ends a list (`SELECT a, FROM t`) is the list's last token.
+//!
+//! # Keyword slots
+//!
+//! Words that start a clause are names wherever ClickHouse reads a name:
+//! `SELECT format FROM format FORMAT JSON` has one keyword `FORMAT`. The
+//! positional rules, each as ClickHouse has it:
+//!
+//! - `SETTINGS` opens a clause only before `name =`, `FORMAT` only before a
+//!   name, `WINDOW` only before `name AS`, and `FETCH` only before `FIRST`
+//!   or `NEXT`.
+//! - An alias without `AS` cannot be one of the restricted words, so in
+//!   `FROM t FINAL` the `FINAL` is a keyword.
+//! - `ALL`, `DISTINCT` and `TOP n` right after `SELECT`, `ALL`, `ROLLUP(`,
+//!   `CUBE(` and `GROUPING SETS (` right after `GROUP BY`, and `ALL` after
+//!   `ORDER BY` unless a comma follows it, are keywords.
+
+mod tables;
 
 use crate::keyword::Keyword as K;
 use crate::lexer::TokenKind as T;
 use crate::syntax::SyntaxKind;
+use crate::syntax::grammar::common;
+use crate::syntax::grammar::exprs;
+use crate::syntax::grammar::exprs::AliasMode;
 use crate::syntax::grammar::fallback;
 use crate::syntax::grammar::names;
 use crate::syntax::parser::CompletedMarker;
 use crate::syntax::parser::Parser;
 
 /// Whether the statement at the current token is a query: it starts with
-/// `SELECT`, `WITH` or `(`.
+/// `SELECT`, `WITH` or `(`, or with `FROM` and a table.
 pub(crate) fn at_statement(p: &Parser<'_>) -> bool {
-    p.at_kw(K::Select) || p.at_kw(K::With) || p.at(T::OpeningRoundBracket)
+    p.at_kw(K::Select) || p.at_kw(K::With) || p.at(T::OpeningRoundBracket) || at_from_first(p, 0)
+}
+
+/// Whether the `n`th token starts the `FROM`-first form of a query, `FROM t
+/// …`, rather than an expression over a column named `from`: as in
+/// ClickHouse (`parenthesesHoldExpressionOverColumnNamedFrom`), `from`
+/// followed by an operator is a column, so `(from BETWEEN 0 AND 2)` is no
+/// subquery.
+fn at_from_first(p: &Parser<'_>, n: usize) -> bool {
+    p.nth_at_kw(n, K::From)
+        && (names::at_name(p, n + 1) || p.nth_at(n + 1, T::OpeningRoundBracket))
+        && !at_operator(p, n + 1)
+}
+
+/// Whether the `n`th token starts a binary or postfix operator
+/// (`ParserExpressionImpl::operators_table`).
+fn at_operator(p: &Parser<'_>, n: usize) -> bool {
+    match p.nth(n) {
+        Some(
+            T::Arrow
+            | T::QuestionMark
+            | T::Colon
+            | T::PipeMark
+            | T::Equals
+            | T::NotEquals
+            | T::Spaceship
+            | T::Less
+            | T::Greater
+            | T::LessOrEquals
+            | T::GreaterOrEquals
+            | T::Tilde
+            | T::TildeAsterisk
+            | T::NotTilde
+            | T::NotTildeAsterisk
+            | T::Concatenation
+            | T::Plus
+            | T::Minus
+            | T::Asterisk
+            | T::Slash
+            | T::Percent
+            | T::Dot
+            | T::OpeningSquareBracket
+            | T::DoubleColon,
+        ) => true,
+        Some(T::BareWord) => match p.nth_keyword(n) {
+            Some(
+                K::Or
+                | K::And
+                | K::Between
+                | K::Like
+                | K::Ilike
+                | K::Regexp
+                | K::In
+                | K::Mod
+                | K::Div,
+            ) => true,
+            Some(K::Is) => matches!(
+                p.nth_keyword(n + 1),
+                Some(K::Not | K::Distinct | K::Unknown | K::False | K::True | K::Null)
+            ),
+            Some(K::Not) => matches!(
+                p.nth_keyword(n + 1),
+                Some(K::Between | K::Like | K::Ilike | K::In | K::Similar)
+            ),
+            Some(K::Global) => matches!(p.nth_keyword(n + 1), Some(K::In | K::Not)),
+            Some(K::Similar) => p.nth_at_kw(n + 1, K::To),
+            Some(K::At) => p.nth_at_kw(n + 1, K::Time) && p.nth_at_kw(n + 2, K::Zone),
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// A query statement, up to the end of the statement.
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "the signature of the seam, for the grammar that replaces this stub"
-)]
+///
+/// ClickHouse's pipe syntax (`FROM t |> WHERE x |> SELECT y`) has an
+/// operator grammar of its own, which is not parsed: a statement with `|>`
+/// fails as a whole. Parsing around it would end the clause before `|>`
+/// verbatim at the next clause keyword, which in `FROM select s |> …` is
+/// the table's name.
 pub(crate) fn statement(p: &mut Parser<'_>) -> Option<()> {
-    fallback::verbatim_statement(p);
-    Some(())
+    if (0..)
+        .map_while(|n| p.nth(n))
+        .any(|kind| kind == T::PipeOperator)
+    {
+        return p.expected("a query without `|>`");
+    }
+    query(p).map(drop)
 }
 
 /// A query, up to the end of the statement or a closing bracket that does
-/// not belong to it.
+/// not belong to it: a [`SelectQuery`](SyntaxKind::SelectQuery), or a
+/// [`UnionQuery`](SyntaxKind::UnionQuery) for set operations and queries in
+/// parentheses. It also ends before `COMMENT 'text'`, which follows the
+/// query of `CREATE VIEW … AS SELECT …`.
 pub(crate) fn query(p: &mut Parser<'_>) -> Option<CompletedMarker> {
-    fallback::opaque_until(p, &fallback::never)
+    p.nested(|p| {
+        let first = operand(p)?;
+        if first.kind() == SyntaxKind::SelectQuery && !at_set_operator(p) {
+            return Some(first);
+        }
+        let m = first.precede(p);
+        let mut last = first.kind();
+        loop {
+            if last == SyntaxKind::Subquery {
+                clauses(p);
+            }
+            if !at_set_operator(p) {
+                break;
+            }
+            let op = p.start();
+            p.bump_keyword();
+            if p.at_kw(K::All) || p.at_kw(K::Distinct) {
+                p.bump_keyword();
+            }
+            op.complete(p, SyntaxKind::SetOperator);
+            last = operand(p)?.kind();
+        }
+        Some(m.complete(p, SyntaxKind::UnionQuery))
+    })
+}
+
+/// An operand of a set operation: a query in parentheses, or one without.
+fn operand(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    if p.at(T::OpeningRoundBracket) {
+        subquery(p)
+    } else {
+        select_query(p)
+    }
+}
+
+fn at_set_operator(p: &Parser<'_>) -> bool {
+    matches!(p.nth_keyword(0), Some(K::Union | K::Except | K::Intersect))
 }
 
 /// Whether the `n`th token opens a subquery: `(` followed by `SELECT`,
-/// `WITH` or `EXPLAIN`, or by `FROM` and a table (`(FROM t)`, which
-/// `(from + 1)`, over a column named `from`, is not).
+/// `WITH` or `EXPLAIN` and something a query can go on with, by `VALUES
+/// (`, or by `FROM` and a table (`(FROM t)`, which `(from + 1)`, over a
+/// column named `from`, is not).
+///
+/// ClickHouse tries a subquery first and reads an expression if that fails,
+/// so `(select)`, `(select, y)` and `(select = 1)` are over a column named
+/// `select`; a word after `SELECT` starts its list, so `(select and x)` is
+/// `(SELECT and AS x)`.
 pub(crate) fn at_subquery(p: &Parser<'_>, n: usize) -> bool {
     p.nth_at(n, T::OpeningRoundBracket)
         && match p.nth_keyword(n + 1) {
-            Some(K::Select | K::With | K::Explain) => true,
-            Some(K::From) => names::at_name(p, n + 2) || p.nth_at(n + 2, T::OpeningRoundBracket),
+            Some(K::Select | K::With | K::Explain) => {
+                !matches!(p.nth(n + 2), None | Some(T::Comma | T::ClosingRoundBracket))
+                    && !at_symbol_operator(p, n + 2)
+            }
+            Some(K::Values) => p.nth_at(n + 2, T::OpeningRoundBracket),
+            Some(K::From) => at_from_first(p, n + 1),
             _ => false,
         }
 }
 
-/// A [`Subquery`](SyntaxKind::Subquery): `(`, a [`query`], `)`.
+/// Whether the `n`th token is an operator that no expression starts with:
+/// [`at_operator`]'s symbols but `-`, `+`, `*` and `[`.
+fn at_symbol_operator(p: &Parser<'_>, n: usize) -> bool {
+    !matches!(
+        p.nth(n),
+        Some(T::BareWord | T::Minus | T::Plus | T::Asterisk | T::OpeningSquareBracket)
+    ) && at_operator(p, n)
+}
+
+/// A [`Subquery`](SyntaxKind::Subquery): `(`, a [`query`] or the rows of
+/// `VALUES`, `)`. An `EXPLAIN` in parentheses is kept as written: it is a
+/// statement of its own, which the grammar keeps verbatim elsewhere too.
 pub(crate) fn subquery(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     let m = p.start();
     p.expect(T::OpeningRoundBracket)?;
-    query(p)?;
+    let no_in = std::mem::replace(&mut p.no_in, false);
+    let inner = if p.at_kw(K::Explain) {
+        fallback::opaque_until(p, &fallback::never)
+    } else if p.at_kw(K::Values) && p.nth_at(1, T::OpeningRoundBracket) {
+        let values = p.start();
+        p.bump_keyword();
+        list(p, SyntaxKind::ExprList, &mut |p| exprs::expr(p).map(drop))
+            .map(|_| values.complete(p, SyntaxKind::ValuesRows))
+    } else {
+        query(p)
+    };
+    p.no_in = no_in;
+    inner?;
     p.expect(T::ClosingRoundBracket)?;
     Some(m.complete(p, SyntaxKind::Subquery))
 }
+
+/// Whether the current token starts a query without parentheses.
+fn at_query(p: &Parser<'_>) -> bool {
+    p.at_kw(K::Select) || p.at_kw(K::With) || at_from_first(p, 0)
+}
+
+/// A [`SelectQuery`](SyntaxKind::SelectQuery): its clauses.
+fn select_query(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    if !at_query(p) {
+        return p.expected("a query");
+    }
+    let m = p.start();
+    clauses(p);
+    Some(m.complete(p, SyntaxKind::SelectQuery))
+}
+
+// ---- Clauses ---------------------------------------------------------------
+
+/// The clauses of a query.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Clause {
+    With,
+    /// `WITH TOTALS`, `WITH ROLLUP`, `WITH CUBE` without `GROUP BY`.
+    GroupByModifiers,
+    Select,
+    From,
+    Prewhere,
+    Where,
+    GroupBy,
+    Having,
+    Window,
+    Qualify,
+    OrderBy,
+    Interpolate,
+    Limit,
+    Offset,
+    Fetch,
+    Settings,
+    Format,
+    IntoOutfile,
+}
+
+/// The clause that starts at the current token, if any.
+fn clause_at(p: &Parser<'_>) -> Option<Clause> {
+    Some(match p.nth_keyword(0) {
+        Some(K::With) if at_group_by_modifier(p) => Clause::GroupByModifiers,
+        Some(K::With) => Clause::With,
+        Some(K::Select) => Clause::Select,
+        Some(K::From) => Clause::From,
+        Some(K::Prewhere) => Clause::Prewhere,
+        Some(K::Where) => Clause::Where,
+        Some(K::Group) if p.nth_at_kw(1, K::By) => Clause::GroupBy,
+        Some(K::Having) => Clause::Having,
+        Some(K::Window) if names::at_name(p, 1) && p.nth_at_kw(2, K::As) => Clause::Window,
+        Some(K::Qualify) => Clause::Qualify,
+        Some(K::Order) if p.nth_at_kw(1, K::By) => Clause::OrderBy,
+        Some(K::Interpolate) => Clause::Interpolate,
+        Some(K::Limit) => Clause::Limit,
+        Some(K::Offset) => Clause::Offset,
+        Some(K::Fetch) if matches!(p.nth_keyword(1), Some(K::First | K::Next)) => Clause::Fetch,
+        Some(K::Settings) if common::at_settings(p) => Clause::Settings,
+        Some(K::Format) if names::at_name(p, 1) => Clause::Format,
+        Some(K::Into) if p.nth_at_kw(1, K::Outfile) => Clause::IntoOutfile,
+        _ => return None,
+    })
+}
+
+/// Whether a query's clause, list or verbatim region ends here: at a clause
+/// keyword, a set operator, or `COMMENT 'text'`, which ends the query of a
+/// `CREATE VIEW`.
+fn at_clause(p: &Parser<'_>) -> bool {
+    clause_at(p).is_some()
+        || at_set_operator(p)
+        || (p.at_kw(K::Comment) && p.nth_at(1, T::StringLiteral))
+}
+
+/// The clauses from the current token, each with [`fallback::clause`], up
+/// to anything that starts no clause.
+fn clauses(p: &mut Parser<'_>) {
+    let mut first = true;
+    loop {
+        let Some(mut clause) = clause_at(p) else {
+            return;
+        };
+        // `WITH totals SELECT …` starts with a `WITH` clause.
+        if first && clause == Clause::GroupByModifiers {
+            clause = Clause::With;
+        }
+        first = false;
+        fallback::clause(p, &at_clause, |p| parse_clause(p, clause));
+    }
+}
+
+fn parse_clause(p: &mut Parser<'_>, clause: Clause) -> Option<()> {
+    match clause {
+        Clause::With => with_clause(p),
+        Clause::Select => select_clause(p),
+        Clause::From => tables::from_clause(p),
+        Clause::Prewhere => expression_clause(p, SyntaxKind::PrewhereClause),
+        Clause::Where => expression_clause(p, SyntaxKind::WhereClause),
+        Clause::GroupBy | Clause::GroupByModifiers => group_by_clause(p),
+        Clause::Having => expression_clause(p, SyntaxKind::HavingClause),
+        Clause::Window => window_clause(p),
+        Clause::Qualify => expression_clause(p, SyntaxKind::QualifyClause),
+        Clause::OrderBy => order_by_clause(p),
+        Clause::Interpolate => interpolate_clause(p),
+        Clause::Limit => limit_clause(p),
+        Clause::Offset => offset_clause(p),
+        Clause::Fetch => fetch_clause(p),
+        Clause::Settings => {
+            // A clause keyword before `=` names a setting (`limit = 5`).
+            let ends =
+                |p: &Parser<'_>| at_clause(p) && !(names::at_name(p, 0) && p.nth_at(1, T::Equals));
+            common::settings_clause(p, &ends).map(drop)
+        }
+        Clause::Format => {
+            let m = p.start();
+            p.bump_keyword();
+            names::name(p)?;
+            m.complete(p, SyntaxKind::FormatClause);
+            Some(())
+        }
+        Clause::IntoOutfile => {
+            let m = p.start();
+            p.bump_keyword();
+            p.bump_keyword();
+            fallback::opaque_until(p, &at_clause)?;
+            m.complete(p, SyntaxKind::IntoOutfileClause);
+            Some(())
+        }
+    }
+}
+
+/// Items separated by commas as a node of `kind`, each parsed by `item` with
+/// [`fallback::list_item`]'s fallback, ending at a clause keyword: an item is
+/// read after every comma (see the [module documentation](self#lists)).
+/// Fails if there is no item.
+fn list(
+    p: &mut Parser<'_>,
+    kind: SyntaxKind,
+    item: &mut dyn FnMut(&mut Parser<'_>) -> Option<()>,
+) -> Option<CompletedMarker> {
+    list_with(p, kind, &fallback::never, item)
+}
+
+/// [`list`], which also ends after a comma where `trailing` says the comma
+/// is the list's last token.
+fn list_with(
+    p: &mut Parser<'_>,
+    kind: SyntaxKind,
+    trailing: fallback::Stop<'_>,
+    item: &mut dyn FnMut(&mut Parser<'_>) -> Option<()>,
+) -> Option<CompletedMarker> {
+    let m = p.start();
+    let mut items = 0usize;
+    while !(p.at_end() || p.at_closer() || (items > 0 && trailing(p))) {
+        let before = p.position();
+        fallback::list_item(p, &at_clause, &mut *item);
+        if p.position() == before {
+            break;
+        }
+        items += 1;
+        if !p.eat(T::Comma) {
+            break;
+        }
+    }
+    if items == 0 {
+        m.abandon(p);
+        return p.expected("a list item");
+    }
+    Some(m.complete(p, kind))
+}
+
+/// An [`ExprList`](SyntaxKind::ExprList) of a clause, whose items may have
+/// an `AS` alias.
+fn expr_list(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    list(p, SyntaxKind::ExprList, &mut |p| {
+        exprs::expr_with_alias(p, AliasMode::As).map(drop)
+    })
+}
+
+/// A [`ParenList`](SyntaxKind::ParenList) of `item`s.
+fn paren_list(
+    p: &mut Parser<'_>,
+    item: &mut dyn FnMut(&mut Parser<'_>) -> Option<()>,
+) -> Option<CompletedMarker> {
+    fallback::delimited(
+        p,
+        SyntaxKind::ParenList,
+        T::OpeningRoundBracket,
+        T::ClosingRoundBracket,
+        item,
+    )
+}
+
+/// A [`ParenList`](SyntaxKind::ParenList) of names.
+fn name_list(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    paren_list(p, &mut |p| names::name(p).map(drop))
+}
+
+/// A [`ParenList`](SyntaxKind::ParenList) of expressions with any `AS`
+/// alias.
+fn paren_expr_list(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    paren_list(p, &mut |p| {
+        exprs::expr_with_alias(p, AliasMode::As).map(drop)
+    })
+}
+
+/// A clause of a keyword and an expression, which may have an `AS` alias
+/// (`WHERE (a = 1) AS cond`, which ClickHouse accepts).
+fn expression_clause(p: &mut Parser<'_>, kind: SyntaxKind) -> Option<()> {
+    let m = p.start();
+    p.bump_keyword();
+    exprs::expr_with_alias(p, AliasMode::As)?;
+    m.complete(p, kind);
+    Some(())
+}
+
+/// `WITH [RECURSIVE] list`.
+fn with_clause(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    p.bump_keyword();
+    p.eat_kw(K::Recursive);
+    list(p, SyntaxKind::WithList, &mut |p| {
+        if at_common_table_expr(p) {
+            common_table_expr(p)
+        } else {
+            exprs::expr_with_alias(p, AliasMode::As).map(drop)
+        }
+    })?;
+    m.complete(p, SyntaxKind::WithClause);
+    Some(())
+}
+
+/// Whether a CTE starts here (`ParserWithElement`): a name other than a
+/// bare `select`, any column names in parentheses, `AS`, any
+/// `MATERIALIZED`, and `(`, which no alias can be. Otherwise the item is an
+/// expression with an alias, `expr AS name`.
+fn at_common_table_expr(p: &Parser<'_>) -> bool {
+    if !matches!(
+        p.nth(0),
+        Some(T::BareWord | T::QuotedIdentifier | T::JinjaExpr)
+    ) || p.at_kw(K::Select)
+    {
+        return false;
+    }
+    let mut n = 1;
+    if p.nth_at(n, T::OpeningRoundBracket) {
+        n += 1;
+        while names::at_name(p, n) {
+            n += 1;
+            if !p.nth_at(n, T::Comma) {
+                break;
+            }
+            n += 1;
+        }
+        if !p.nth_at(n, T::ClosingRoundBracket) {
+            return false;
+        }
+        n += 1;
+    }
+    if !p.nth_at_kw(n, K::As) {
+        return false;
+    }
+    p.nth_at(n + 1, T::OpeningRoundBracket)
+        || (p.nth_at_kw(n + 1, K::Materialized) && p.nth_at(n + 2, T::OpeningRoundBracket))
+}
+
+fn common_table_expr(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    names::name(p)?;
+    if p.at(T::OpeningRoundBracket) {
+        name_list(p)?;
+    }
+    p.expect_kw(K::As)?;
+    p.eat_kw(K::Materialized);
+    subquery(p)?;
+    m.complete(p, SyntaxKind::CommonTableExpr);
+    Some(())
+}
+
+/// `SELECT [ALL] [DISTINCT [ON (…)]] [ALL] [TOP n [WITH TIES]] list`.
+fn select_clause(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    p.bump_keyword();
+    let all = p.eat_kw(K::All);
+    if p.at_kws(&[K::Distinct, K::On]) && p.nth_at(2, T::OpeningRoundBracket) {
+        let d = p.start();
+        p.bump_keyword();
+        p.bump_keyword();
+        paren_expr_list(p)?;
+        d.complete(p, SyntaxKind::DistinctOn);
+    } else {
+        p.eat_kw(K::Distinct);
+    }
+    if !all {
+        p.eat_kw(K::All);
+    }
+    if at_top(p) {
+        let t = p.start();
+        p.bump_keyword();
+        if p.eat(T::OpeningRoundBracket) {
+            exprs::literal(p)?;
+            p.expect(T::ClosingRoundBracket)?;
+        } else {
+            exprs::literal(p)?;
+        }
+        p.eat_kws(&[K::With, K::Ties]);
+        t.complete(p, SyntaxKind::TopClause);
+    }
+    list_with(
+        p,
+        SyntaxKind::SelectList,
+        &at_from_after_trailing_comma,
+        &mut |p| exprs::expr_with_alias(p, AliasMode::Implicit).map(drop),
+    )?;
+    m.complete(p, SyntaxKind::SelectClause);
+    Some(())
+}
+
+/// Whether `FROM` after a comma of a `SELECT` list starts the `FROM` clause,
+/// so that the comma is a trailing one: unless what follows `from` makes it
+/// a column, as in `SELECT to, from FROM t` or `SELECT from + 1`
+/// (`ExpressionLayer::parse` with `allow_trailing_commas`).
+fn at_from_after_trailing_comma(p: &Parser<'_>) -> bool {
+    let column = p.nth_at(1, T::Comma)
+        || p.nth_at_kw(1, K::From)
+        || (p.nth_at_kw(1, K::As) && names::at_name(p, 2))
+        || at_operator(p, 1);
+    p.at_kw(K::From) && !column
+}
+
+/// Whether `TOP n` or `TOP (n)` follows, with a number for `n` as
+/// ClickHouse requires.
+fn at_top(p: &Parser<'_>) -> bool {
+    p.at_kw(K::Top)
+        && (p.nth_at(1, T::Number)
+            || (p.nth_at(1, T::OpeningRoundBracket)
+                && p.nth_at(2, T::Number)
+                && p.nth_at(3, T::ClosingRoundBracket)))
+}
+
+/// Whether `WITH ROLLUP`, `WITH CUBE` or `WITH TOTALS` follows.
+fn at_group_by_modifier(p: &Parser<'_>) -> bool {
+    p.at_kw(K::With) && matches!(p.nth_keyword(1), Some(K::Rollup | K::Cube | K::Totals))
+}
+
+/// `GROUP BY …` and its modifiers, or the modifiers alone.
+fn group_by_clause(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    if p.at_kw(K::Group) {
+        p.bump_keyword();
+        p.bump_keyword();
+        if (p.at_kw(K::Rollup) || p.at_kw(K::Cube)) && p.nth_at(1, T::OpeningRoundBracket) {
+            p.bump_keyword();
+            paren_expr_list(p)?;
+        } else if p.at_kws(&[K::Grouping, K::Sets]) && p.nth_at(2, T::OpeningRoundBracket) {
+            grouping_sets(p)?;
+        } else if !p.eat_kw(K::All) {
+            expr_list(p)?;
+        }
+    }
+    while at_group_by_modifier(p) {
+        let modifier = p.start();
+        p.bump_keyword();
+        p.bump_keyword();
+        modifier.complete(p, SyntaxKind::GroupByModifier);
+    }
+    m.complete(p, SyntaxKind::GroupByClause);
+    Some(())
+}
+
+/// `GROUPING SETS ((a, b), c, ())`: an item in parentheses is a set of
+/// expressions, anything else one expression.
+fn grouping_sets(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    p.bump_keyword();
+    p.bump_keyword();
+    p.expect(T::OpeningRoundBracket)?;
+    fallback::comma_separated(p, &fallback::never, &mut |p| {
+        if p.at(T::OpeningRoundBracket) {
+            paren_expr_list(p).map(drop)
+        } else {
+            exprs::expr_with_alias(p, AliasMode::As).map(drop)
+        }
+    });
+    p.expect(T::ClosingRoundBracket)?;
+    m.complete(p, SyntaxKind::GroupingSets);
+    Some(())
+}
+
+/// `WINDOW name AS (…), …`.
+fn window_clause(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    p.bump_keyword();
+    list(p, SyntaxKind::WindowList, &mut |p| {
+        let w = p.start();
+        names::name(p)?;
+        p.expect_kw(K::As)?;
+        fallback::opaque_group(p)?;
+        w.complete(p, SyntaxKind::WindowDefinition);
+        Some(())
+    })?;
+    m.complete(p, SyntaxKind::WindowClause);
+    Some(())
+}
+
+/// `ORDER BY list`, or `ORDER BY ALL [ASC|DESC] [NULLS FIRST|LAST]`.
+fn order_by_clause(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    p.bump_keyword();
+    p.bump_keyword();
+    if let Some(n) = order_by_all(p) {
+        for _ in 0..n {
+            p.bump_keyword();
+        }
+    } else {
+        list(p, SyntaxKind::OrderByList, &mut |p| {
+            common::order_by_item(p).map(drop)
+        })?;
+    }
+    m.complete(p, SyntaxKind::OrderByClause);
+    Some(())
+}
+
+/// How many tokens `ALL [ASC|DESC] [NULLS FIRST|LAST]` takes, if that
+/// follows and no comma after it makes `all` a column.
+fn order_by_all(p: &Parser<'_>) -> Option<usize> {
+    if !p.at_kw(K::All) {
+        return None;
+    }
+    let mut n = 1;
+    if matches!(
+        p.nth_keyword(n),
+        Some(K::Asc | K::Desc | K::Ascending | K::Descending)
+    ) {
+        n += 1;
+    }
+    if p.nth_at_kw(n, K::Nulls) && matches!(p.nth_keyword(n + 1), Some(K::First | K::Last)) {
+        n += 2;
+    }
+    (!p.nth_at(n, T::Comma)).then_some(n)
+}
+
+/// `INTERPOLATE [(column [AS expr], …)]`.
+fn interpolate_clause(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    p.bump_keyword();
+    if p.at(T::OpeningRoundBracket) {
+        paren_list(p, &mut |p| {
+            let item = p.start();
+            names::name(p)?;
+            if p.eat_kw(K::As) {
+                exprs::expr(p)?;
+            }
+            item.complete(p, SyntaxKind::InterpolateItem);
+            Some(())
+        })?;
+    }
+    m.complete(p, SyntaxKind::InterpolateClause);
+    Some(())
+}
+
+/// `LIMIT …`: a [`LimitByClause`](SyntaxKind::LimitByClause) if `BY`
+/// follows the counts, a [`LimitClause`](SyntaxKind::LimitClause)
+/// otherwise.
+fn limit_clause(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    p.bump_keyword();
+    if limit_range(p)? {
+        m.complete(p, SyntaxKind::LimitClause);
+        return Some(());
+    }
+    limit_expr(p)?;
+    if p.eat(T::Comma) || p.eat_kw(K::Offset) {
+        limit_expr(p)?;
+    }
+    p.eat_kws(&[K::With, K::Ties]);
+    if p.eat_kw(K::By) {
+        if !p.eat_kw(K::All) {
+            expr_list(p)?;
+        }
+        m.complete(p, SyntaxKind::LimitByClause);
+        return Some(());
+    }
+    limit_range(p)?;
+    m.complete(p, SyntaxKind::LimitClause);
+    Some(())
+}
+
+fn limit_expr(p: &mut Parser<'_>) -> Option<()> {
+    exprs::expr_with_alias(p, AliasMode::As).map(drop)
+}
+
+/// `AFTER a [ALL] [UNTIL b]` or `UNTIL b` (`parseLimitRange`), if it
+/// follows: `Some(true)` if it parsed, `Some(false)` if it does not follow.
+/// The words are keywords only before an expression, so `LIMIT after BY x`
+/// counts by a column named `after`.
+fn limit_range(p: &mut Parser<'_>) -> Option<bool> {
+    let after = p.at_kw(K::After);
+    if !(after || p.at_kw(K::Until))
+        || matches!(
+            p.nth(1),
+            None | Some(T::Comma | T::Semicolon | T::ClosingRoundBracket)
+        )
+        || at_limit_count_follower(p, 1)
+    {
+        return Some(false);
+    }
+    p.bump_keyword();
+    limit_expr(p)?;
+    if after {
+        p.eat_kw(K::All);
+        if p.eat_kw(K::Until) {
+            limit_expr(p)?;
+        }
+    }
+    Some(true)
+}
+
+/// Whether the `n`th token is a word that may follow a `LIMIT` count.
+fn at_limit_count_follower(p: &Parser<'_>, n: usize) -> bool {
+    match p.nth_keyword(n) {
+        Some(
+            K::As
+            | K::By
+            | K::Offset
+            | K::After
+            | K::Until
+            | K::Fetch
+            | K::Settings
+            | K::Format
+            | K::Union
+            | K::Except
+            | K::Intersect,
+        ) => true,
+        Some(K::With) => p.nth_at_kw(n + 1, K::Ties),
+        Some(K::Into) => p.nth_at_kw(n + 1, K::Outfile),
+        Some(K::Parallel) => p.nth_at_kw(n + 1, K::With),
+        _ => false,
+    }
+}
+
+/// `OFFSET n [ROW | ROWS]`.
+fn offset_clause(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    p.bump_keyword();
+    limit_expr(p)?;
+    if p.at_kw(K::Row) || p.at_kw(K::Rows) {
+        p.bump_keyword();
+    }
+    m.complete(p, SyntaxKind::OffsetClause);
+    Some(())
+}
+
+/// `FETCH FIRST|NEXT n ROW|ROWS ONLY|WITH TIES`.
+fn fetch_clause(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    p.bump_keyword();
+    p.bump_keyword();
+    limit_expr(p)?;
+    if !(p.eat_kw(K::Row) || p.eat_kw(K::Rows)) {
+        return p.expected("ROWS");
+    }
+    if !(p.eat_kw(K::Only) || p.eat_kws(&[K::With, K::Ties])) {
+        return p.expected("ONLY");
+    }
+    m.complete(p, SyntaxKind::FetchClause);
+    Some(())
+}
+
+#[cfg(test)]
+mod tests;

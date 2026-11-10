@@ -1,0 +1,157 @@
+---
+source: src/syntax/grammar/select/tests.rs
+expression: "trees(&[\"SELECT a, b FROM t PREWHERE p WHERE w GROUP BY a HAVING h QUALIFY q ORDER BY a LIMIT 10\",\n\"SELECT 1\", \"SELECT x FROM t SETTINGS max_threads = 8 FORMAT JSONEachRow\",\n\"SELECT x FROM t INTO OUTFILE 'out.csv' AND STDOUT COMPRESSION 'gzip' FORMAT CSV\",\n\"SELECT x FROM t WINDOW w AS (PARTITION BY y ORDER BY z), v AS (w ROWS 1 PRECEDING)\",])"
+---
+> SELECT a, b FROM t PREWHERE p WHERE w GROUP BY a HAVING h QUALIFY q ORDER BY a LIMIT 10
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "a"
+      Comma ","
+      Name
+        BareWord "b"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  PrewhereClause
+    Keyword "PREWHERE"
+    Name
+      BareWord "p"
+  WhereClause
+    Keyword "WHERE"
+    Name
+      BareWord "w"
+  GroupByClause
+    Keyword "GROUP"
+    Keyword "BY"
+    ExprList
+      Name
+        BareWord "a"
+  HavingClause
+    Keyword "HAVING"
+    Name
+      BareWord "h"
+  QualifyClause
+    Keyword "QUALIFY"
+    Name
+      BareWord "q"
+  OrderByClause
+    Keyword "ORDER"
+    Keyword "BY"
+    OrderByList
+      OrderByItem
+        Name
+          BareWord "a"
+  LimitClause
+    Keyword "LIMIT"
+    Literal
+      Number "10"
+
+> SELECT 1
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Literal
+        Number "1"
+
+> SELECT x FROM t SETTINGS max_threads = 8 FORMAT JSONEachRow
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "x"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "max_threads"
+        Equals "="
+        Literal
+          Number "8"
+  FormatClause
+    Keyword "FORMAT"
+    Name
+      BareWord "JSONEachRow"
+
+> SELECT x FROM t INTO OUTFILE 'out.csv' AND STDOUT COMPRESSION 'gzip' FORMAT CSV
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "x"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  IntoOutfileClause
+    Keyword "INTO"
+    Keyword "OUTFILE"
+    Opaque
+      StringLiteral "'out.csv'"
+      BareWord "AND"
+      BareWord "STDOUT"
+      BareWord "COMPRESSION"
+      StringLiteral "'gzip'"
+  FormatClause
+    Keyword "FORMAT"
+    Name
+      BareWord "CSV"
+
+> SELECT x FROM t WINDOW w AS (PARTITION BY y ORDER BY z), v AS (w ROWS 1 PRECEDING)
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "x"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  WindowClause
+    Keyword "WINDOW"
+    WindowList
+      WindowDefinition
+        Name
+          BareWord "w"
+        Keyword "AS"
+        Opaque
+          OpeningRoundBracket "("
+          BareWord "PARTITION"
+          BareWord "BY"
+          BareWord "y"
+          BareWord "ORDER"
+          BareWord "BY"
+          BareWord "z"
+          ClosingRoundBracket ")"
+      Comma ","
+      WindowDefinition
+        Name
+          BareWord "v"
+        Keyword "AS"
+        Opaque
+          OpeningRoundBracket "("
+          BareWord "w"
+          BareWord "ROWS"
+          Number "1"
+          BareWord "PRECEDING"
+          ClosingRoundBracket ")"

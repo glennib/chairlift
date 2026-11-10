@@ -1,0 +1,422 @@
+---
+source: src/syntax/grammar/select/tests.rs
+expression: "trees(&[\"SELECT * FROM db.t AS x FINAL SAMPLE 1 / 10 OFFSET 1 / 2\",\n\"SELECT * FROM t x\", \"SELECT * FROM (SELECT 1) AS daily\",\n\"SELECT * FROM numbers(10) n\",\n\"SELECT * FROM remote('host', db.t), cluster('c', view(SELECT 1))\",\n\"SELECT * FROM view(SELECT a FROM t UNION ALL SELECT b FROM u)\",\n\"SELECT * FROM viewIfPermitted(SELECT 1 ELSE null('x UInt8'))\",\n\"SELECT * FROM file('a.csv', SETTINGS format_csv_delimiter = ';', input_format_csv_skip_first_lines = 1)\",\n\"SELECT * FROM VALUES('a UInt8', 1, 2)\", \"SELECT * FROM 'data.csv'\",\n\"SELECT * FROM t AS x (a, b)\",\n\"SELECT * FROM t STREAM BOUNDED WATERMARK FOR ts AS ts - INTERVAL 10 SECOND\",\n\"SELECT * FROM {db:Identifier}.{t:Identifier}\",\n\"SELECT * FROM {{ ref('events') }} AS e\",])"
+---
+> SELECT * FROM db.t AS x FINAL SAMPLE 1 / 10 OFFSET 1 / 2
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        AliasedExpr
+          QualifiedName
+            Name
+              BareWord "db"
+            Dot "."
+            Name
+              BareWord "t"
+          Alias
+            Keyword "AS"
+            Name
+              BareWord "x"
+        Keyword "FINAL"
+        SampleClause
+          Keyword "SAMPLE"
+          BinaryExpr
+            Literal
+              Number "1"
+            Slash "/"
+            Literal
+              Number "10"
+          Keyword "OFFSET"
+          BinaryExpr
+            Literal
+              Number "1"
+            Slash "/"
+            Literal
+              Number "2"
+
+> SELECT * FROM t x
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        AliasedExpr
+          Name
+            BareWord "t"
+          Alias
+            Name
+              BareWord "x"
+
+> SELECT * FROM (SELECT 1) AS daily
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        AliasedExpr
+          Subquery
+            OpeningRoundBracket "("
+            SelectQuery
+              SelectClause
+                Keyword "SELECT"
+                SelectList
+                  Literal
+                    Number "1"
+            ClosingRoundBracket ")"
+          Alias
+            Keyword "AS"
+            Name
+              BareWord "daily"
+
+> SELECT * FROM numbers(10) n
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        AliasedExpr
+          FunctionCall
+            Name
+              BareWord "numbers"
+            ArgList
+              OpeningRoundBracket "("
+              Literal
+                Number "10"
+              ClosingRoundBracket ")"
+          Alias
+            Name
+              BareWord "n"
+
+> SELECT * FROM remote('host', db.t), cluster('c', view(SELECT 1))
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        FunctionCall
+          Name
+            BareWord "remote"
+          ArgList
+            OpeningRoundBracket "("
+            Literal
+              StringLiteral "'host'"
+            Comma ","
+            QualifiedName
+              Name
+                BareWord "db"
+              Dot "."
+              Name
+                BareWord "t"
+            ClosingRoundBracket ")"
+      Comma ","
+      TableExpr
+        FunctionCall
+          Name
+            BareWord "cluster"
+          ArgList
+            OpeningRoundBracket "("
+            Literal
+              StringLiteral "'c'"
+            Comma ","
+            FunctionCall
+              Name
+                BareWord "view"
+              ArgList
+                OpeningRoundBracket "("
+                SelectQuery
+                  SelectClause
+                    Keyword "SELECT"
+                    SelectList
+                      Literal
+                        Number "1"
+                ClosingRoundBracket ")"
+            ClosingRoundBracket ")"
+
+> SELECT * FROM view(SELECT a FROM t UNION ALL SELECT b FROM u)
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        FunctionCall
+          Name
+            BareWord "view"
+          ArgList
+            OpeningRoundBracket "("
+            UnionQuery
+              SelectQuery
+                SelectClause
+                  Keyword "SELECT"
+                  SelectList
+                    Name
+                      BareWord "a"
+                FromClause
+                  Keyword "FROM"
+                  TableList
+                    TableExpr
+                      Name
+                        BareWord "t"
+              SetOperator
+                Keyword "UNION"
+                Keyword "ALL"
+              SelectQuery
+                SelectClause
+                  Keyword "SELECT"
+                  SelectList
+                    Name
+                      BareWord "b"
+                FromClause
+                  Keyword "FROM"
+                  TableList
+                    TableExpr
+                      Name
+                        BareWord "u"
+            ClosingRoundBracket ")"
+
+> SELECT * FROM viewIfPermitted(SELECT 1 ELSE null('x UInt8'))
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        FunctionCall
+          Name
+            BareWord "viewIfPermitted"
+          ArgList
+            OpeningRoundBracket "("
+            SelectQuery
+              SelectClause
+                Keyword "SELECT"
+                SelectList
+                  VerbatimItem
+                    Number "1"
+                    BareWord "ELSE"
+                    BareWord "null"
+                    OpeningRoundBracket "("
+                    StringLiteral "'x UInt8'"
+                    ClosingRoundBracket ")"
+            ClosingRoundBracket ")"
+
+> SELECT * FROM file('a.csv', SETTINGS format_csv_delimiter = ';', input_format_csv_skip_first_lines = 1)
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        FunctionCall
+          Name
+            BareWord "file"
+          ArgList
+            OpeningRoundBracket "("
+            Literal
+              StringLiteral "'a.csv'"
+            Comma ","
+            SettingsClause
+              Keyword "SETTINGS"
+              SettingsList
+                SettingItem
+                  Name
+                    BareWord "format_csv_delimiter"
+                  Equals "="
+                  Literal
+                    StringLiteral "';'"
+                Comma ","
+                SettingItem
+                  Name
+                    BareWord "input_format_csv_skip_first_lines"
+                  Equals "="
+                  Literal
+                    Number "1"
+            ClosingRoundBracket ")"
+
+> SELECT * FROM VALUES('a UInt8', 1, 2)
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        FunctionCall
+          Name
+            BareWord "VALUES"
+          ArgList
+            OpeningRoundBracket "("
+            Literal
+              StringLiteral "'a UInt8'"
+            Comma ","
+            Literal
+              Number "1"
+            Comma ","
+            Literal
+              Number "2"
+            ClosingRoundBracket ")"
+
+> SELECT * FROM 'data.csv'
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Literal
+          StringLiteral "'data.csv'"
+
+> SELECT * FROM t AS x (a, b)
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        AliasedExpr
+          Name
+            BareWord "t"
+          Alias
+            Keyword "AS"
+            Name
+              BareWord "x"
+        ParenList
+          OpeningRoundBracket "("
+          Name
+            BareWord "a"
+          Comma ","
+          Name
+            BareWord "b"
+          ClosingRoundBracket ")"
+
+> SELECT * FROM t STREAM BOUNDED WATERMARK FOR ts AS ts - INTERVAL 10 SECOND
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+        StreamClause
+          Keyword "STREAM"
+          Keyword "BOUNDED"
+          Keyword "WATERMARK"
+          Keyword "FOR"
+          Name
+            BareWord "ts"
+          Keyword "AS"
+          BinaryExpr
+            Name
+              BareWord "ts"
+            Minus "-"
+            IntervalExpr
+              Keyword "INTERVAL"
+              Literal
+                Number "10"
+              IntervalUnit
+                Keyword "SECOND"
+
+> SELECT * FROM {db:Identifier}.{t:Identifier}
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        QualifiedName
+          QueryParameter
+            OpeningCurlyBrace "{"
+            Name
+              BareWord "db"
+            Colon ":"
+            DataType
+              Name
+                BareWord "Identifier"
+            ClosingCurlyBrace "}"
+          Dot "."
+          QueryParameter
+            OpeningCurlyBrace "{"
+            Name
+              BareWord "t"
+            Colon ":"
+            DataType
+              Name
+                BareWord "Identifier"
+            ClosingCurlyBrace "}"
+
+> SELECT * FROM {{ ref('events') }} AS e
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        AliasedExpr
+          Name
+            JinjaExpr "{{ ref('events') }}"
+          Alias
+            Keyword "AS"
+            Name
+              BareWord "e"

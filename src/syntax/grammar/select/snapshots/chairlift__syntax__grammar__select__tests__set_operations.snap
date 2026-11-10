@@ -1,0 +1,145 @@
+---
+source: src/syntax/grammar/select/tests.rs
+expression: "trees(&[\"SELECT 1 UNION ALL SELECT 2 UNION DISTINCT SELECT 3\",\n\"SELECT 1 INTERSECT SELECT 2 EXCEPT ALL SELECT 3\",\n\"(SELECT 1) UNION ALL (SELECT 2 ORDER BY 1 LIMIT 1) FORMAT JSON\",\n\"(SELECT 1)\", \"SELECT 1 FROM t UNION ALL WITH 2 AS x SELECT x FORMAT TSV\",])"
+---
+> SELECT 1 UNION ALL SELECT 2 UNION DISTINCT SELECT 3
+UnionQuery
+  SelectQuery
+    SelectClause
+      Keyword "SELECT"
+      SelectList
+        Literal
+          Number "1"
+  SetOperator
+    Keyword "UNION"
+    Keyword "ALL"
+  SelectQuery
+    SelectClause
+      Keyword "SELECT"
+      SelectList
+        Literal
+          Number "2"
+  SetOperator
+    Keyword "UNION"
+    Keyword "DISTINCT"
+  SelectQuery
+    SelectClause
+      Keyword "SELECT"
+      SelectList
+        Literal
+          Number "3"
+
+> SELECT 1 INTERSECT SELECT 2 EXCEPT ALL SELECT 3
+UnionQuery
+  SelectQuery
+    SelectClause
+      Keyword "SELECT"
+      SelectList
+        Literal
+          Number "1"
+  SetOperator
+    Keyword "INTERSECT"
+  SelectQuery
+    SelectClause
+      Keyword "SELECT"
+      SelectList
+        Literal
+          Number "2"
+  SetOperator
+    Keyword "EXCEPT"
+    Keyword "ALL"
+  SelectQuery
+    SelectClause
+      Keyword "SELECT"
+      SelectList
+        Literal
+          Number "3"
+
+> (SELECT 1) UNION ALL (SELECT 2 ORDER BY 1 LIMIT 1) FORMAT JSON
+UnionQuery
+  Subquery
+    OpeningRoundBracket "("
+    SelectQuery
+      SelectClause
+        Keyword "SELECT"
+        SelectList
+          Literal
+            Number "1"
+    ClosingRoundBracket ")"
+  SetOperator
+    Keyword "UNION"
+    Keyword "ALL"
+  Subquery
+    OpeningRoundBracket "("
+    SelectQuery
+      SelectClause
+        Keyword "SELECT"
+        SelectList
+          Literal
+            Number "2"
+      OrderByClause
+        Keyword "ORDER"
+        Keyword "BY"
+        OrderByList
+          OrderByItem
+            Literal
+              Number "1"
+      LimitClause
+        Keyword "LIMIT"
+        Literal
+          Number "1"
+    ClosingRoundBracket ")"
+  FormatClause
+    Keyword "FORMAT"
+    Name
+      BareWord "JSON"
+
+> (SELECT 1)
+UnionQuery
+  Subquery
+    OpeningRoundBracket "("
+    SelectQuery
+      SelectClause
+        Keyword "SELECT"
+        SelectList
+          Literal
+            Number "1"
+    ClosingRoundBracket ")"
+
+> SELECT 1 FROM t UNION ALL WITH 2 AS x SELECT x FORMAT TSV
+UnionQuery
+  SelectQuery
+    SelectClause
+      Keyword "SELECT"
+      SelectList
+        Literal
+          Number "1"
+    FromClause
+      Keyword "FROM"
+      TableList
+        TableExpr
+          Name
+            BareWord "t"
+  SetOperator
+    Keyword "UNION"
+    Keyword "ALL"
+  SelectQuery
+    WithClause
+      Keyword "WITH"
+      WithList
+        AliasedExpr
+          Literal
+            Number "2"
+          Alias
+            Keyword "AS"
+            Name
+              BareWord "x"
+    SelectClause
+      Keyword "SELECT"
+      SelectList
+        Name
+          BareWord "x"
+    FormatClause
+      Keyword "FORMAT"
+      Name
+        BareWord "TSV"

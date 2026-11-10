@@ -56,9 +56,6 @@ fn insert_data_is_one_token_of_a_verbatim_statement() {
 #[test]
 fn every_statement_is_verbatim_until_its_grammar_exists() {
     for source in [
-        "SELECT 1",
-        "WITH x AS (SELECT 1) SELECT * FROM x",
-        "(SELECT 1) UNION ALL (SELECT 2)",
         "INSERT INTO t VALUES (1)",
         "ALTER TABLE t ADD COLUMN a Int8",
     ] {

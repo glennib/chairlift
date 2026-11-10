@@ -430,76 +430,172 @@ syntax_kinds! {
         IfExists: Node,
 
         // ---- SELECT ----------------------------------------------------
-        // Grammar in `grammar/select.rs`.
-        /// One `SELECT` with its clauses.
+        // Grammar in `grammar/select.rs`. A clause node holds its keywords as
+        // tokens, then its body: an expression, or a list node whose child
+        // nodes are the items.
+        /// One query: its clauses in the order written, which may be any
+        /// order, with repeats, since each clause is parsed (or kept
+        /// verbatim) on its own: [`WithClause`](Self::WithClause),
+        /// [`SelectClause`](Self::SelectClause),
+        /// [`FromClause`](Self::FromClause),
+        /// [`PrewhereClause`](Self::PrewhereClause),
+        /// [`WhereClause`](Self::WhereClause),
+        /// [`GroupByClause`](Self::GroupByClause),
+        /// [`HavingClause`](Self::HavingClause),
+        /// [`WindowClause`](Self::WindowClause),
+        /// [`QualifyClause`](Self::QualifyClause),
+        /// [`OrderByClause`](Self::OrderByClause),
+        /// [`InterpolateClause`](Self::InterpolateClause),
+        /// [`LimitByClause`](Self::LimitByClause),
+        /// [`LimitClause`](Self::LimitClause),
+        /// [`OffsetClause`](Self::OffsetClause),
+        /// [`FetchClause`](Self::FetchClause),
+        /// [`SettingsClause`](Self::SettingsClause),
+        /// [`FormatClause`](Self::FormatClause),
+        /// [`IntoOutfileClause`](Self::IntoOutfileClause), and
+        /// [`VerbatimClause`](Self::VerbatimClause) for one that did not
+        /// parse. A query may start with `FROM` (`FROM t SELECT x`, or
+        /// `FROM t` alone for `SELECT *`).
         SelectQuery: Statement,
-        /// Queries joined by `UNION`, `INTERSECT` or `EXCEPT`.
+        /// Queries joined by `UNION`, `EXCEPT` or `INTERSECT`, or one query
+        /// in parentheses: operands ([`SelectQuery`](Self::SelectQuery) or
+        /// [`Subquery`](Self::Subquery)) separated by
+        /// [`SetOperator`](Self::SetOperator)s, as one flat run whatever the
+        /// operators' priorities. Clauses that follow an operand in
+        /// parentheses, such as the `FORMAT` of `(SELECT 1) UNION ALL
+        /// (SELECT 2) FORMAT JSON`, come after it here; after an operand
+        /// without parentheses they are that operand's own.
         UnionQuery: Statement,
-        /// `( query )`: in an expression, in `FROM`, or as an operand of a set
-        /// operation.
+        /// `UNION`, `EXCEPT` or `INTERSECT`, with any `ALL` or `DISTINCT`.
+        SetOperator: Node,
+        /// `( query )`: in an expression, in `FROM`, in a CTE, or as an
+        /// operand of a set operation. It holds a
+        /// [`SelectQuery`](Self::SelectQuery) or
+        /// [`UnionQuery`](Self::UnionQuery), [`ValuesRows`](Self::ValuesRows),
+        /// or an `EXPLAIN …` kept [`Opaque`](Self::Opaque).
         Subquery: Node,
-        /// `WITH …`.
+        /// `VALUES (…), (…)` in parentheses, SQL's table of rows: `VALUES`
+        /// and an [`ExprList`](Self::ExprList) of the rows.
+        ValuesRows: Node,
+        /// `WITH [RECURSIVE]` and a [`WithList`](Self::WithList).
         WithClause: Clause,
-        /// The items of `WITH`.
+        /// The items of `WITH`: [`CommonTableExpr`](Self::CommonTableExpr)s,
+        /// and expressions with an `AS` alias
+        /// ([`AliasedExpr`](Self::AliasedExpr)).
         WithList: List,
-        /// `name AS (query)` in `WITH`.
+        /// `name [(columns)] AS [MATERIALIZED] (query)` in `WITH`: a
+        /// [`Name`](Self::Name), any [`ParenList`](Self::ParenList) of
+        /// column names, and a [`Subquery`](Self::Subquery).
         CommonTableExpr: Node,
-        /// `SELECT [DISTINCT [ON (…)]] [TOP n] list`.
+        /// `SELECT`, any of `ALL`, `DISTINCT` or
+        /// [`DistinctOn`](Self::DistinctOn) and a
+        /// [`TopClause`](Self::TopClause), then a
+        /// [`SelectList`](Self::SelectList).
         SelectClause: Clause,
-        /// `DISTINCT ON (…)`.
+        /// `DISTINCT ON` and a [`ParenList`](Self::ParenList).
         DistinctOn: Node,
-        /// `TOP n [WITH TIES]`.
+        /// `TOP n` or `TOP (n)`, with any `WITH TIES`.
         TopClause: Node,
-        /// The items of `SELECT`.
+        /// The items of `SELECT`: expressions, each with any alias
+        /// ([`AliasedExpr`](Self::AliasedExpr)). A trailing comma is kept in
+        /// the list.
         SelectList: List,
-        /// One item of a [`SelectList`](Self::SelectList).
-        SelectItem: Node,
-        /// `FROM …`.
+        /// `FROM` and a [`TableList`](Self::TableList).
         FromClause: Clause,
-        /// A table in `FROM` or a join: a name, table function or subquery,
-        /// with any alias, `FINAL` and `SAMPLE`.
+        /// The tables of `FROM`, [`TableExpr`](Self::TableExpr)s separated by
+        /// commas (comma joins).
+        TableList: List,
+        /// A table in `FROM` or a join: a [`Name`](Self::Name) or
+        /// [`QualifiedName`](Self::QualifiedName), a table function (a
+        /// [`FunctionCall`](Self::FunctionCall)), a
+        /// [`Subquery`](Self::Subquery), or a file name as a string
+        /// [`Literal`](Self::Literal), in an
+        /// [`AliasedExpr`](Self::AliasedExpr) if it has an alias; then any
+        /// [`ParenList`](Self::ParenList) of column aliases, `FINAL`,
+        /// [`SampleClause`](Self::SampleClause) and
+        /// [`StreamClause`](Self::StreamClause). A query as the argument of
+        /// `view(…)` is the only item of the call's
+        /// [`ArgList`](Self::ArgList).
         TableExpr: Node,
-        /// `SAMPLE k [OFFSET m]` after a table.
+        /// `SAMPLE k [OFFSET m]` after a table; `k` and `m` are expressions
+        /// (`1 / 10`).
         SampleClause: Node,
-        /// A join: its kind keywords, a [`TableExpr`](Self::TableExpr), and a
-        /// [`JoinOn`](Self::JoinOn) or [`JoinUsing`](Self::JoinUsing).
+        /// `STREAM [BOUNDED] [UNORDERED] [CURSOR {…}] [WATERMARK FOR c AS e
+        /// [IDLE TIMEOUT INTERVAL n unit]]` after a table.
+        StreamClause: Node,
+        /// A join: the join's keywords as tokens (`GLOBAL ANY LEFT OUTER
+        /// JOIN`, `CROSS JOIN`, …), any `LATERAL`, a
+        /// [`TableExpr`](Self::TableExpr), and a [`JoinOn`](Self::JoinOn) or
+        /// [`JoinUsing`](Self::JoinUsing) if it has a condition. A comma join
+        /// that follows a join (`… JOIN b ON x, c`) is a join too: `,` and a
+        /// `TableExpr`.
         JoinClause: Clause,
-        /// `ON condition` of a join.
+        /// `ON` and the join's condition.
         JoinOn: Node,
-        /// `USING (…)` of a join.
+        /// `USING` and a [`ParenList`](Self::ParenList), or an
+        /// [`ExprList`](Self::ExprList) without parentheses.
         JoinUsing: Node,
-        /// `[LEFT] ARRAY JOIN …`.
+        /// `[LEFT | INNER] ARRAY JOIN` and an [`ExprList`](Self::ExprList).
         ArrayJoinClause: Clause,
-        /// `PREWHERE …`.
+        /// `PREWHERE` and an expression.
         PrewhereClause: Clause,
-        /// `WHERE …`.
+        /// `WHERE` and an expression.
         WhereClause: Clause,
-        /// `GROUP BY …`, with any `WITH ROLLUP|CUBE|TOTALS`.
+        /// `GROUP BY` and one of `ALL`, `ROLLUP` or `CUBE` with a
+        /// [`ParenList`](Self::ParenList),
+        /// [`GroupingSets`](Self::GroupingSets), or an
+        /// [`ExprList`](Self::ExprList); then any
+        /// [`GroupByModifier`](Self::GroupByModifier)s. ClickHouse allows the
+        /// modifiers without `GROUP BY` (`SELECT count() FROM t WITH
+        /// TOTALS`), and the clause is then only those.
         GroupByClause: Clause,
-        /// `GROUPING SETS (…)`.
+        /// `WITH ROLLUP`, `WITH CUBE` or `WITH TOTALS`.
+        GroupByModifier: Node,
+        /// `GROUPING SETS ( … )`: its items are
+        /// [`ParenList`](Self::ParenList)s and expressions.
         GroupingSets: List,
-        /// `HAVING …`.
+        /// `HAVING` and an expression.
         HavingClause: Clause,
-        /// `WINDOW name AS (…), …`.
+        /// `WINDOW` and a [`WindowList`](Self::WindowList).
         WindowClause: Clause,
-        /// `name AS (…)` in `WINDOW`.
+        /// The items of `WINDOW`.
+        WindowList: List,
+        /// `name AS (…)` in `WINDOW`, with the definition
+        /// [`Opaque`](Self::Opaque).
         WindowDefinition: Node,
-        /// `QUALIFY …`.
+        /// `QUALIFY` and an expression.
         QualifyClause: Clause,
-        /// `ORDER BY …`, in a query or a table definition.
+        /// `ORDER BY …`, in a query or a table definition: an
+        /// [`OrderByList`](Self::OrderByList), or `ALL` with any direction
+        /// and `NULLS FIRST|LAST` as tokens.
         OrderByClause: Clause,
-        /// `INTERPOLATE (…)` after `ORDER BY … WITH FILL`.
+        /// `INTERPOLATE`, after `ORDER BY … WITH FILL`, with any
+        /// [`ParenList`](Self::ParenList) of
+        /// [`InterpolateItem`](Self::InterpolateItem)s.
         InterpolateClause: Clause,
-        /// `LIMIT n BY …`.
+        /// `column [AS expr]` in `INTERPOLATE`.
+        InterpolateItem: Node,
+        /// `LIMIT n [OFFSET m] BY …` or `LIMIT m, n BY …`, with an
+        /// [`ExprList`](Self::ExprList) or `ALL` after `BY`.
         LimitByClause: Clause,
-        /// `LIMIT …`.
+        /// `LIMIT n`, `LIMIT m, n` or `LIMIT n OFFSET m`, with any `WITH
+        /// TIES`, and `LIMIT [n] AFTER a [ALL] [UNTIL b]` or `LIMIT UNTIL b`:
+        /// the keywords as tokens between expressions.
         LimitClause: Clause,
-        /// `OFFSET …`.
+        /// `OFFSET n [ROW | ROWS]`.
         OffsetClause: Clause,
+        /// `FETCH FIRST|NEXT n ROW|ROWS ONLY|WITH TIES`.
+        FetchClause: Clause,
         /// `FORMAT name`.
         FormatClause: Clause,
-        /// `INTO OUTFILE …`.
+        /// `INTO OUTFILE`, then the file name and its options
+        /// [`Opaque`](Self::Opaque).
         IntoOutfileClause: Clause,
+        /// `( a, b )`: a list in parentheses that is not an expression, after
+        /// `DISTINCT ON`, `USING`, `ROLLUP`, `CUBE` and `INTERPOLATE`, in
+        /// `GROUPING SETS`, and the column names after a CTE's name or a
+        /// table's alias.
+        ParenList: List,
 
         // ---- CREATE ----------------------------------------------------
         // Grammar in `grammar/create.rs`. A statement is its

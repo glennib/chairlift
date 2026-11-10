@@ -1,0 +1,131 @@
+---
+source: src/syntax/grammar/select/tests.rs
+expression: "trees(&[\"SELECT a\\nFROM t\\n{% if x %}\\nWHERE a = 1\\n{% else %}\\nWHERE a = 2\\n{% endif %}\\nORDER BY a\",\n\"SELECT a\\nFROM t\\n-- a comment\\nWHERE a\\n/* another */\\nLIMIT 1;\",\n\"SELECT a FROM t WHERE a b c GROUP BY a\", \"SELECT a, f(x y), b FROM t\",])"
+---
+> SELECT a
+FROM t
+{% if x %}
+WHERE a = 1
+{% else %}
+WHERE a = 2
+{% endif %}
+ORDER BY a
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "a"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  JinjaBlock "{% if x %}"
+  WhereClause
+    Keyword "WHERE"
+    BinaryExpr
+      Name
+        BareWord "a"
+      Equals "="
+      Literal
+        Number "1"
+  JinjaBlock "{% else %}"
+  WhereClause
+    Keyword "WHERE"
+    BinaryExpr
+      Name
+        BareWord "a"
+      Equals "="
+      Literal
+        Number "2"
+  JinjaBlock "{% endif %}"
+  OrderByClause
+    Keyword "ORDER"
+    Keyword "BY"
+    OrderByList
+      OrderByItem
+        Name
+          BareWord "a"
+
+> SELECT a
+FROM t
+-- a comment
+WHERE a
+/* another */
+LIMIT 1;
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "a"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  LineComment "-- a comment"
+  WhereClause
+    Keyword "WHERE"
+    Name
+      BareWord "a"
+  BlockComment "/* another */"
+  LimitClause
+    Keyword "LIMIT"
+    Literal
+      Number "1"
+
+> SELECT a FROM t WHERE a b c GROUP BY a
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "a"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  VerbatimClause
+    BareWord "WHERE"
+    BareWord "a"
+    BareWord "b"
+    BareWord "c"
+  GroupByClause
+    Keyword "GROUP"
+    Keyword "BY"
+    ExprList
+      Name
+        BareWord "a"
+
+> SELECT a, f(x y), b FROM t
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "a"
+      Comma ","
+      FunctionCall
+        Name
+          BareWord "f"
+        ArgList
+          OpeningRoundBracket "("
+          VerbatimItem
+            BareWord "x"
+            BareWord "y"
+          ClosingRoundBracket ")"
+      Comma ","
+      Name
+        BareWord "b"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"

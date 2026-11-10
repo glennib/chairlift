@@ -1,0 +1,217 @@
+---
+source: src/syntax/grammar/select/tests.rs
+expression: "trees(&[\"SELECT DISTINCT a, b\", \"SELECT DISTINCT ON (a, b) a, c\",\n\"SELECT ALL a\", \"SELECT TOP 10 a FROM t ORDER BY a\",\n\"SELECT TOP (5) WITH TIES a FROM t ORDER BY a\", \"SELECT a x, b AS y, c \\\"z\\\"\",\n\"SELECT * EXCEPT (raw), t.* REPLACE (a + 1 AS a), COLUMNS('^x') APPLY sum FROM t\",\n\"SELECT a, b, FROM t\", \"SELECT a, from FROM t\",])"
+---
+> SELECT DISTINCT a, b
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    Keyword "DISTINCT"
+    SelectList
+      Name
+        BareWord "a"
+      Comma ","
+      Name
+        BareWord "b"
+
+> SELECT DISTINCT ON (a, b) a, c
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    DistinctOn
+      Keyword "DISTINCT"
+      Keyword "ON"
+      ParenList
+        OpeningRoundBracket "("
+        Name
+          BareWord "a"
+        Comma ","
+        Name
+          BareWord "b"
+        ClosingRoundBracket ")"
+    SelectList
+      Name
+        BareWord "a"
+      Comma ","
+      Name
+        BareWord "c"
+
+> SELECT ALL a
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    Keyword "ALL"
+    SelectList
+      Name
+        BareWord "a"
+
+> SELECT TOP 10 a FROM t ORDER BY a
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    TopClause
+      Keyword "TOP"
+      Literal
+        Number "10"
+    SelectList
+      Name
+        BareWord "a"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  OrderByClause
+    Keyword "ORDER"
+    Keyword "BY"
+    OrderByList
+      OrderByItem
+        Name
+          BareWord "a"
+
+> SELECT TOP (5) WITH TIES a FROM t ORDER BY a
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    TopClause
+      Keyword "TOP"
+      OpeningRoundBracket "("
+      Literal
+        Number "5"
+      ClosingRoundBracket ")"
+      Keyword "WITH"
+      Keyword "TIES"
+    SelectList
+      Name
+        BareWord "a"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  OrderByClause
+    Keyword "ORDER"
+    Keyword "BY"
+    OrderByList
+      OrderByItem
+        Name
+          BareWord "a"
+
+> SELECT a x, b AS y, c "z"
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AliasedExpr
+        Name
+          BareWord "a"
+        Alias
+          Name
+            BareWord "x"
+      Comma ","
+      AliasedExpr
+        Name
+          BareWord "b"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "y"
+      Comma ","
+      AliasedExpr
+        Name
+          BareWord "c"
+        Alias
+          Name
+            QuotedIdentifier "\"z\""
+
+> SELECT * EXCEPT (raw), t.* REPLACE (a + 1 AS a), COLUMNS('^x') APPLY sum FROM t
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+        ColumnTransformer
+          Keyword "EXCEPT"
+          ParenExpr
+            OpeningRoundBracket "("
+            Name
+              BareWord "raw"
+            ClosingRoundBracket ")"
+      Comma ","
+      AsteriskExpr
+        Name
+          BareWord "t"
+        Dot "."
+        Asterisk "*"
+        ColumnTransformer
+          Keyword "REPLACE"
+          ParenExpr
+            OpeningRoundBracket "("
+            AliasedExpr
+              BinaryExpr
+                Name
+                  BareWord "a"
+                Plus "+"
+                Literal
+                  Number "1"
+              Alias
+                Keyword "AS"
+                Name
+                  BareWord "a"
+            ClosingRoundBracket ")"
+      Comma ","
+      ColumnsMatcher
+        Keyword "COLUMNS"
+        ArgList
+          OpeningRoundBracket "("
+          Literal
+            StringLiteral "'^x'"
+          ClosingRoundBracket ")"
+        ColumnTransformer
+          Keyword "APPLY"
+          Name
+            BareWord "sum"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+
+> SELECT a, b, FROM t
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "a"
+      Comma ","
+      Name
+        BareWord "b"
+      Comma ","
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+
+> SELECT a, from FROM t
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "a"
+      Comma ","
+      Name
+        BareWord "from"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"

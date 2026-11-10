@@ -1,6 +1,6 @@
 ---
 source: src/syntax/tests.rs
-expression: "file_tree(\"-- header\\n\\nDROP TABLE t; ;\\nSELECT 1 -- trailing\\n;\\nSET x = 1\",\nMode::Sql)"
+expression: "file_tree(\"-- header\\n\\nDROP TABLE t; ;\\nSELECT 1 -- trailing\\n;\\nSET x = 1\",\nMode::Sql, Entry::File)"
 ---
 Root@0..59
   LineComment@0..9 "-- header"
@@ -18,10 +18,13 @@ Root@0..59
     Semicolon@25..26 ";"
   Whitespace@26..27 "\n"
   Statement@27..49
-    VerbatimStatement@27..35
-      BareWord@27..33 "SELECT"
-      Whitespace@33..34 " "
-      Number@34..35 "1"
+    SelectQuery@27..35
+      SelectClause@27..35
+        Keyword@27..33 "SELECT"
+        Whitespace@33..34 " "
+        SelectList@34..35
+          Literal@34..35
+            Number@34..35 "1"
     Whitespace@35..36 " "
     LineComment@36..47 "-- trailing"
     Whitespace@47..48 "\n"

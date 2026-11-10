@@ -1,0 +1,165 @@
+---
+source: src/syntax/grammar/select/tests.rs
+expression: "trees(&[\"SELECT a, count() FROM t GROUP BY a WITH TOTALS\",\n\"SELECT a FROM t GROUP BY ALL\",\n\"SELECT a FROM t GROUP BY ROLLUP(a, b) WITH CUBE WITH TOTALS\",\n\"SELECT a FROM t GROUP BY CUBE(a)\",\n\"SELECT a FROM t GROUP BY GROUPING SETS ((a, b), a, ())\",\n\"SELECT count() FROM t WITH TOTALS\",])"
+---
+> SELECT a, count() FROM t GROUP BY a WITH TOTALS
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "a"
+      Comma ","
+      FunctionCall
+        Name
+          BareWord "count"
+        ArgList
+          OpeningRoundBracket "("
+          ClosingRoundBracket ")"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  GroupByClause
+    Keyword "GROUP"
+    Keyword "BY"
+    ExprList
+      Name
+        BareWord "a"
+    GroupByModifier
+      Keyword "WITH"
+      Keyword "TOTALS"
+
+> SELECT a FROM t GROUP BY ALL
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "a"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  GroupByClause
+    Keyword "GROUP"
+    Keyword "BY"
+    Keyword "ALL"
+
+> SELECT a FROM t GROUP BY ROLLUP(a, b) WITH CUBE WITH TOTALS
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "a"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  GroupByClause
+    Keyword "GROUP"
+    Keyword "BY"
+    Keyword "ROLLUP"
+    ParenList
+      OpeningRoundBracket "("
+      Name
+        BareWord "a"
+      Comma ","
+      Name
+        BareWord "b"
+      ClosingRoundBracket ")"
+    GroupByModifier
+      Keyword "WITH"
+      Keyword "CUBE"
+    GroupByModifier
+      Keyword "WITH"
+      Keyword "TOTALS"
+
+> SELECT a FROM t GROUP BY CUBE(a)
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "a"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  GroupByClause
+    Keyword "GROUP"
+    Keyword "BY"
+    Keyword "CUBE"
+    ParenList
+      OpeningRoundBracket "("
+      Name
+        BareWord "a"
+      ClosingRoundBracket ")"
+
+> SELECT a FROM t GROUP BY GROUPING SETS ((a, b), a, ())
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "a"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  GroupByClause
+    Keyword "GROUP"
+    Keyword "BY"
+    GroupingSets
+      Keyword "GROUPING"
+      Keyword "SETS"
+      OpeningRoundBracket "("
+      ParenList
+        OpeningRoundBracket "("
+        Name
+          BareWord "a"
+        Comma ","
+        Name
+          BareWord "b"
+        ClosingRoundBracket ")"
+      Comma ","
+      Name
+        BareWord "a"
+      Comma ","
+      ParenList
+        OpeningRoundBracket "("
+        ClosingRoundBracket ")"
+      ClosingRoundBracket ")"
+
+> SELECT count() FROM t WITH TOTALS
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      FunctionCall
+        Name
+          BareWord "count"
+        ArgList
+          OpeningRoundBracket "("
+          ClosingRoundBracket ")"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+  GroupByClause
+    GroupByModifier
+      Keyword "WITH"
+      Keyword "TOTALS"

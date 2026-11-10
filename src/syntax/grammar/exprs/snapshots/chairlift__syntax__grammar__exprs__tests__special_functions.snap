@@ -290,9 +290,12 @@ FunctionCall
     BareWord "exists"
   Subquery
     OpeningRoundBracket "("
-    Opaque
-      BareWord "SELECT"
-      Number "1"
+    SelectQuery
+      SelectClause
+        Keyword "SELECT"
+        SelectList
+          Literal
+            Number "1"
     ClosingRoundBracket ")"
 
 > cast('1234' lhs AS UInt32)
