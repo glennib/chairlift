@@ -227,6 +227,19 @@ fn whitespace_inside_a_rendered_literal() {
     );
 }
 
+/// A branch that is left out can move where an `INSERT`'s data ends, so in
+/// a template with block tags, the text from such an `INSERT` on stays.
+#[test]
+fn template_data_that_a_branch_can_move_keeps_every_byte() {
+    // With `x` false, `b` is data that ends at the blank line; the
+    // rendered text with every branch taken shows no data.
+    let source = "SELECT 1;  \n{% if x %}'a' {% endif %}INSERT INTO t FORMAT TSV\nb\n\n\n";
+    assert_eq!(
+        fmt_in(source, true),
+        "SELECT 1;\n{% if x %}'a' {% endif %}INSERT INTO t FORMAT TSV\nb\n\n\n"
+    );
+}
+
 #[test]
 fn values_data_keeps_every_byte() {
     let source = "INSERT INTO t VALUES (1, 'a'),  \r\n\r\n\r\n  (2, 'b')  ;  \r\nSELECT 1;  \r\n";

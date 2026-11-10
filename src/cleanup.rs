@@ -33,6 +33,7 @@
 //! end of the input and gain the final newline.
 
 use crate::lexer::Mode;
+use crate::lexer::Token;
 use crate::lexer::TokenKind;
 use crate::lexer::is_whitespace;
 use crate::lexer::jinja;
@@ -166,7 +167,8 @@ pub(crate) fn cleanup(source: &str, split: &Split, mode: Mode) -> String {
         .is_some_and(|data| data.token == last_solid && data.format == DataFormat::Other);
     if rendered_open_data {
         // The rendered text ends in data that runs to its end or to a blank
-        // line; whatever follows the last token is data or ends the data.
+        // line, or a branch can move where data ends; whatever follows the
+        // last token is data or ends the data.
         out.push_str(&source[last.end()..]);
     } else if !open_data {
         // Tokens followed by whitespace in the input lex the same before the
@@ -204,8 +206,9 @@ pub(crate) fn cleanup(source: &str, split: &Split, mode: Mode) -> String {
 struct Rendered {
     /// For each token of the template, whether it must stay as it is.
     kept: Vec<bool>,
-    /// The rendered text ends in `INSERT` data in a format other than
-    /// `Values`, with nothing but whitespace after it.
+    /// The end of the text stays as it is: the rendered text ends in
+    /// `INSERT` data in a format other than `Values`, with nothing but
+    /// whitespace after it, or a branch can move where such data ends.
     open_data: bool,
 }
 
@@ -332,6 +335,27 @@ fn inside_rendered_tokens(
         let first = tokens.partition_point(|t| t.end() <= start);
         let last = tokens.partition_point(|t| t.start() < end);
         kept[first..last].fill(true);
+    }
+    // Leaving out a branch can move where data in a format other than
+    // `Values` starts or ends: a blank line or the end of the file can fall
+    // elsewhere, and the rows of one branch can become another's data. The
+    // rendered text with every branch taken does not show this, so from an
+    // `INSERT` with a `FORMAT` after it to the end, a template with block
+    // tags stays as it is.
+    let mut open_data = open_data;
+    if jinja::tags(source).any(|t| t.kind == TagKind::Block) {
+        let word = |t: &Token, w: &str| {
+            t.kind() == TokenKind::BareWord && t.text(&text).eq_ignore_ascii_case(w)
+        };
+        let insert = rendered_tokens.iter().position(|t| word(t, "INSERT"));
+        if let Some(insert) = insert
+            && rendered_tokens[insert..].iter().any(|t| word(t, "FORMAT"))
+        {
+            let start = to_source(rendered_tokens[insert].start());
+            let first = tokens.partition_point(|t| t.end() <= start);
+            kept[first..].fill(true);
+            open_data = true;
+        }
     }
     Rendered { kept, open_data }
 }
