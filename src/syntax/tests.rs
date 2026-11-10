@@ -59,7 +59,6 @@ fn every_statement_is_verbatim_until_its_grammar_exists() {
         "SELECT 1",
         "WITH x AS (SELECT 1) SELECT * FROM x",
         "(SELECT 1) UNION ALL (SELECT 2)",
-        "CREATE MATERIALIZED VIEW v TO t AS SELECT 1",
         "INSERT INTO t VALUES (1)",
         "ALTER TABLE t ADD COLUMN a Int8",
     ] {

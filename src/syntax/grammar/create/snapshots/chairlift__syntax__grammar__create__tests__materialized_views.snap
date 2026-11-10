@@ -1,0 +1,277 @@
+---
+source: src/syntax/grammar/create/tests.rs
+expression: "trees(&[\"CREATE MATERIALIZED VIEW IF NOT EXISTS db.v ON CLUSTER c TO db.t AS SELECT 1\",\n\"CREATE OR REPLACE MATERIALIZED VIEW v UUID '00000000-0000-0000-0000-000000000001' TO t AS SELECT 1\",\n\"CREATE MATERIALIZED VIEW v TO t (a Int8, b String) AS SELECT 1\",\n\"CREATE MATERIALIZED VIEW v (a Int8) ENGINE = MergeTree ORDER BY a TTL d TO DISK 'x' POPULATE AS SELECT 1\",\n\"CREATE MATERIALIZED VIEW v REFRESH EVERY 1 HOUR OFFSET 5 MINUTE RANDOMIZE FOR 1 MINUTE DEPENDS ON a, db.b SETTINGS refresh_retries = 1 APPEND TO t AS SELECT 1\",\n\"CREATE MATERIALIZED VIEW v REFRESH AFTER 1 HOUR 30 MINUTE ENGINE = Memory EMPTY AS SELECT 1\",\n\"CREATE MATERIALIZED VIEW v TO t DEFINER = u@'%' SQL SECURITY DEFINER COMMENT 'x' AS SELECT 1\",\n\"CREATE MATERIALIZED VIEW v TO INNER UUID '00000000-0000-0000-0000-000000000001' ENGINE = Memory AS SELECT 1\",])"
+---
+> CREATE MATERIALIZED VIEW IF NOT EXISTS db.v ON CLUSTER c TO db.t AS SELECT 1
+CreateMaterializedView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "MATERIALIZED"
+    Keyword "VIEW"
+    IfNotExists
+      Keyword "IF"
+      Keyword "NOT"
+      Keyword "EXISTS"
+    QualifiedName
+      Name
+        BareWord "db"
+      Dot "."
+      Name
+        BareWord "v"
+    OnCluster
+      Keyword "ON"
+      Keyword "CLUSTER"
+      Name
+        BareWord "c"
+  ToClause
+    Keyword "TO"
+    QualifiedName
+      Name
+        BareWord "db"
+      Dot "."
+      Name
+        BareWord "t"
+  AsClause
+    Keyword "AS"
+    <query>
+
+> CREATE OR REPLACE MATERIALIZED VIEW v UUID '00000000-0000-0000-0000-000000000001' TO t AS SELECT 1
+CreateMaterializedView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "OR"
+    Keyword "REPLACE"
+    Keyword "MATERIALIZED"
+    Keyword "VIEW"
+    Name
+      BareWord "v"
+    TableUuid
+      Keyword "UUID"
+      Literal
+        StringLiteral "'00000000-0000-0000-0000-000000000001'"
+  ToClause
+    Keyword "TO"
+    Name
+      BareWord "t"
+  AsClause
+    Keyword "AS"
+    <query>
+
+> CREATE MATERIALIZED VIEW v TO t (a Int8, b String) AS SELECT 1
+CreateMaterializedView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "MATERIALIZED"
+    Keyword "VIEW"
+    Name
+      BareWord "v"
+  ToClause
+    Keyword "TO"
+    Name
+      BareWord "t"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "b"
+      DataType
+        Name
+          BareWord "String"
+    ClosingRoundBracket ")"
+  AsClause
+    Keyword "AS"
+    <query>
+
+> CREATE MATERIALIZED VIEW v (a Int8) ENGINE = MergeTree ORDER BY a TTL d TO DISK 'x' POPULATE AS SELECT 1
+CreateMaterializedView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "MATERIALIZED"
+    Keyword "VIEW"
+    Name
+      BareWord "v"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    ClosingRoundBracket ")"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "MergeTree"
+  OrderByClause
+    Keyword "ORDER"
+    Keyword "BY"
+    Name
+      BareWord "a"
+  TtlClause
+    Keyword "TTL"
+    TtlList
+      TtlElement
+        Name
+          BareWord "d"
+        Keyword "TO"
+        Keyword "DISK"
+        Literal
+          StringLiteral "'x'"
+  PopulateClause
+    Keyword "POPULATE"
+  AsClause
+    Keyword "AS"
+    <query>
+
+> CREATE MATERIALIZED VIEW v REFRESH EVERY 1 HOUR OFFSET 5 MINUTE RANDOMIZE FOR 1 MINUTE DEPENDS ON a, db.b SETTINGS refresh_retries = 1 APPEND TO t AS SELECT 1
+CreateMaterializedView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "MATERIALIZED"
+    Keyword "VIEW"
+    Name
+      BareWord "v"
+  RefreshClause
+    Keyword "REFRESH"
+    Keyword "EVERY"
+    TimeInterval
+      Literal
+        Number "1"
+      IntervalUnit
+        Keyword "HOUR"
+    Keyword "OFFSET"
+    TimeInterval
+      Literal
+        Number "5"
+      IntervalUnit
+        Keyword "MINUTE"
+    Keyword "RANDOMIZE"
+    Keyword "FOR"
+    TimeInterval
+      Literal
+        Number "1"
+      IntervalUnit
+        Keyword "MINUTE"
+    DependsOn
+      Keyword "DEPENDS"
+      Keyword "ON"
+      Name
+        BareWord "a"
+      Comma ","
+      QualifiedName
+        Name
+          BareWord "db"
+        Dot "."
+        Name
+          BareWord "b"
+    SettingsClause
+      Keyword "SETTINGS"
+      SettingsList
+        SettingItem
+          Name
+            BareWord "refresh_retries"
+          Equals "="
+          Literal
+            Number "1"
+    Keyword "APPEND"
+  ToClause
+    Keyword "TO"
+    Name
+      BareWord "t"
+  AsClause
+    Keyword "AS"
+    <query>
+
+> CREATE MATERIALIZED VIEW v REFRESH AFTER 1 HOUR 30 MINUTE ENGINE = Memory EMPTY AS SELECT 1
+CreateMaterializedView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "MATERIALIZED"
+    Keyword "VIEW"
+    Name
+      BareWord "v"
+  RefreshClause
+    Keyword "REFRESH"
+    Keyword "AFTER"
+    TimeInterval
+      Literal
+        Number "1"
+      IntervalUnit
+        Keyword "HOUR"
+      Literal
+        Number "30"
+      IntervalUnit
+        Keyword "MINUTE"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "Memory"
+  PopulateClause
+    Keyword "EMPTY"
+  AsClause
+    Keyword "AS"
+    <query>
+
+> CREATE MATERIALIZED VIEW v TO t DEFINER = u@'%' SQL SECURITY DEFINER COMMENT 'x' AS SELECT 1
+CreateMaterializedView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "MATERIALIZED"
+    Keyword "VIEW"
+    Name
+      BareWord "v"
+  ToClause
+    Keyword "TO"
+    Name
+      BareWord "t"
+  SqlSecurityClause
+    Keyword "DEFINER"
+    Equals "="
+    Name
+      BareWord "u"
+    At "@"
+    Literal
+      StringLiteral "'%'"
+    Keyword "SQL"
+    Keyword "SECURITY"
+    Keyword "DEFINER"
+  CommentClause
+    Keyword "COMMENT"
+    Literal
+      StringLiteral "'x'"
+  AsClause
+    Keyword "AS"
+    <query>
+
+> CREATE MATERIALIZED VIEW v TO INNER UUID '00000000-0000-0000-0000-000000000001' ENGINE = Memory AS SELECT 1
+CreateMaterializedView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "MATERIALIZED"
+    Keyword "VIEW"
+    Name
+      BareWord "v"
+    TableUuid
+      Keyword "TO"
+      Keyword "INNER"
+      Keyword "UUID"
+      Literal
+        StringLiteral "'00000000-0000-0000-0000-000000000001'"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "Memory"
+  AsClause
+    Keyword "AS"
+    <query>

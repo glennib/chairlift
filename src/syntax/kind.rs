@@ -509,7 +509,12 @@ syntax_kinds! {
         /// [`CreateHeader`](Self::CreateHeader), an optional
         /// [`TableElementList`](Self::TableElementList), then clauses.
         CreateTable: Statement,
-        /// `CREATE MATERIALIZED VIEW …`.
+        /// `CREATE [OR REPLACE] MATERIALIZED VIEW …`: a
+        /// [`CreateHeader`](Self::CreateHeader), then clauses
+        /// ([`RefreshClause`](Self::RefreshClause), [`ToClause`](Self::ToClause),
+        /// storage clauses, [`PopulateClause`](Self::PopulateClause), …), with
+        /// the view's [`TableElementList`](Self::TableElementList) where it is
+        /// written, and the query in an [`AsClause`](Self::AsClause).
         CreateMaterializedView: Statement,
         /// The statement's keywords up to the object kind (`CREATE OR
         /// REPLACE TABLE`), an [`IfNotExists`](Self::IfNotExists), the name
@@ -617,7 +622,7 @@ syntax_kinds! {
         /// `AS` and a query, a [`FunctionCall`](Self::FunctionCall) of a table
         /// function, or a table's name.
         AsClause: Clause,
-        /// `TO db.table` of a materialized view.
+        /// `TO [db.]table` of a materialized view.
         ToClause: Clause,
         /// `POPULATE`, `EMPTY` or `CLONE`: whether a materialized view starts
         /// with the data its query selects, or a table created `AS …` with
@@ -626,6 +631,16 @@ syntax_kinds! {
         /// `DEFINER = user` and `SQL SECURITY DEFINER|INVOKER|NONE`, either or
         /// both.
         SqlSecurityClause: Clause,
+        /// `REFRESH EVERY|AFTER interval [OFFSET interval] [RANDOMIZE FOR
+        /// interval]`, then any of a [`DependsOn`](Self::DependsOn), a
+        /// [`SettingsClause`](Self::SettingsClause) and `APPEND
+        /// [INCREMENTAL]`, of a materialized view.
+        RefreshClause: Clause,
+        /// `n UNIT [n UNIT …]` in a [`RefreshClause`](Self::RefreshClause):
+        /// numbers and [`IntervalUnit`](Self::IntervalUnit)s.
+        TimeInterval: Node,
+        /// `DEPENDS ON` and table names separated by commas.
+        DependsOn: List,
     }
 }
 

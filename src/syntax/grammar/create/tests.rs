@@ -167,6 +167,20 @@ fn as_forms() {
     assert_parses("CREATE TABLE t AS view(SELECT 1)");
 }
 
+#[test]
+fn materialized_views() {
+    insta::assert_snapshot!(trees(&[
+        "CREATE MATERIALIZED VIEW IF NOT EXISTS db.v ON CLUSTER c TO db.t AS SELECT 1",
+        "CREATE OR REPLACE MATERIALIZED VIEW v UUID '00000000-0000-0000-0000-000000000001' TO t AS SELECT 1",
+        "CREATE MATERIALIZED VIEW v TO t (a Int8, b String) AS SELECT 1",
+        "CREATE MATERIALIZED VIEW v (a Int8) ENGINE = MergeTree ORDER BY a TTL d TO DISK 'x' POPULATE AS SELECT 1",
+        "CREATE MATERIALIZED VIEW v REFRESH EVERY 1 HOUR OFFSET 5 MINUTE RANDOMIZE FOR 1 MINUTE DEPENDS ON a, db.b SETTINGS refresh_retries = 1 APPEND TO t AS SELECT 1",
+        "CREATE MATERIALIZED VIEW v REFRESH AFTER 1 HOUR 30 MINUTE ENGINE = Memory EMPTY AS SELECT 1",
+        "CREATE MATERIALIZED VIEW v TO t DEFINER = u@'%' SQL SECURITY DEFINER COMMENT 'x' AS SELECT 1",
+        "CREATE MATERIALIZED VIEW v TO INNER UUID '00000000-0000-0000-0000-000000000001' ENGINE = Memory AS SELECT 1",
+    ]));
+}
+
 /// A clause that does not parse is kept verbatim up to the next clause, and
 /// a column up to the next comma; Jinja block tags and comments between
 /// clauses and columns are trivia.
@@ -177,6 +191,44 @@ fn fallbacks_stay_inside_the_clause_or_column() {
         "CREATE TABLE t (a Int8)\n{% if prod %}\nENGINE = ReplicatedMergeTree\n{% else %}\nENGINE = MergeTree\n{% endif %}\n-- the key\nORDER BY a",
         "CREATE TABLE t (index UInt8, `index` UInt8)",
     ]));
+}
+
+#[test]
+fn the_fixtures_parse_without_fallback() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut files = vec![
+        root.join("design/page_views_1h.sql.j2"),
+        root.join("design/page_views_1h.expected.sql.j2"),
+    ];
+    for dir in [
+        "migrations",
+        "template_migrations",
+        "bootstrap_migrations",
+        "upgrade_migrations",
+        "question_mark_migrations",
+    ] {
+        for entry in std::fs::read_dir(root.join("chum").join(dir)).expect("fixtures") {
+            files.push(entry.expect("fixture").path());
+        }
+    }
+    let mut creates = 0;
+    for file in files {
+        let source = std::fs::read_to_string(&file).expect("fixture");
+        let parse = parse(&source, Mode::Jinja);
+        for statement in parse.statements() {
+            if statement.kind == "create table" || statement.kind == "create materialized view" {
+                creates += 1;
+                assert_eq!(
+                    statement.outcome,
+                    StatementOutcome::Parsed,
+                    "{}: {}",
+                    file.display(),
+                    &source[statement.range.clone()]
+                );
+            }
+        }
+    }
+    assert_eq!(creates, 14);
 }
 
 #[test]
@@ -356,6 +408,32 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
     (
         "create table t as remote('a', db, t, settings x = 1)",
         "CREATE TABLE t AS remote('a', db, t, SETTINGS x = 1)",
+    ),
+    (
+        "create materialized view v to t as SELECT 1",
+        "CREATE MATERIALIZED VIEW v TO t AS SELECT 1",
+    ),
+    (
+        "create or replace materialized view v on cluster c to db.t (a Int8) as SELECT 1",
+        "CREATE OR REPLACE MATERIALIZED VIEW v ON CLUSTER c TO db.t (a Int8) AS SELECT 1",
+    ),
+    (
+        "create materialized view if not exists v to t as SELECT 1",
+        "CREATE MATERIALIZED VIEW IF NOT EXISTS v TO t AS SELECT 1",
+    ),
+    (
+        "create materialized view v engine = MergeTree order by d ttl d to disk 'x' populate as SELECT 1",
+        "CREATE MATERIALIZED VIEW v ENGINE = MergeTree ORDER BY d TTL d TO DISK 'x' POPULATE AS SELECT 1",
+    ),
+    (
+        "create materialized view v refresh every 1 hour offset 5 minute randomize for 1 minute \
+         depends on a, db.b settings refresh_retries = 1 append to t as SELECT 1",
+        "CREATE MATERIALIZED VIEW v REFRESH EVERY 1 HOUR OFFSET 5 MINUTE RANDOMIZE FOR 1 MINUTE \
+         DEPENDS ON a, db.b SETTINGS refresh_retries = 1 APPEND TO t AS SELECT 1",
+    ),
+    (
+        "create materialized view v to t comment 'x' as SELECT 1",
+        "CREATE MATERIALIZED VIEW v TO t COMMENT 'x' AS SELECT 1",
     ),
 ];
 

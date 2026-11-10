@@ -1,17 +1,16 @@
 //! `CREATE TABLE` and `CREATE MATERIALIZED VIEW`, as ClickHouse's
 //! `ParserCreateTableQuery` and `ParserCreateViewQuery` read them
-//! (`src/Parsers/ParserCreateQuery.cpp`). Materialized views are not parsed
-//! yet: they are kept verbatim.
+//! (`src/Parsers/ParserCreateQuery.cpp`).
 //!
 //! A statement is a [`CreateHeader`](SyntaxKind::CreateHeader) (keywords,
 //! name, `UUID`, `ON CLUSTER`), the
 //! [`TableElementList`](SyntaxKind::TableElementList) if there is one (see
 //! [`elements`]), and then clauses, one node each in the order written: the
 //! storage clauses (see [`storage`]), `COMMENT`, `EMPTY` or `CLONE`, `SQL
-//! SECURITY`, `AS …` and `FORMAT`. ClickHouse fixes their order; here they
-//! may come in any order and repeat, so that each branch of a Jinja `{% if
-//! %}` can hold its own clause, and a clause that does not parse is kept
-//! verbatim on its own.
+//! SECURITY`, `AS …` and `FORMAT`, and for a view `REFRESH`, `TO` and
+//! `POPULATE`. ClickHouse fixes their order; here they may come in any order
+//! and repeat, so that each branch of a Jinja `{% if %}` can hold its own
+//! clause, and a clause that does not parse is kept verbatim on its own.
 //!
 //! The query after `AS`, and a projection's query, go through
 //! [`select::query`] and [`select::subquery`].
@@ -55,8 +54,7 @@ pub(crate) fn statement(p: &mut Parser<'_>) -> Option<()> {
         n += 1;
     }
     if p.nth_at_kw(n, K::Materialized) {
-        fallback::verbatim_statement(p);
-        Some(())
+        materialized_view(p)
     } else {
         table(p)
     }
@@ -71,6 +69,23 @@ fn table(p: &mut Parser<'_>) -> Option<()> {
     }
     clauses(p);
     m.complete(p, SyntaxKind::CreateTable);
+    Some(())
+}
+
+/// [`CreateMaterializedView`](SyntaxKind::CreateMaterializedView). The
+/// column list follows `REFRESH` and `TO`, as in ClickHouse.
+fn materialized_view(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    header(p, &[K::Materialized, K::View])?;
+    let before_columns = |p: &Parser<'_>| at_clause(p) || p.at(T::OpeningRoundBracket);
+    while p.at_kw(K::Refresh) || at_to(p) {
+        fallback::clause(p, &before_columns, clause);
+    }
+    if p.at(T::OpeningRoundBracket) {
+        elements::element_list(p)?;
+    }
+    clauses(p);
+    m.complete(p, SyntaxKind::CreateMaterializedView);
     Some(())
 }
 
@@ -116,7 +131,8 @@ fn clauses(p: &mut Parser<'_>) {
     }
 }
 
-/// Whether the current token starts one of the clauses of `CREATE TABLE`.
+/// Whether the current token starts one of the clauses of `CREATE TABLE`
+/// or `CREATE MATERIALIZED VIEW`.
 ///
 /// This is also where lists inside clauses (`TTL`, `SETTINGS`) end, so a
 /// word that starts a clause only does so when what follows cannot continue
@@ -132,6 +148,8 @@ fn at_clause(p: &Parser<'_>) -> bool {
         Some(K::Comment) => p.nth_at(1, T::StringLiteral),
         Some(K::Populate | K::Empty | K::Clone) => p.nth(1).is_none() || at_clause_word(p, 1),
         Some(K::Sql) => p.nth_at_kw(1, K::Security),
+        Some(K::Refresh) => matches!(p.nth_keyword(1), Some(K::Every | K::After | K::Depends)),
+        Some(K::To) => at_to(p),
         Some(K::Format) => names::at_name(p, 1),
         _ => false,
     }
@@ -166,6 +184,12 @@ fn at_operand(p: &Parser<'_>, n: usize) -> bool {
     )
 }
 
+/// Whether the current token starts a view's `TO [db.]table` or `TO INNER
+/// UUID '…'`, which `TO DISK` and `TO VOLUME` in a TTL rule do not.
+fn at_to(p: &Parser<'_>) -> bool {
+    p.at_kw(K::To) && names::at_name(p, 1) && !matches!(p.nth_keyword(1), Some(K::Disk | K::Volume))
+}
+
 /// The clause at the current token.
 fn clause(p: &mut Parser<'_>) -> Option<()> {
     if storage::at_storage_clause(p) {
@@ -181,6 +205,8 @@ fn clause(p: &mut Parser<'_>) -> Option<()> {
         }
         Some(K::Definer | K::Sql) => sql_security(p),
         Some(K::As) => as_clause(p),
+        Some(K::Refresh) => refresh(p),
+        Some(K::To) => to(p),
         Some(K::Format) => {
             let m = p.start();
             p.bump_keyword();
@@ -303,6 +329,86 @@ fn user_name(p: &mut Parser<'_>) -> Option<()> {
         }
     }
     Some(())
+}
+
+/// `TO [db.]table` or `TO INNER UUID '…'` of a view, as a
+/// [`ToClause`](SyntaxKind::ToClause).
+fn to(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    p.bump_keyword();
+    if p.at_kws(&[K::Inner, K::Uuid]) && p.nth_at(2, T::StringLiteral) {
+        p.bump_keyword();
+        p.bump_keyword();
+        exprs::literal(p)?;
+    } else {
+        names::compound_name(p)?;
+    }
+    m.complete(p, SyntaxKind::ToClause);
+    Some(())
+}
+
+/// `REFRESH …` of a materialized view, as a
+/// [`RefreshClause`](SyntaxKind::RefreshClause) (`ParserRefreshStrategy`).
+fn refresh(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    p.bump_keyword();
+    let every = p.at_kw(K::Every);
+    let scheduled = every || p.at_kw(K::After);
+    if scheduled {
+        p.bump_keyword();
+        time_interval(p)?;
+        if every && p.eat_kw(K::Offset) {
+            time_interval(p)?;
+        }
+    }
+    if p.eat_kws(&[K::Randomize, K::For]) {
+        time_interval(p)?;
+    }
+    if p.at_kws(&[K::Depends, K::On]) {
+        depends_on(p)?;
+    } else if !scheduled {
+        return p.expected("EVERY, AFTER or DEPENDS ON");
+    }
+    if common::at_settings(p) {
+        common::settings_clause(p, &|p: &Parser<'_>| at_clause(p) || p.at_kw(K::Append))?;
+    }
+    if p.eat_kw(K::Append) {
+        p.eat_kw(K::Incremental);
+    }
+    m.complete(p, SyntaxKind::RefreshClause);
+    Some(())
+}
+
+/// `n UNIT [n UNIT …]` as a [`TimeInterval`](SyntaxKind::TimeInterval)
+/// (`ParserTimeInterval`).
+fn time_interval(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    let m = p.start();
+    let mut parts = 0;
+    while p.at(T::Number) && exprs::at_interval_unit(p, 1) {
+        exprs::literal(p)?;
+        let unit = p.start();
+        p.bump_keyword();
+        unit.complete(p, SyntaxKind::IntervalUnit);
+        parts += 1;
+    }
+    if parts == 0 {
+        m.abandon(p);
+        return p.expected("an interval");
+    }
+    Some(m.complete(p, SyntaxKind::TimeInterval))
+}
+
+/// `DEPENDS ON a, db.b` as a [`DependsOn`](SyntaxKind::DependsOn).
+fn depends_on(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    let m = p.start();
+    p.bump_keyword();
+    p.bump_keyword();
+    names::compound_name(p)?;
+    while p.at(T::Comma) && names::at_name(p, 1) {
+        p.bump();
+        names::compound_name(p)?;
+    }
+    Some(m.complete(p, SyntaxKind::DependsOn))
 }
 
 /// A name, or a name with arguments as a
