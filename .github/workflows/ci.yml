@@ -54,6 +54,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache mise
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.local/bin/mise
+            ~/.local/share/mise
+          key: ${{ runner.os }}-mise-${{ hashFiles('mise.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-mise-
+
+      - name: Install mise
+        run: |
+          if [ ! -f ~/.local/bin/mise ]; then
+            curl https://mise.run | sh
+          fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install tools
+        run: mise install
+
       # The fetch script holds every pin, so its hash is the cache key. An older
       # cache is still restored: the script moves it to the new pins, which is
       # cheaper than a fresh clone.
@@ -67,3 +92,6 @@ jobs:
 
       - name: Fetch corpus
         run: scripts/fetch-corpus.sh
+
+      - name: Check the generated keyword list
+        run: mise run keywords:check

@@ -6,6 +6,8 @@
 //! the crate is pre-release, and `docs/MILESTONES.md` in the repository lays
 //! out what comes next.
 
+pub mod keyword;
+
 /// The ClickHouse release whose grammar chairlift targets.
 ///
 /// Keyword lists and lexer rules are taken from this release's source, and the
