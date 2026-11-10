@@ -14,7 +14,9 @@
 //!   costs about 70 ms of start-up. Texts are batched, with a boundary
 //!   statement after each, and when a batch fails the text that failed is run
 //!   alone and the rest of the batch goes on, so one bad statement costs one
-//!   extra run.
+//!   extra run. Batches stay small, as the work of one run grows with the
+//!   square of its statements: 4,000 copies of `SELECT 1;` take about 2 s,
+//!   8,000 about 10 s.
 //! - [`judge`] compares the verdicts on an input and its output. Only an
 //!   output that the oracle rejects or prints differently, for an input it
 //!   accepts, is a formatter bug; an input it rejects cannot be judged, and
@@ -25,11 +27,13 @@
 
 use std::io::Read as _;
 use std::io::Write as _;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
+use std::sync::Condvar;
+use std::sync::Mutex;
+use std::sync::PoisonError;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -179,14 +183,14 @@ pub fn prepare(text: &str, mode: Mode) -> String {
 
 impl Oracle {
     /// The oracle run as `program` (such as `clickhouse-format`, found on
-    /// `PATH`), with batches of up to 200 texts or 256 KiB, a 60 s timeout per
+    /// `PATH`), with batches of up to 200 texts or 32 KiB, a 60 s timeout per
     /// process, and one process per available CPU.
     #[must_use]
     pub fn new(program: impl Into<PathBuf>) -> Oracle {
         Oracle {
             program: program.into(),
             batch_files: 200,
-            batch_bytes: 256 << 10,
+            batch_bytes: 32 << 10,
             timeout: Duration::from_secs(60),
             jobs: thread::available_parallelism().map_or(1, usize::from),
         }
@@ -201,36 +205,53 @@ impl Oracle {
     /// The oracle's verdict on each text, in order.
     #[must_use]
     pub fn canonical(&self, texts: &[&str]) -> Vec<Verdict> {
-        let mut batches = Vec::new();
+        self.canonical_in_batches(texts, self.batch_files)
+    }
+
+    /// The verdict on each text, in order, with up to `batch_texts` texts to
+    /// a process.
+    ///
+    /// Batches are tasks on a queue that every job takes from, and so is the
+    /// work a failed batch leaves: the text that failed, to run alone, and
+    /// the texts after it, as a batch. The fallbacks of one batch thus run
+    /// in parallel.
+    fn canonical_in_batches(&self, texts: &[&str], batch_texts: usize) -> Vec<Verdict> {
+        let jobs = self.jobs.max(1);
+        // A few texts still go to every job.
+        let per_batch = batch_texts.min(texts.len().div_ceil(jobs)).max(1);
+        let mut tasks = Vec::new();
         let mut start = 0;
         while start < texts.len() {
             let mut end = start;
             let mut bytes = 0;
             while end < texts.len()
-                && end - start < self.batch_files.max(1)
+                && end - start < per_batch
                 && (end == start || bytes < self.batch_bytes)
             {
                 bytes += texts[end].len();
                 end += 1;
             }
-            batches.push(start..end);
+            tasks.push(Task::Batch(start..end));
             start = end;
         }
-        let next = AtomicUsize::new(0);
+        // The queue is a stack: the first batch goes first.
+        tasks.reverse();
+        let queue = Queue {
+            state: Mutex::new(QueueState { tasks, running: 0 }),
+            changed: Condvar::new(),
+        };
         let mut verdicts: Vec<Option<Verdict>> = vec![None; texts.len()];
         let results: Vec<Vec<(usize, Verdict)>> = thread::scope(|scope| {
-            let workers: Vec<_> = (0..self.jobs.max(1).min(batches.len().max(1)))
+            let workers: Vec<_> = (0..jobs.min(texts.len()))
                 .map(|_| {
                     scope.spawn(|| {
                         let mut done = Vec::new();
-                        loop {
-                            let i = next.fetch_add(1, Ordering::Relaxed);
-                            let Some(range) = batches.get(i) else {
-                                break;
+                        while let Some(task) = queue.take() {
+                            let mut running = Running {
+                                queue: &queue,
+                                more: Vec::new(),
                             };
-                            let items: Vec<(usize, &str)> =
-                                range.clone().map(|k| (k, texts[k])).collect();
-                            done.extend(self.batch(&items));
+                            running.more = self.task(task, texts, &mut done);
                         }
                         done
                     })
@@ -257,45 +278,45 @@ impl Oracle {
             .collect()
     }
 
-    /// The verdicts on a batch of `(index, text)` items: one process for all,
-    /// a process for each text that fails, and the rest again after it.
-    fn batch(&self, items: &[(usize, &str)]) -> Vec<(usize, Verdict)> {
-        let mut verdicts = Vec::with_capacity(items.len());
-        let mut rest = items;
-        while !rest.is_empty() {
-            if rest.len() == 1 {
-                let (k, text) = rest[0];
-                verdicts.push((k, self.alone(text)));
-                break;
+    /// Runs `task` on `texts`, pushing the verdicts it reaches onto `done`,
+    /// and returns the tasks it leaves.
+    fn task(&self, task: Task, texts: &[&str], done: &mut Vec<(usize, Verdict)>) -> Vec<Task> {
+        let range = match task {
+            Task::Alone(k) => {
+                done.push((k, self.alone(texts[k])));
+                return Vec::new();
             }
-            let input: String = rest
-                .iter()
-                .enumerate()
-                .map(|(n, (_, text))| [text, &*terminator(text), &boundary(n)].concat())
-                .collect();
-            let (outputs, failed) = match self.run(&input) {
-                Ok(run) => {
-                    let outputs = split_batch_output(&run.stdout);
-                    let failed = !run.success || outputs.len() < rest.len();
-                    (outputs, failed)
-                }
-                Err(_) => (Vec::new(), true),
-            };
-            let completed = outputs.len().min(rest.len());
-            for (&(k, _), output) in rest.iter().zip(outputs) {
-                verdicts.push((k, Verdict::Accepted(output)));
+            Task::Batch(range) if range.len() == 1 => {
+                done.push((range.start, self.alone(texts[range.start])));
+                return Vec::new();
             }
-            if !failed {
-                break;
-            }
-            // The text after the last boundary printed failed; it may have
-            // failed only because of what the batch put around it, so it is
-            // judged on its own.
-            let (k, text) = rest[completed];
-            verdicts.push((k, self.alone(text)));
-            rest = &rest[completed + 1..];
+            Task::Batch(range) => range,
+        };
+        let input: String = range
+            .clone()
+            .enumerate()
+            .map(|(n, k)| [texts[k], &*terminator(texts[k]), &boundary(n)].concat())
+            .collect();
+        let outputs = match self.run(&input) {
+            Ok(run) => split_batch_output(&run.stdout),
+            Err(_) => Vec::new(),
+        };
+        let completed = outputs.len().min(range.len());
+        for (k, output) in range.clone().zip(outputs) {
+            done.push((k, Verdict::Accepted(output)));
         }
-        verdicts
+        let failed = range.start + completed;
+        if failed == range.end {
+            return Vec::new();
+        }
+        // The text after the last boundary printed failed; it may have
+        // failed only because of what the batch put around it, so it is
+        // judged on its own.
+        let mut more = vec![Task::Alone(failed)];
+        if failed + 1 < range.end {
+            more.push(Task::Batch(failed + 1..range.end));
+        }
+        more
     }
 
     /// The verdict on one text, run on its own.
@@ -365,6 +386,67 @@ struct Run {
     success: bool,
     stdout: String,
     stderr: String,
+}
+
+/// Work for one `clickhouse-format` process, as indices into the texts.
+enum Task {
+    Batch(Range<usize>),
+    Alone(usize),
+}
+
+/// The tasks left, shared by the jobs of [`Oracle::canonical_in_batches`].
+struct Queue {
+    state: Mutex<QueueState>,
+    /// Signalled when a task finishes.
+    changed: Condvar,
+}
+
+struct QueueState {
+    tasks: Vec<Task>,
+    /// Tasks taken and not yet finished, which may leave more.
+    running: usize,
+}
+
+impl Queue {
+    /// The next task, waiting while none is left but some may still come;
+    /// `None` once all are done.
+    fn take(&self) -> Option<Task> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if let Some(task) = state.tasks.pop() {
+                state.running += 1;
+                return Some(task);
+            }
+            if state.running == 0 {
+                return None;
+            }
+            state = self
+                .changed
+                .wait(state)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+}
+
+/// A taken task: when dropped, also when its job panics, it is finished and
+/// the tasks it left, `more`, are queued.
+struct Running<'q> {
+    queue: &'q Queue,
+    more: Vec<Task>,
+}
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        let mut state = self
+            .queue
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        state.running -= 1;
+        state.tasks.append(&mut self.more);
+        drop(state);
+        self.queue.changed.notify_all();
+    }
 }
 
 /// What ends a text in a batch so that the boundary after it is a statement
