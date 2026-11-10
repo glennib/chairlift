@@ -376,7 +376,12 @@ fn jinja_mode_by_name() {
     write(&dir, "t.sql.j2", template);
     write(&dir, "u.j2.sql", template);
     write(&dir, "v.sql", template);
-    let output = run(&["--check", "t.sql.j2", "u.j2.sql"], None, Some(&dir));
+    write(&dir, "W.SQL.J2", template);
+    let output = run(
+        &["--check", "t.sql.j2", "u.j2.sql", "W.SQL.J2"],
+        None,
+        Some(&dir),
+    );
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     let output = run(&["--check", "v.sql"], None, Some(&dir));
     assert_eq!(output.status.code(), Some(2));

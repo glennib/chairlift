@@ -82,8 +82,8 @@ pub enum Mode {
 
 impl Mode {
     /// The mode for a file, by its name: [`Mode::Jinja`] for names ending in
-    /// `.j2` (as `.sql.j2`) or `.j2.sql`, chum's two template extensions;
-    /// otherwise [`Mode::Sql`].
+    /// `.j2` (as `.sql.j2`) or `.j2.sql`, chum's two template extensions, in
+    /// any case (as the CLI finds SQL files); otherwise [`Mode::Sql`].
     ///
     /// The name is only a default: dbt models, for one, are templates named
     /// `.sql`.
@@ -94,12 +94,14 @@ impl Mode {
     ///
     /// assert_eq!(Mode::for_path(Path::new("0001_base.up.sql.j2")), Mode::Jinja);
     /// assert_eq!(Mode::for_path(Path::new("0003.up.j2.sql")), Mode::Jinja);
+    /// assert_eq!(Mode::for_path(Path::new("M.SQL.J2")), Mode::Jinja);
     /// assert_eq!(Mode::for_path(Path::new("schema.sql")), Mode::Sql);
     /// ```
     #[must_use]
     pub fn for_path(path: &Path) -> Mode {
-        let name = path.file_name().map(|n| n.to_string_lossy());
-        if name.is_some_and(|n| n.ends_with(".j2") || n.ends_with(".j2.sql")) {
+        let has = |p: &Path, ext: &str| p.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext));
+        let stem = path.file_stem().map(Path::new);
+        if has(path, "j2") || (has(path, "sql") && stem.is_some_and(|s| has(s, "j2"))) {
             Mode::Jinja
         } else {
             Mode::Sql
