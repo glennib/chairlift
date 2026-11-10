@@ -50,6 +50,10 @@ run = "cargo build --lib --no-default-features"
 description = "Run benchmarks"
 run = "cargo bench --bench throughput"
 
+[tasks."corpus:fetch"]
+description = "Fetch the ClickHouse and dbt corpora into $CHAIRLIFT_CORPUS_DIR (default corpus/)"
+run = "scripts/fetch-corpus.sh"
+
 [tasks."oracle:smoke"]
 description = "Check that the pinned clickhouse-format runs"
 run = "echo 'select 1' | clickhouse-format -n --oneline --show_secrets"
