@@ -1,6 +1,7 @@
-//! The lexer over every file of every corpus that is present: the vendored
-//! fixtures, the fetched ClickHouse stateless tests and dbt projects, and the
-//! local-only directories in `CHAIRLIFT_LOCAL_CORPORA`.
+//! The lexer, the splitter, the formatter and the parser over every file of
+//! every corpus that is present: the vendored fixtures, the fetched
+//! ClickHouse stateless tests and dbt projects, and the local-only
+//! directories in `CHAIRLIFT_LOCAL_CORPORA`.
 
 #[path = "support/clickhouse_lexer.rs"]
 mod clickhouse_lexer;
@@ -21,8 +22,14 @@ use chairlift::lexer::jinja::TagKind;
 use chairlift::lexer::tokenize;
 use chairlift::split::DataFormat;
 use chairlift::split::split;
+use chairlift::syntax::Entry;
+use chairlift::syntax::SyntaxKind;
+use chairlift::syntax::SyntaxNode;
+use chairlift::syntax::parse_as;
 use chairlift::verify::Facts;
 use chairlift::verify::verify;
+use rowan::NodeOrToken;
+use rowan::WalkEvent;
 
 struct Corpus {
     name: String,
@@ -310,6 +317,112 @@ fn every_corpus_file_splits() {
         eprintln!(
             "{}: {files} files, {statements} statements, {values} with VALUES data, \
              {other} with data in another format",
+            corpus.name
+        );
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The kinds of a tree's nodes and tokens in order, and the first node that
+/// starts or ends with trivia, or has no tokens, if there is one: one walk,
+/// so that it stays cheap on large trees.
+fn shape(root: &SyntaxNode) -> (Vec<SyntaxKind>, Option<String>) {
+    let mut kinds = Vec::new();
+    let mut bad = None;
+    // Open nodes, and whether each has seen a token.
+    let mut open: Vec<(SyntaxKind, bool)> = Vec::new();
+    let mut last_is_trivia = false;
+    for event in root.preorder_with_tokens() {
+        match event {
+            WalkEvent::Enter(NodeOrToken::Node(node)) => {
+                kinds.push(node.kind());
+                open.push((node.kind(), false));
+            }
+            WalkEvent::Enter(NodeOrToken::Token(token)) => {
+                kinds.push(token.kind());
+                last_is_trivia = token.kind().is_trivia();
+                for (kind, seen) in open.iter_mut().rev() {
+                    if *seen {
+                        break;
+                    }
+                    *seen = true;
+                    if last_is_trivia && *kind != SyntaxKind::Root {
+                        bad.get_or_insert_with(|| format!("{kind:?} starts with trivia"));
+                    }
+                }
+            }
+            WalkEvent::Leave(NodeOrToken::Node(node)) => {
+                let seen = open.pop().is_some_and(|(_, seen)| seen);
+                if node.kind() != SyntaxKind::Root && (last_is_trivia || !seen) {
+                    bad.get_or_insert_with(|| {
+                        format!(
+                            "{:?} at {:?} ends with trivia",
+                            node.kind(),
+                            node.text_range()
+                        )
+                    });
+                }
+            }
+            WalkEvent::Leave(NodeOrToken::Token(_)) => {}
+        }
+    }
+    (kinds, bad)
+}
+
+/// Every file parses, as a file and with the expression probe, into a tree
+/// whose text is the file, with no node starting or ending with trivia; the
+/// keyword slots re-cased pass the verifier, and the re-cased text parses
+/// to the same tree.
+#[test]
+fn every_corpus_file_parses_losslessly() {
+    let mut failures = Vec::new();
+    for corpus in corpora() {
+        let (mut files, mut statements, mut probed, mut slots) = (0, 0, 0, 0);
+        for path in &corpus.files {
+            let Some(source) = read(path) else {
+                continue;
+            };
+            let mode = corpus.mode(path);
+            for entry in [Entry::File, Entry::SelectListProbe] {
+                let parse = parse_as(&source, mode, entry);
+                let root = parse.syntax();
+                if root.text() != source.as_str() {
+                    failures.push(format!("{} ({entry:?}): not lossless", path.display()));
+                    continue;
+                }
+                let (kinds, bad) = shape(&root);
+                if let Some(bad) = bad {
+                    failures.push(format!("{} ({entry:?}): {bad}", path.display()));
+                }
+                let recased = parse.recased();
+                if let Err(e) = verify(&source, &recased, mode, parse.facts()) {
+                    failures.push(format!("{} ({entry:?}): re-cased: {e}", path.display()));
+                }
+                if recased != source && shape(&parse_as(&recased, mode, entry).syntax()).0 != kinds
+                {
+                    failures.push(format!(
+                        "{} ({entry:?}): the re-cased text parses differently",
+                        path.display()
+                    ));
+                }
+                if entry == Entry::SelectListProbe {
+                    probed += kinds
+                        .iter()
+                        .filter(|k| **k == SyntaxKind::ExpressionProbe)
+                        .count();
+                    slots += kinds.iter().filter(|k| **k == SyntaxKind::Keyword).count();
+                } else {
+                    statements += kinds
+                        .iter()
+                        .filter(|k| **k == SyntaxKind::Statement)
+                        .count();
+                }
+            }
+            files += 1;
+        }
+        eprintln!(
+            "{}: {files} files, {statements} statements, {probed} probed as expression lists \
+             with {slots} keyword slots",
             corpus.name
         );
     }

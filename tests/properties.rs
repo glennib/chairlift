@@ -1,4 +1,4 @@
-//! Property tests of the lexer's guarantees, over random text and over text
+//! Property tests of the lexer's and the parser's guarantees, over random text and over text
 //! assembled from the fragments where ClickHouse's and Jinja's rules interact.
 
 use chairlift::lexer::Mode;
@@ -8,6 +8,10 @@ use chairlift::lexer::can_touch;
 use chairlift::lexer::jinja;
 use chairlift::lexer::tokenize;
 use chairlift::split::split;
+use chairlift::syntax::Entry;
+use chairlift::syntax::SyntaxKind;
+use chairlift::syntax::SyntaxNode;
+use chairlift::syntax::parse_as;
 use chairlift::verify::Facts;
 use chairlift::verify::verify;
 use proptest::prelude::*;
@@ -53,6 +57,28 @@ const STATEMENT_FRAGMENTS: &[&str] = &[
 fn statement_inputs() -> impl Strategy<Value = String> {
     let piece = prop_oneof![
         3 => prop::sample::select(STATEMENT_FRAGMENTS),
+        1 => prop::sample::select(FRAGMENTS),
+    ];
+    prop::collection::vec(piece, 0..40).prop_map(|v| v.concat())
+}
+
+/// Pieces of expressions and data types, for the parser: operators,
+/// keywords in and out of their slots, brackets, and trivia between them.
+#[rustfmt::skip]
+const EXPRESSION_FRAGMENTS: &[&str] = &[
+    "SELECT ", "a", "b.c", "1", "-", "+", "*", "/", "=", "<", "::", "Int8", "Array(", "Tuple(a ",
+    "Nullable(", ")", "(", "[", "]", ",", " AND ", " OR ", "NOT ", " IN ", " NOT ", " LIKE ",
+    " BETWEEN ", " IS NULL", " IS ", " AS ", " x", "->", "?", ":", "CASE ", " WHEN ", " THEN ",
+    " ELSE ", " END", "INTERVAL ", " DAY", "CAST(", "EXTRACT(", " FROM ", "SUBSTRING(", " FOR ",
+    "POSITION(", "TRIM(BOTH ", "dateDiff(day, ", "COLUMNS(", "*", " EXCEPT ", " APPLY ",
+    " OVER (", "count(DISTINCT ", "f(", "NULL", "true", "inf", "'s'", "{x:UInt8}", "{{ j }}",
+    "{% if c %}", "{% endif %}", "-- c\n", "/* c */", " ", "\n", ";", "DATE '2026-01-01'", ".1",
+    ".", "ARRAY[", "{'k': 1}", "@@v", "exists(SELECT 1)", "x = ANY (SELECT 1)",
+];
+
+fn expression_inputs() -> impl Strategy<Value = String> {
+    let piece = prop_oneof![
+        4 => prop::sample::select(EXPRESSION_FRAGMENTS),
         1 => prop::sample::select(FRAGMENTS),
     ];
     prop::collection::vec(piece, 0..40).prop_map(|v| v.concat())
@@ -242,6 +268,40 @@ proptest! {
             Err(chairlift::Error::Lex(_)) => {}
             Err(e) => prop_assert!(false, "{:?}: {}", source, e),
         }
+    }
+
+    /// Parsing never panics; the tree holds the input exactly, and no node
+    /// starts or ends with trivia; the keyword slots re-cased pass the
+    /// verifier, and the re-cased text parses to the same tree.
+    #[test]
+    fn parsing_is_lossless_and_independent_of_case(
+        source in prop_oneof![expression_inputs(), statement_inputs(), inputs()],
+        mode in modes(),
+        entry in prop_oneof![
+            Just(Entry::File),
+            Just(Entry::SelectListProbe),
+            Just(Entry::Expression),
+            Just(Entry::DataType),
+        ],
+    ) {
+        let parse = parse_as(&source, mode, entry);
+        let root = parse.syntax();
+        prop_assert_eq!(root.text().to_string(), source.clone());
+        for node in root.descendants().skip(1) {
+            prop_assert!(
+                node.first_token().is_some_and(|t| !t.kind().is_trivia())
+                    && node.last_token().is_some_and(|t| !t.kind().is_trivia()),
+                "{:?} at {:?} starts or ends with trivia", node.kind(), node.text_range()
+            );
+        }
+        let recased = parse.recased();
+        if let Err(e) = verify(&source, &recased, mode, parse.facts()) {
+            prop_assert!(false, "{:?} re-cased to {:?}: {}", source, recased, e);
+        }
+        let kinds = |root: &SyntaxNode| -> Vec<SyntaxKind> {
+            root.descendants_with_tokens().map(|e| e.kind()).collect()
+        };
+        prop_assert_eq!(kinds(&parse_as(&recased, mode, entry).syntax()), kinds(&root));
     }
 
     /// The splitter's tokens keep the lexer's guarantees, and its statements

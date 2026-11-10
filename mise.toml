@@ -101,6 +101,11 @@ description = "Fuzz chairlift::format: no panic, verification holds, idempotent 
 env = { RUSTUP_TOOLCHAIN = "nightly" }
 run = 'cargo fuzz run --target "$(rustc -vV | sed -n "s/^host: //p")" format -- -dict=fuzz/format.dict'
 
+[tasks."fuzz:parser"]
+description = "Fuzz the parser: no panic, lossless tree, re-cased keyword slots verify, parse independent of case (nightly toolchain); pass libFuzzer options after --"
+env = { RUSTUP_TOOLCHAIN = "nightly" }
+run = 'cargo fuzz run --target "$(rustc -vV | sed -n "s/^host: //p")" parser -- -dict=fuzz/parser.dict'
+
 [tasks."corpus:fetch"]
 description = "Fetch the ClickHouse and dbt corpora into $CHAIRLIFT_CORPUS_DIR (default corpus/)"
 run = "scripts/fetch-corpus.sh"
