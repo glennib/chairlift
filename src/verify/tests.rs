@@ -261,12 +261,40 @@ fn rendering_as_the_renderer_joins_text() {
     // know SQL.
     assert_eq!(rendered("-- c {%- if x -%}  \nd").0, "-- cd");
     assert_eq!(rendered("' {{- x }} '").0, "'{{- x }} '");
-    // A raw block's inner markers act on its own text, which stays.
+    // A raw block renders as its text, which its inner markers strip.
+    assert_eq!(rendered("a {%- raw -%} x {%- endraw -%} b").0, "axb");
     assert_eq!(
-        rendered("a {%- raw -%} x {%- endraw -%} b").0,
-        "a{%- raw -%} x {%- endraw -%}b"
+        rendered("a {% raw %} {{ x }} {% endraw %} b").0,
+        "a  {{ x }}  b"
     );
+    assert_eq!(rendered("a {% raw %}").0, "a ");
     assert_eq!(rendered("no tags").0, "no tags");
+}
+
+/// A raw block renders as its text, which joins the SQL around it.
+#[test]
+fn raw_blocks_render_as_their_text() {
+    let none = Facts::new();
+    let e = fails(
+        "SELECT {% raw %}-{% endraw %} -1",
+        "SELECT {% raw %}-{% endraw %}-1",
+        Mode::Jinja,
+        &none,
+    );
+    assert!(e.detail.contains("LineComment"), "{e}");
+    fails(
+        "SELECT {% raw %}-{% endraw %}\n.5",
+        "SELECT {% raw %}-{% endraw %}\n. 5",
+        Mode::Jinja,
+        &none,
+    );
+    let e = fails(
+        "SELECT {% raw %}'{% endraw %}a  \n  b{% raw %}'{% endraw %}",
+        "SELECT {% raw %}'{% endraw %}a\n  b{% raw %}'{% endraw %}",
+        Mode::Jinja,
+        &none,
+    );
+    assert!(e.detail.contains("StringLiteral"), "{e}");
 }
 
 /// Removing block and comment tags can join template tokens into one literal

@@ -23,11 +23,12 @@
 //!   be byte-identical, whitespace included;
 //! - in Jinja mode, when the text has a block or comment tag or a `-` marker,
 //!   both texts are compared once more as the renderer would join them: with
-//!   block and comment tags removed and the whitespace next to a `-` marker
-//!   stripped. The rendered SQL can then hold tokens the template does not:
-//!   a line break moved next to `{%-` can join a `--` comment and the next
-//!   line, and `$a${% x %}` … `{% y %}$a$`, two words in the template, render
-//!   as a heredoc whose text holds the whitespace between them.
+//!   block and comment tags removed, raw blocks replaced by their text and
+//!   the whitespace next to a `-` marker stripped. The rendered SQL can then
+//!   hold tokens the template does not: a line break moved next to `{%-` can
+//!   join a `--` comment and the next line, and `$a${% x %}` … `{% y %}$a$`,
+//!   two words in the template, render as a heredoc whose text holds the
+//!   whitespace between them.
 
 use std::fmt;
 
@@ -309,9 +310,10 @@ pub(crate) fn render_joins_text(text: &str) -> bool {
         .any(|marker| text.contains(marker))
 }
 
-/// The text as the renderer joins it: block and comment tags removed, and the
-/// whitespace a `-` marker strips removed. Expressions and raw blocks stay as
-/// they are, standing for whatever they render.
+/// The text as the renderer joins it: block and comment tags removed, the
+/// whitespace a `-` marker strips removed, and raw blocks replaced by the
+/// text they hold. Expressions stay as they are, standing for whatever they
+/// render.
 ///
 /// The renderer knows nothing of SQL, so this works on the text, not the
 /// tokens: a tag inside a comment or string strips whitespace too.
@@ -339,8 +341,13 @@ pub(crate) fn rendered(text: &str) -> (String, Vec<(usize, usize)>) {
             to = from + text[from..to].trim_end().len();
         }
         copy(&mut out, from, to);
-        if matches!(tag.kind, TagKind::Expr | TagKind::Raw) {
-            copy(&mut out, tag.range.start, tag.range.end);
+        match tag.kind {
+            TagKind::Expr => copy(&mut out, tag.range.start, tag.range.end),
+            TagKind::Raw => {
+                let (from, to) = raw_text(text, tag.range.clone());
+                copy(&mut out, from, to);
+            }
+            TagKind::Block | TagKind::Comment => {}
         }
         strip_next = after == WhitespaceControl::Strip;
         pos = tag.range.end;
@@ -351,6 +358,29 @@ pub(crate) fn rendered(text: &str) -> (String, Vec<(usize, usize)>) {
     }
     copy(&mut out, from, text.len());
     (out, map)
+}
+
+/// The text a closed raw block renders as, as a range of `text`: what lies
+/// between `{% raw %}` and `{% endraw %}`, less the whitespace that the
+/// inner markers (`{% raw -%}`, `{%- endraw %}`) strip. An unclosed raw block
+/// renders nothing.
+fn raw_text(text: &str, block: std::ops::Range<usize>) -> (usize, usize) {
+    let inner = &text[block.clone()];
+    let (Some(open_end), Some(close_start)) = (inner.find("%}"), inner.rfind("{%")) else {
+        return (block.start, block.start);
+    };
+    if open_end + 2 > close_start {
+        return (block.start, block.start);
+    }
+    let mut from = block.start + open_end + 2;
+    let mut to = block.start + close_start;
+    if inner[..open_end].ends_with('-') {
+        from = to - text[from..to].trim_start().len();
+    }
+    if inner[close_start + 2..].starts_with('-') {
+        to = from + text[from..to].trim_end().len();
+    }
+    (from, to)
 }
 
 fn check_rendered(input: &str, output: &str) -> Result<(), VerifyError> {
