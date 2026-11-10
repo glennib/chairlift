@@ -10,7 +10,7 @@ M9 (chum integration) is not part of this run.
 | M0. Repository scaffolding | done | CI green |
 | M1. Lossless lexer | done | reviewed; CI green |
 | M2. Verifier, splitter, safe-cleanup CLI | done | review findings fixed |
-| M3. Parser core | in progress | part 1 (infrastructure, expressions) done and under review; part 2 (`SELECT`) and part 3 (`CREATE TABLE`, materialized views) in parallel |
+| M3. Parser core | in progress | part 1 done, review fixes in progress; part 3 (`CREATE TABLE`, materialized views) done; part 2 (`SELECT`) in progress |
 | M4. Formatting rules and printer | not started | |
 | M5. Jinja templates | not started | |
 | M6. CLI polish and performance | not started | |
@@ -60,6 +60,7 @@ Those assumptions are used unless the project owner decides otherwise:
 - Snapshot review: `insta` snapshots are committed so that every commit passes its tests.
   They are listed here per milestone until reviewed.
   - M0: the inline snapshot of `--help` in `tests/cli.rs`.
+  - M3 part 3: 10 tree-dump snapshots under `src/syntax/grammar/create/snapshots/`.
   - M3 part 1: 24 tree-dump snapshots under `src/syntax/snapshots/`
     and `src/syntax/grammar/{exprs,types,common,fallback}/snapshots/`.
 
@@ -231,3 +232,33 @@ Part 1: parser infrastructure, syntax tree, expression grammar, keyword-slot rec
   `mise run tree -- FILE` prints a file's tree.
 - Known gaps: a `{{ config() }}` before a statement makes the statement verbatim until M5;
   there is no typed layer over the tree.
+
+Review of part 1: a sound base for the printer, with fixes in progress for:
+
+- Wrong keyword slots in four positions, none of which occurs in a corpus: `COLUMNS(…)` where it is the function,
+  the arguments of `* EXCEPT` and `APPLY`, `SOME`/`ALL(…)` with other than one argument,
+  and the function name in `AggregateFunction(…)`.
+- Parsing time on unbalanced nesting: 1 MB of `(` takes about 10 s, and of `interval (` minutes.
+- The statistics count statements with designed-opaque regions as parsed.
+- The reviewer's own checks found no precedence mismatch in 2,784 cases against `EXPLAIN AST`,
+  and the 30-minute fuzz run of the parser found no crash (1.4 million runs).
+
+Part 3: `CREATE TABLE` and `CREATE MATERIALIZED VIEW`.
+
+| Stateless corpus | Statements | Fully parsed | Opaque only in the `SELECT` body | Fallback | Without fallback |
+| --- | --- | --- | --- | --- | --- |
+| `CREATE TABLE` | 21,524 | 20,426 | 1,035 | 63 | 99.71% |
+| `CREATE MATERIALIZED VIEW` | 541 | 0 | 539 | 2 | 99.63% |
+
+- The `SELECT` bodies become trees when part 2 lands.
+- Every `CREATE TABLE` and view in the fixtures and the local corpora parses without fallback.
+- Re-casing changed 3,203 statements; the oracle judged 3,171 of them and none differs.
+- All 514 keyword words, lower case and capitalised, in 16 name positions: no name becomes a keyword slot.
+- Remaining fallbacks: MySQL dumps, `settings {{ x }}`, `STATISTICS(trim(BOTH …))`,
+  a Jinja tag standing for a modifier or a column, `PARALLEL WITH`, and negative tests.
+- Differences from the plan: an unquoted column named `index`,
+  `projection` or `constraint` is rejected by ClickHouse and stays a verbatim item;
+  clauses may come in any order and repeat, where ClickHouse fixes the order; ClickHouse has no `LIKE` form;
+  `AUTO_INCREMENT` is parsed.
+- Known gaps: `SETTINGS name` without a value, `INTO OUTFILE` after a `CREATE`, and `ATTACH TABLE` and `REPLACE TABLE`,
+  which stay verbatim statements.
