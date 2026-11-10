@@ -144,8 +144,15 @@ fn table_function(
 fn table_function_args(p: &mut Parser<'_>, view: QueryArgument) -> Option<()> {
     let m = p.start();
     p.expect(T::OpeningRoundBracket)?;
-    let no_in = std::mem::replace(&mut p.no_in, false);
-    let args = if view == QueryArgument::None {
+    p.with_no_in(false, |p| table_function_body(p, view))?;
+    p.expect(T::ClosingRoundBracket)?;
+    m.complete(p, SyntaxKind::ArgList);
+    Some(())
+}
+
+/// What lies between the brackets of a table function's arguments.
+fn table_function_body(p: &mut Parser<'_>, view: QueryArgument) -> Option<()> {
+    if view == QueryArgument::None {
         fallback::comma_separated(p, &fallback::never, &mut |p| {
             let nested = view_at(p, 0);
             if nested != QueryArgument::None {
@@ -159,19 +166,13 @@ fn table_function_args(p: &mut Parser<'_>, view: QueryArgument) -> Option<()> {
         });
         Some(())
     } else {
-        select::query(p).and_then(|_| {
-            if view == QueryArgument::QueryOrElse && p.eat_kw(K::Else) {
-                let name = names::name(p)?;
-                table_function(p, name, QueryArgument::None)?;
-            }
-            Some(())
-        })
-    };
-    p.no_in = no_in;
-    args?;
-    p.expect(T::ClosingRoundBracket)?;
-    m.complete(p, SyntaxKind::ArgList);
-    Some(())
+        select::query(p)?;
+        if view == QueryArgument::QueryOrElse && p.eat_kw(K::Else) {
+            let name = names::name(p)?;
+            table_function(p, name, QueryArgument::None)?;
+        }
+        Some(())
+    }
 }
 
 /// `( tables joins )`, which ClickHouse reads as a subquery `(SELECT * FROM

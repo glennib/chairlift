@@ -62,6 +62,7 @@ pub(crate) struct Checkpoint {
     pos: usize,
     fallbacks: usize,
     preceded: usize,
+    no_in: bool,
 }
 
 /// How deep grammar functions may nest, counting each expression, data type
@@ -90,8 +91,8 @@ pub(crate) struct Parser<'t> {
     /// parses; see [`Parser::speculate`].
     budget: usize,
     /// Whether `IN` is not an operator here, as in the first argument of
-    /// `POSITION(a IN b)`.
-    pub(crate) no_in: bool,
+    /// `POSITION(a IN b)`; see [`Parser::with_no_in`].
+    no_in: bool,
 }
 
 impl<'t> Parser<'t> {
@@ -383,12 +384,13 @@ impl<'t> Parser<'t> {
             pos: self.pos,
             fallbacks: self.fallbacks.len(),
             preceded: self.preceded.len(),
+            no_in: self.no_in,
         }
     }
 
     /// Returns to `checkpoint`: events, fallbacks and keyword slots recorded
-    /// since are dropped, and the tokens read since are charged to the
-    /// speculation budget.
+    /// since are dropped, the parser's modes are as they were, and the tokens
+    /// read since are charged to the speculation budget.
     pub(crate) fn rollback(&mut self, checkpoint: Checkpoint) {
         for &start in &self.preceded[checkpoint.preceded.min(self.preceded.len())..] {
             if let Some(Event::Start { forward_parent, .. }) = self.events.get_mut(start as usize) {
@@ -398,6 +400,7 @@ impl<'t> Parser<'t> {
         self.preceded.truncate(checkpoint.preceded);
         self.events.truncate(checkpoint.events);
         self.fallbacks.truncate(checkpoint.fallbacks);
+        self.no_in = checkpoint.no_in;
         self.budget = self
             .budget
             .saturating_sub(self.pos.saturating_sub(checkpoint.pos) + 1);
@@ -422,6 +425,25 @@ impl<'t> Parser<'t> {
             // An alternative given up on is not why a later parse fails.
             self.expected = expected;
         }
+        result
+    }
+
+    /// Whether `IN` is not an operator here.
+    pub(crate) fn no_in(&self) -> bool {
+        self.no_in
+    }
+
+    /// Runs `parse` with `IN` not an operator, if `no_in` is set, or an
+    /// operator again, as inside brackets; the mode is restored however
+    /// `parse` ends.
+    pub(crate) fn with_no_in<T>(
+        &mut self,
+        no_in: bool,
+        parse: impl FnOnce(&mut Self) -> Option<T>,
+    ) -> Option<T> {
+        let outer = std::mem::replace(&mut self.no_in, no_in);
+        let result = parse(self);
+        self.no_in = outer;
         result
     }
 

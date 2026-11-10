@@ -291,6 +291,23 @@ fn failures_stay_inside_the_smallest_list_item() {
     ]));
 }
 
+#[test]
+fn in_is_an_operator_again_after_a_failed_position() {
+    for source in [
+        "f(position(+), x IN (1))",
+        "[position(+), x IN (1)]",
+        "(position(+), x IN (1))",
+    ] {
+        let parse = crate::syntax::parse_as(source, crate::lexer::Mode::Sql, Entry::Expression);
+        let verbatim: Vec<&str> = parse
+            .fallbacks()
+            .iter()
+            .map(|f| &source[f.range.clone()])
+            .collect();
+        assert_eq!(verbatim, ["position(+)"], "{source}");
+    }
+}
+
 /// `input` and how the parser groups it, written in ClickHouse syntax with
 /// every operator in parentheses.
 const PRECEDENCE: &[(&str, &str)] = &[

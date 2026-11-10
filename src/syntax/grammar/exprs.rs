@@ -312,7 +312,7 @@ fn keyword_infix(p: &Parser<'_>) -> Option<Op> {
         K::Regexp => binary(18, 1, true, false),
         K::Similar if p.nth_at_kw(1, K::To) => binary(18, 2, true, true),
         // `IN PARTITION` belongs to `ALTER … IN PARTITION p`.
-        K::In if !p.no_in && !p.nth_at_kw(1, K::Partition) => binary(18, 1, false, false),
+        K::In if !p.no_in() && !p.nth_at_kw(1, K::Partition) => binary(18, 1, false, false),
         K::Global => match (p.nth_keyword(1), p.nth_keyword(2)) {
             (Some(K::In), _) => binary(18, 2, false, false),
             (Some(K::Not), Some(K::In)) => binary(18, 3, false, false),
@@ -400,15 +400,10 @@ fn apply(p: &mut Parser<'_>, lhs: CompletedMarker, op: Op) -> Option<CompletedMa
         OpKind::Index => {
             let m = lhs.precede(p);
             p.bump();
-            let no_in = std::mem::replace(&mut p.no_in, false);
             // `json.a[]` reads an `Array(JSON)` subcolumn.
-            let inner = if p.at(T::ClosingSquareBracket) {
-                Some(())
-            } else {
-                expr(p).map(drop)
-            };
-            p.no_in = no_in;
-            inner?;
+            if !p.at(T::ClosingSquareBracket) {
+                p.with_no_in(false, expr)?;
+            }
             p.expect(T::ClosingSquareBracket)?;
             Some(m.complete(p, SyntaxKind::IndexExpr))
         }
@@ -755,19 +750,29 @@ fn function_call(
 
 /// `( [DISTINCT | ALL] a, b AS c, … )`.
 pub(crate) fn arg_list(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    call_args(p, |p| {
+        // `f(DISTINCT)` and `f(ALL, x)` name columns.
+        if (p.at_kw(K::Distinct) || p.at_kw(K::All))
+            && !matches!(p.nth(1), Some(T::Comma | T::ClosingRoundBracket))
+        {
+            p.bump_keyword();
+        }
+        arguments(p, AliasMode::As);
+        Some(SyntaxKind::ArgList)
+    })
+}
+
+/// `( … )` after a function's name, as the node kind `body` returns; `body`
+/// parses what lies between the brackets, where `IN` is an operator again.
+fn call_args(
+    p: &mut Parser<'_>,
+    body: impl FnOnce(&mut Parser<'_>) -> Option<SyntaxKind>,
+) -> Option<CompletedMarker> {
     let m = p.start();
     p.expect(T::OpeningRoundBracket)?;
-    let no_in = std::mem::replace(&mut p.no_in, false);
-    // `f(DISTINCT)` and `f(ALL, x)` name columns.
-    if (p.at_kw(K::Distinct) || p.at_kw(K::All))
-        && !matches!(p.nth(1), Some(T::Comma | T::ClosingRoundBracket))
-    {
-        p.bump_keyword();
-    }
-    arguments(p, AliasMode::As);
-    p.no_in = no_in;
+    let kind = p.with_no_in(false, body)?;
     p.expect(T::ClosingRoundBracket)?;
-    Some(m.complete(p, SyntaxKind::ArgList))
+    Some(m.complete(p, kind))
 }
 
 /// Arguments up to `)`, each with an alias as `alias` allows.
@@ -777,60 +782,53 @@ fn arguments(p: &mut Parser<'_>, alias: AliasMode) {
     });
 }
 
+/// More arguments, if a comma follows those parsed, of a function with
+/// syntax of its own that is written with commas: an
+/// [`ArgList`](SyntaxKind::ArgList).
+fn more_args(p: &mut Parser<'_>) -> SyntaxKind {
+    if p.eat(T::Comma) {
+        arguments(p, AliasMode::Implicit);
+    }
+    SyntaxKind::ArgList
+}
+
 /// An argument of a function with syntax of its own, which may have an
 /// alias, with `AS` or without, as long as it is not one of `separators`.
 fn special_arg(p: &mut Parser<'_>, separators: &'static [K]) -> Option<CompletedMarker> {
     expr_with_alias(p, AliasMode::ImplicitExcept(separators))
 }
 
-/// The rest of an argument list, after `(` and the arguments already
-/// parsed: more arguments after a comma, and `)`.
-fn finish_args(
-    p: &mut Parser<'_>,
-    m: crate::syntax::parser::Marker,
-    no_in: bool,
-    kind: SyntaxKind,
-) -> Option<()> {
-    if kind == SyntaxKind::ArgList && p.eat(T::Comma) {
-        arguments(p, AliasMode::Implicit);
-    }
-    p.no_in = no_in;
-    p.expect(T::ClosingRoundBracket)?;
-    m.complete(p, kind);
-    Some(())
-}
-
 /// The comma-separated arguments of a function with syntax of its own,
 /// which take aliases without `AS`.
 fn special_arg_list(p: &mut Parser<'_>) -> Option<()> {
-    let m = p.start();
-    p.expect(T::OpeningRoundBracket)?;
-    let no_in = std::mem::replace(&mut p.no_in, false);
-    arguments(p, AliasMode::Implicit);
-    p.no_in = no_in;
-    p.expect(T::ClosingRoundBracket)?;
-    m.complete(p, SyntaxKind::ArgList);
-    Some(())
+    call_args(p, |p| {
+        arguments(p, AliasMode::Implicit);
+        Some(SyntaxKind::ArgList)
+    })
+    .map(drop)
 }
 
 /// `CAST(x AS T)`, `CAST(x AS alias AS T)`, `CAST(x, 'T')`.
 fn cast_args(p: &mut Parser<'_>) -> Option<()> {
-    let m = p.start();
-    p.expect(T::OpeningRoundBracket)?;
-    let no_in = std::mem::replace(&mut p.no_in, false);
-    let mut operand = expr(p)?;
-    if p.at_kw(K::As) || p.at(T::Comma) {
-        operand = literal_as_text(p, operand);
-    }
-    operand = alias(p, operand, AliasMode::ImplicitOnly)?;
-    if p.at_kw(K::As) && names::at_name(p, 1) && (p.nth_at_kw(2, K::As) || p.nth_at(2, T::Comma)) {
-        alias(p, operand, AliasMode::As)?;
-    }
-    if p.eat_kw(K::As) {
-        types::data_type(p)?;
-        return finish_args(p, m, no_in, SyntaxKind::KeywordArgList);
-    }
-    finish_args(p, m, no_in, SyntaxKind::ArgList)
+    call_args(p, |p| {
+        let mut operand = expr(p)?;
+        if p.at_kw(K::As) || p.at(T::Comma) {
+            operand = literal_as_text(p, operand);
+        }
+        operand = alias(p, operand, AliasMode::ImplicitOnly)?;
+        if p.at_kw(K::As)
+            && names::at_name(p, 1)
+            && (p.nth_at_kw(2, K::As) || p.nth_at(2, T::Comma))
+        {
+            alias(p, operand, AliasMode::As)?;
+        }
+        if p.eat_kw(K::As) {
+            types::data_type(p)?;
+            return Some(SyntaxKind::KeywordArgList);
+        }
+        Some(more_args(p))
+    })
+    .map(drop)
 }
 
 /// `EXTRACT(DAY FROM d)`, or `extract(haystack, pattern)`.
@@ -838,40 +836,39 @@ fn extract_args(p: &mut Parser<'_>) -> Option<()> {
     if !((at_interval_unit(p, 1) || at_extract_unit(p, 1)) && p.nth_at_kw(2, K::From)) {
         return special_arg_list(p);
     }
-    let m = p.start();
-    p.bump();
-    interval_unit(p);
-    p.bump_keyword();
-    let no_in = std::mem::replace(&mut p.no_in, false);
-    special_arg(p, &[])?;
-    finish_args(p, m, no_in, SyntaxKind::KeywordArgList)
+    call_args(p, |p| {
+        interval_unit(p);
+        p.bump_keyword();
+        special_arg(p, &[])?;
+        Some(SyntaxKind::KeywordArgList)
+    })
+    .map(drop)
 }
 
 /// `SUBSTRING(s FROM a [FOR b])`, `substring(s, a[, b])`, and the mixtures
 /// ClickHouse accepts.
 fn substring_args(p: &mut Parser<'_>) -> Option<()> {
-    let m = p.start();
-    p.expect(T::OpeningRoundBracket)?;
-    let no_in = std::mem::replace(&mut p.no_in, false);
-    let mut keywords = false;
-    if !p.at(T::ClosingRoundBracket) {
-        special_arg(p, &[K::For])?;
-        for separator in [K::From, K::For] {
-            if p.at_kw(separator) {
-                p.bump_keyword();
-                keywords = true;
-            } else if !p.eat(T::Comma) {
-                break;
-            }
+    call_args(p, |p| {
+        let mut keywords = false;
+        if !p.at(T::ClosingRoundBracket) {
             special_arg(p, &[K::For])?;
+            for separator in [K::From, K::For] {
+                if p.at_kw(separator) {
+                    p.bump_keyword();
+                    keywords = true;
+                } else if !p.eat(T::Comma) {
+                    break;
+                }
+                special_arg(p, &[K::For])?;
+            }
         }
-    }
-    let kind = if keywords {
-        SyntaxKind::KeywordArgList
-    } else {
-        SyntaxKind::ArgList
-    };
-    finish_args(p, m, no_in, kind)
+        Some(if keywords {
+            SyntaxKind::KeywordArgList
+        } else {
+            more_args(p)
+        })
+    })
+    .map(drop)
 }
 
 /// `OVERLAY(s PLACING r FROM a [FOR b])` or `overlay(s, r, a[, b])`.
@@ -879,19 +876,19 @@ fn overlay_args(p: &mut Parser<'_>) -> Option<()> {
     if !overlay_keyword_form(p) {
         return arg_list(p).map(drop);
     }
-    let m = p.start();
-    p.bump();
-    let no_in = std::mem::replace(&mut p.no_in, false);
-    let separators = &[K::Placing, K::For];
-    special_arg(p, separators)?;
-    p.expect_kw(K::Placing)?;
-    special_arg(p, separators)?;
-    p.expect_kw(K::From)?;
-    special_arg(p, separators)?;
-    if p.eat_kw(K::For) {
+    call_args(p, |p| {
+        let separators = &[K::Placing, K::For];
         special_arg(p, separators)?;
-    }
-    finish_args(p, m, no_in, SyntaxKind::KeywordArgList)
+        p.expect_kw(K::Placing)?;
+        special_arg(p, separators)?;
+        p.expect_kw(K::From)?;
+        special_arg(p, separators)?;
+        if p.eat_kw(K::For) {
+            special_arg(p, separators)?;
+        }
+        Some(SyntaxKind::KeywordArgList)
+    })
+    .map(drop)
 }
 
 /// Whether `PLACING` follows the first argument outside brackets, before
@@ -919,17 +916,16 @@ fn overlay_keyword_form(p: &Parser<'_>) -> bool {
 
 /// `POSITION(needle IN haystack)` or `position(haystack, needle)`.
 fn position_args(p: &mut Parser<'_>) -> Option<()> {
-    let m = p.start();
-    p.expect(T::OpeningRoundBracket)?;
-    let no_in = std::mem::replace(&mut p.no_in, true);
-    special_arg(p, &[K::In])?;
-    p.no_in = false;
-    if p.at_kw(K::In) {
-        p.bump_keyword();
-        special_arg(p, &[])?;
-        return finish_args(p, m, no_in, SyntaxKind::KeywordArgList);
-    }
-    finish_args(p, m, no_in, SyntaxKind::ArgList)
+    call_args(p, |p| {
+        p.with_no_in(true, |p| special_arg(p, &[K::In]))?;
+        if p.at_kw(K::In) {
+            p.bump_keyword();
+            special_arg(p, &[])?;
+            return Some(SyntaxKind::KeywordArgList);
+        }
+        Some(more_args(p))
+    })
+    .map(drop)
 }
 
 /// `TRIM(BOTH|LEADING|TRAILING [chars] FROM s)`, or `trim(s)`; `full` is
@@ -938,16 +934,16 @@ fn trim_args(p: &mut Parser<'_>, full: bool) -> Option<()> {
     if !(full && matches!(p.nth_keyword(1), Some(K::Both | K::Leading | K::Trailing))) {
         return special_arg_list(p);
     }
-    let m = p.start();
-    p.bump();
-    let no_in = std::mem::replace(&mut p.no_in, false);
-    p.bump_keyword();
-    if !p.at_kw(K::From) {
+    call_args(p, |p| {
+        p.bump_keyword();
+        if !p.at_kw(K::From) {
+            special_arg(p, &[])?;
+        }
+        p.expect_kw(K::From)?;
         special_arg(p, &[])?;
-    }
-    p.expect_kw(K::From)?;
-    special_arg(p, &[])?;
-    finish_args(p, m, no_in, SyntaxKind::KeywordArgList)
+        Some(SyntaxKind::KeywordArgList)
+    })
+    .map(drop)
 }
 
 /// `dateAdd(DAY, n, d)` and its relatives, whose first argument may be an
@@ -956,11 +952,11 @@ fn date_unit_args(p: &mut Parser<'_>) -> Option<()> {
     if !(at_interval_unit(p, 1) && p.nth_at(2, T::Comma)) {
         return special_arg_list(p);
     }
-    let m = p.start();
-    p.bump();
-    let no_in = std::mem::replace(&mut p.no_in, false);
-    interval_unit(p);
-    finish_args(p, m, no_in, SyntaxKind::ArgList)
+    call_args(p, |p| {
+        interval_unit(p);
+        Some(more_args(p))
+    })
+    .map(drop)
 }
 
 /// Whether the `n`th token is an interval unit (`parseIntervalKind`).
@@ -1106,11 +1102,11 @@ fn paren(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     }
     let m = p.start();
     p.expect(T::OpeningRoundBracket)?;
-    let no_in = std::mem::replace(&mut p.no_in, false);
-    let shape = fallback::comma_separated(p, &fallback::never, &mut |p| {
-        expr_with_alias(p, AliasMode::As).map(drop)
-    });
-    p.no_in = no_in;
+    let shape = p.with_no_in(false, |p| {
+        Some(fallback::comma_separated(p, &fallback::never, &mut |p| {
+            expr_with_alias(p, AliasMode::As).map(drop)
+        }))
+    })?;
     p.expect(T::ClosingRoundBracket)?;
     let kind = if shape.items == 1 && shape.commas == 0 {
         SyntaxKind::ParenExpr
@@ -1127,11 +1123,12 @@ fn array(p: &mut Parser<'_>, keyword: bool) -> Option<CompletedMarker> {
         p.bump_keyword();
     }
     p.expect(T::OpeningSquareBracket)?;
-    let no_in = std::mem::replace(&mut p.no_in, false);
-    fallback::comma_separated(p, &fallback::never, &mut |p| {
-        expr_with_alias(p, AliasMode::As).map(drop)
-    });
-    p.no_in = no_in;
+    p.with_no_in(false, |p| {
+        fallback::comma_separated(p, &fallback::never, &mut |p| {
+            expr_with_alias(p, AliasMode::As).map(drop)
+        });
+        Some(())
+    })?;
     p.expect(T::ClosingSquareBracket)?;
     Some(m.complete(p, SyntaxKind::ArrayExpr))
 }
@@ -1168,16 +1165,17 @@ fn array_constructor(p: &Parser<'_>) -> bool {
 fn map(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     let m = p.start();
     p.expect(T::OpeningCurlyBrace)?;
-    let no_in = std::mem::replace(&mut p.no_in, false);
-    fallback::comma_separated(p, &fallback::never, &mut |p| {
-        let e = p.start();
-        expr(p)?;
-        p.expect(T::Colon)?;
-        expr(p)?;
-        e.complete(p, SyntaxKind::MapEntry);
+    p.with_no_in(false, |p| {
+        fallback::comma_separated(p, &fallback::never, &mut |p| {
+            let e = p.start();
+            expr(p)?;
+            p.expect(T::Colon)?;
+            expr(p)?;
+            e.complete(p, SyntaxKind::MapEntry);
+            Some(())
+        });
         Some(())
-    });
-    p.no_in = no_in;
+    })?;
     p.expect(T::ClosingCurlyBrace)?;
     Some(m.complete(p, SyntaxKind::MapExpr))
 }

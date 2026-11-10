@@ -233,19 +233,18 @@ fn at_symbol_operator(p: &Parser<'_>, n: usize) -> bool {
 pub(crate) fn subquery(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     let m = p.start();
     p.expect(T::OpeningRoundBracket)?;
-    let no_in = std::mem::replace(&mut p.no_in, false);
-    let inner = if p.at_kw(K::Explain) {
-        fallback::opaque_until(p, &fallback::never)
-    } else if p.at_kw(K::Values) && p.nth_at(1, T::OpeningRoundBracket) {
-        let values = p.start();
-        p.bump_keyword();
-        list(p, SyntaxKind::ExprList, &mut |p| exprs::expr(p).map(drop))
-            .map(|_| values.complete(p, SyntaxKind::ValuesRows))
-    } else {
-        query(p)
-    };
-    p.no_in = no_in;
-    inner?;
+    p.with_no_in(false, |p| {
+        if p.at_kw(K::Explain) {
+            fallback::opaque_until(p, &fallback::never)
+        } else if p.at_kw(K::Values) && p.nth_at(1, T::OpeningRoundBracket) {
+            let values = p.start();
+            p.bump_keyword();
+            list(p, SyntaxKind::ExprList, &mut |p| exprs::expr(p).map(drop))
+                .map(|_| values.complete(p, SyntaxKind::ValuesRows))
+        } else {
+            query(p)
+        }
+    })?;
     p.expect(T::ClosingRoundBracket)?;
     Some(m.complete(p, SyntaxKind::Subquery))
 }
@@ -279,11 +278,12 @@ pub(crate) fn projection_subquery(p: &mut Parser<'_>) -> Option<CompletedMarker>
     if !(p.at_kw(K::Select) || p.at_kw(K::With)) {
         return p.expected("SELECT");
     }
-    let no_in = std::mem::replace(&mut p.no_in, false);
-    let query = p.start();
-    clauses(p, Form::Projection);
-    query.complete(p, SyntaxKind::SelectQuery);
-    p.no_in = no_in;
+    p.with_no_in(false, |p| {
+        let query = p.start();
+        clauses(p, Form::Projection);
+        query.complete(p, SyntaxKind::SelectQuery);
+        Some(())
+    })?;
     p.expect(T::ClosingRoundBracket)?;
     Some(m.complete(p, SyntaxKind::Subquery))
 }
