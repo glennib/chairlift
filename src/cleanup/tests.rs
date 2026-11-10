@@ -96,6 +96,9 @@ fn whitespace_that_decides_a_token_at_the_ends() {
         fmt_in("\n\n{% x %}{# y #}.e", true),
         "\n\n{% x %}{# y #}.e\n"
     );
+    // `-%}` strips the space, so once rendered `.e` follows only the line
+    // break at the start, which stays.
+    assert_eq!(fmt_in("\n{% x -%} .e\n", true), "\n{% x -%} .e\n");
 }
 
 #[test]

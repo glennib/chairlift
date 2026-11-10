@@ -87,7 +87,12 @@ pub(crate) fn cleanup(source: &str, split: &Split, mode: Mode) -> String {
     };
     let dot_first = tokens[1..]
         .iter()
-        .find(|t| !matches!(t.kind(), TokenKind::JinjaBlock | TokenKind::JinjaComment))
+        .find(|t| {
+            !matches!(
+                t.kind(),
+                TokenKind::JinjaBlock | TokenKind::JinjaComment | TokenKind::Whitespace
+            )
+        })
         .is_some_and(|t| t.kind() == TokenKind::Dot);
     let mut tail_start = 0;
     let mut out = String::with_capacity(source.len() + 1);
@@ -103,7 +108,8 @@ pub(crate) fn cleanup(source: &str, split: &Split, mode: Mode) -> String {
             _ if kept.get(i).copied().unwrap_or(false) => out.push_str(text),
             // At the very start of the input `.` begins a number, so the
             // whitespace in front of a `Dot` stays, also where only tags that
-            // render nothing come between.
+            // render nothing come between, and whitespace that a `-` marker
+            // may strip.
             TokenKind::Whitespace if i == 0 && dot_first => out.push_str(text),
             TokenKind::Whitespace if !lines_removable(text, i == 0) => out.push_str(text),
             TokenKind::Whitespace if i == 0 => {
