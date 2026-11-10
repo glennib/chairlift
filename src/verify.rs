@@ -33,6 +33,20 @@
 //!   join a `--` comment and the next line, and `$a${% x %}` … `{% y %}$a$`,
 //!   two words in the template, render as a heredoc whose text holds the
 //!   whitespace between them.
+//!
+//! # Limitation: one render
+//!
+//! The rendered check models one render: the one where every `{% if %}`
+//! branch is taken, and every loop body appears once. A render that leaves
+//! out a branch can join text that this render keeps apart, so the verifier
+//! can accept a change that alters such a render. A line comment that
+//! starts before a branch runs on into whatever follows the branch when it
+//! is left out: in `-- {% if x %}\nSELECT\n{% endif %} a`, a line break moved
+//! in front of `a` changes the SQL when `x` is false. Likewise the end of
+//! `INSERT` data at a blank line, or the start of data after a `FORMAT`, can
+//! fall elsewhere in one branch. The cleanup does not make such changes to
+//! data (see `crate::cleanup`); checking every branch is the job of the
+//! render harness in tests.
 
 use std::fmt;
 
@@ -446,6 +460,8 @@ fn raw_text(text: &str, block: std::ops::Range<usize>) -> (usize, usize) {
     (from, to)
 }
 
+/// Compares the two texts as rendered with every branch taken; see the
+/// [limitation](self#limitation-one-render) this leaves.
 fn check_rendered(input: &str, output: &str) -> Result<(), VerifyError> {
     let input_rendered = rendered(input).0;
     let output_rendered = rendered(output).0;
