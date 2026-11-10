@@ -181,6 +181,14 @@ fn materialized_views() {
     ]));
 }
 
+#[test]
+fn time_series_targets() {
+    insta::assert_snapshot!(trees(&[
+        "CREATE TABLE ts ENGINE = TimeSeries SETTINGS version = 1 DATA db.d TAGS INNER ENGINE = Memory METRICS INNER UUID '00000000-0000-0000-0000-000000000001'",
+        "CREATE TABLE ts ENGINE = TimeSeries RECENT SAMPLES INNER COLUMNS (id UUID) TIME RANGES ENGINE = MergeTree ORDER BY id TTL d METRIC FAMILIES m",
+    ]));
+}
+
 /// A clause that does not parse is kept verbatim up to the next clause, and
 /// a column up to the next comma; Jinja block tags and comments between
 /// clauses and columns are trivia.
@@ -434,6 +442,18 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
     (
         "create materialized view v to t comment 'x' as SELECT 1",
         "CREATE MATERIALIZED VIEW v TO t COMMENT 'x' AS SELECT 1",
+    ),
+    (
+        "create table ts engine = TimeSeries tags inner engine = Memory samples db.s \
+         recent samples inner uuid '00000000-0000-0000-0000-000000000001'",
+        "CREATE TABLE ts ENGINE = TimeSeries TAGS INNER ENGINE = Memory SAMPLES db.s \
+         RECENT SAMPLES INNER UUID '00000000-0000-0000-0000-000000000001'",
+    ),
+    (
+        "create table ts engine = TimeSeries data inner columns (id UUID) \
+         metric families inner engine = MergeTree order by id",
+        "CREATE TABLE ts ENGINE = TimeSeries DATA INNER COLUMNS (id UUID) \
+         METRIC FAMILIES INNER ENGINE = MergeTree ORDER BY id",
     ),
 ];
 

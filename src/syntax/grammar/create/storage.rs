@@ -46,6 +46,54 @@ pub(super) fn storage_clause(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<()> {
     }
 }
 
+/// If the current token starts a target of a `TimeSeries` table
+/// (`ParserViewTargets`), how many keywords name the target: `SAMPLES`,
+/// `DATA`, `RECENT SAMPLES`, `TAGS`, `TIME RANGES`, `METRIC FAMILIES` or
+/// `METRICS`, followed by `INNER`, `ENGINE` or a table name.
+pub(super) fn at_view_target(p: &Parser<'_>) -> Option<usize> {
+    let words = match p.nth_keyword(0)? {
+        K::Samples | K::Data | K::Tags | K::Metrics => 1,
+        K::Recent if p.nth_at_kw(1, K::Samples) => 2,
+        K::Time if p.nth_at_kw(1, K::Ranges) => 2,
+        K::Metric if p.nth_at_kw(1, K::Families) => 2,
+        _ => return None,
+    };
+    names::at_name(p, words).then_some(words)
+}
+
+/// A target of a `TimeSeries` table as a
+/// [`ViewTargetClause`](SyntaxKind::ViewTargetClause): its keywords, then
+/// `INNER UUID '…'`, `INNER COLUMNS (…)`, `[INNER]` and the storage
+/// clauses of the target table, or the target table's name.
+pub(super) fn view_target(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<()> {
+    let words = at_view_target(p).unwrap_or(1);
+    let m = p.start();
+    for _ in 0..words {
+        p.bump_keyword();
+    }
+    if p.at_kws(&[K::Inner, K::Uuid]) && p.nth_at(2, T::StringLiteral) {
+        p.bump_keyword();
+        p.bump_keyword();
+        string(p)?;
+    } else if p.at_kws(&[K::Inner, K::Columns]) && p.nth_at(2, T::OpeningRoundBracket) {
+        p.bump_keyword();
+        p.bump_keyword();
+        super::elements::element_list(p)?;
+    } else if p.at_kw(K::Inner) || at_storage_clause(p) {
+        p.eat_kw(K::Inner);
+        if !at_storage_clause(p) {
+            return p.expected("ENGINE or a storage clause");
+        }
+        while at_storage_clause(p) {
+            storage_clause(p, ends)?;
+        }
+    } else {
+        names::compound_name(p)?;
+    }
+    m.complete(p, SyntaxKind::ViewTargetClause);
+    Some(())
+}
+
 /// `ENGINE [=] name[(args)]` as an [`EngineClause`](SyntaxKind::EngineClause).
 /// The engine is a name, never a keyword or an expression: `ENGINE = Null`.
 pub(super) fn engine(p: &mut Parser<'_>) -> Option<()> {

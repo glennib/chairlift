@@ -1,0 +1,98 @@
+---
+source: src/syntax/grammar/create/tests.rs
+expression: "trees(&[\"CREATE TABLE ts ENGINE = TimeSeries SETTINGS version = 1 DATA db.d TAGS INNER ENGINE = Memory METRICS INNER UUID '00000000-0000-0000-0000-000000000001'\",\n\"CREATE TABLE ts ENGINE = TimeSeries RECENT SAMPLES INNER COLUMNS (id UUID) TIME RANGES ENGINE = MergeTree ORDER BY id TTL d METRIC FAMILIES m\",])"
+---
+> CREATE TABLE ts ENGINE = TimeSeries SETTINGS version = 1 DATA db.d TAGS INNER ENGINE = Memory METRICS INNER UUID '00000000-0000-0000-0000-000000000001'
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "ts"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "TimeSeries"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "version"
+        Equals "="
+        Literal
+          Number "1"
+  ViewTargetClause
+    Keyword "DATA"
+    QualifiedName
+      Name
+        BareWord "db"
+      Dot "."
+      Name
+        BareWord "d"
+  ViewTargetClause
+    Keyword "TAGS"
+    Keyword "INNER"
+    EngineClause
+      Keyword "ENGINE"
+      Equals "="
+      Name
+        BareWord "Memory"
+  ViewTargetClause
+    Keyword "METRICS"
+    Keyword "INNER"
+    Keyword "UUID"
+    Literal
+      StringLiteral "'00000000-0000-0000-0000-000000000001'"
+
+> CREATE TABLE ts ENGINE = TimeSeries RECENT SAMPLES INNER COLUMNS (id UUID) TIME RANGES ENGINE = MergeTree ORDER BY id TTL d METRIC FAMILIES m
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "ts"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "TimeSeries"
+  ViewTargetClause
+    Keyword "RECENT"
+    Keyword "SAMPLES"
+    Keyword "INNER"
+    Keyword "COLUMNS"
+    TableElementList
+      OpeningRoundBracket "("
+      ColumnDef
+        Name
+          BareWord "id"
+        DataType
+          Name
+            BareWord "UUID"
+      ClosingRoundBracket ")"
+  ViewTargetClause
+    Keyword "TIME"
+    Keyword "RANGES"
+    EngineClause
+      Keyword "ENGINE"
+      Equals "="
+      Name
+        BareWord "MergeTree"
+    OrderByClause
+      Keyword "ORDER"
+      Keyword "BY"
+      Name
+        BareWord "id"
+    TtlClause
+      Keyword "TTL"
+      TtlList
+        TtlElement
+          Name
+            BareWord "d"
+  ViewTargetClause
+    Keyword "METRIC"
+    Keyword "FAMILIES"
+    Name
+      BareWord "m"

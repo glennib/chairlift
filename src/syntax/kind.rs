@@ -641,6 +641,12 @@ syntax_kinds! {
         TimeInterval: Node,
         /// `DEPENDS ON` and table names separated by commas.
         DependsOn: List,
+        /// A target table of a `TimeSeries` table: `SAMPLES`, `DATA`,
+        /// `RECENT SAMPLES`, `TAGS`, `TIME RANGES`, `METRIC FAMILIES` or
+        /// `METRICS`, then `INNER UUID '…'`, `INNER COLUMNS` and a
+        /// [`TableElementList`](Self::TableElementList), `[INNER]` and the
+        /// target's storage clauses, or the target's name.
+        ViewTargetClause: Clause,
     }
 }
 

@@ -139,7 +139,7 @@ fn clauses(p: &mut Parser<'_>) {
 /// an expression: `ttl + 1` and `engine = 1` are not clauses, nor is
 /// `empty(s)`.
 fn at_clause(p: &Parser<'_>) -> bool {
-    if storage::at_storage_clause(p) {
+    if storage::at_storage_clause(p) || storage::at_view_target(p).is_some() {
         return true;
     }
     match p.nth_keyword(0) {
@@ -194,6 +194,9 @@ fn at_to(p: &Parser<'_>) -> bool {
 fn clause(p: &mut Parser<'_>) -> Option<()> {
     if storage::at_storage_clause(p) {
         return storage::storage_clause(p, &at_clause);
+    }
+    if storage::at_view_target(p).is_some() {
+        return storage::view_target(p, &at_clause);
     }
     match p.nth_keyword(0) {
         Some(K::Comment) => comment(p),
