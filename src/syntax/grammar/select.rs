@@ -8,7 +8,8 @@
 //! - [`at_subquery`] and [`subquery`] from expressions: `(SELECT …)`,
 //!   `IN (SELECT …)`, `exists(SELECT …)`, `x = ANY (SELECT …)`;
 //! - [`query`] wherever a query follows without parentheses of its own, such
-//!   as `CREATE MATERIALIZED VIEW … AS SELECT …`.
+//!   as `CREATE MATERIALIZED VIEW … AS SELECT …`;
+//! - [`projection_subquery`] for `PROJECTION name (SELECT …)`.
 //!
 //! # Clauses
 //!
@@ -165,7 +166,7 @@ pub(crate) fn query(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         let mut last = first.kind();
         loop {
             if last == SyntaxKind::Subquery {
-                clauses(p);
+                clauses(p, Form::Query);
             }
             if !at_set_operator(p) {
                 break;
@@ -260,8 +261,39 @@ fn select_query(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         return p.expected("a query");
     }
     let m = p.start();
-    clauses(p);
+    clauses(p, Form::Query);
     Some(m.complete(p, SyntaxKind::SelectQuery))
+}
+
+/// The query of `PROJECTION name (…)`, as a [`Subquery`](SyntaxKind::Subquery)
+/// holding a [`SelectQuery`](SyntaxKind::SelectQuery).
+///
+/// ClickHouse reads it with `ParserProjectionSelectQuery`: `[WITH list]
+/// SELECT list [WHERE e] [GROUP BY list] [ORDER BY list]`, without the
+/// modifiers of a query, so `distinct`, `all` and `top` after `SELECT`, and
+/// `all`, `rollup(…)` and `cube` after `GROUP BY` or `ORDER BY`, are names
+/// there, and `WITH` takes no CTEs.
+pub(crate) fn projection_subquery(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    let m = p.start();
+    p.expect(T::OpeningRoundBracket)?;
+    if !(p.at_kw(K::Select) || p.at_kw(K::With)) {
+        return p.expected("SELECT");
+    }
+    let no_in = std::mem::replace(&mut p.no_in, false);
+    let query = p.start();
+    clauses(p, Form::Projection);
+    query.complete(p, SyntaxKind::SelectQuery);
+    p.no_in = no_in;
+    p.expect(T::ClosingRoundBracket)?;
+    Some(m.complete(p, SyntaxKind::Subquery))
+}
+
+/// Which grammar a query's clauses follow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Form {
+    Query,
+    /// A projection's query, see [`projection_subquery`].
+    Projection,
 }
 
 // ---- Clauses ---------------------------------------------------------------
@@ -335,7 +367,7 @@ fn at_clause_or_comma(p: &Parser<'_>) -> bool {
 
 /// The clauses from the current token, each with [`fallback::clause`], up
 /// to anything that starts no clause.
-fn clauses(p: &mut Parser<'_>) {
+fn clauses(p: &mut Parser<'_>, form: Form) {
     let mut after_join = false;
     let mut first = true;
     loop {
@@ -364,7 +396,7 @@ fn clauses(p: &mut Parser<'_>) {
         };
         fallback::clause(p, &ends, |p| match clause {
             None => tables::comma_join(p),
-            Some(clause) => parse_clause(p, clause),
+            Some(clause) => parse_clause(p, clause, form),
         });
         after_join = join;
     }
@@ -384,20 +416,20 @@ fn keyword_count(p: &Parser<'_>, clause: Clause) -> usize {
     }
 }
 
-fn parse_clause(p: &mut Parser<'_>, clause: Clause) -> Option<()> {
+fn parse_clause(p: &mut Parser<'_>, clause: Clause, form: Form) -> Option<()> {
     match clause {
-        Clause::With => with_clause(p),
-        Clause::Select => select_clause(p),
+        Clause::With => with_clause(p, form),
+        Clause::Select => select_clause(p, form),
         Clause::From => tables::from_clause(p),
         Clause::Join => tables::join_clause(p),
         Clause::ArrayJoin => tables::array_join_clause(p),
         Clause::Prewhere => expression_clause(p, SyntaxKind::PrewhereClause),
         Clause::Where => expression_clause(p, SyntaxKind::WhereClause),
-        Clause::GroupBy | Clause::GroupByModifiers => group_by_clause(p),
+        Clause::GroupBy | Clause::GroupByModifiers => group_by_clause(p, form),
         Clause::Having => expression_clause(p, SyntaxKind::HavingClause),
         Clause::Window => window_clause(p),
         Clause::Qualify => expression_clause(p, SyntaxKind::QualifyClause),
-        Clause::OrderBy => order_by_clause(p),
+        Clause::OrderBy => order_by_clause(p, form),
         Clause::Interpolate => interpolate_clause(p),
         Clause::Limit => limit_clause(p),
         Clause::Offset => offset_clause(p),
@@ -511,13 +543,16 @@ fn expression_clause(p: &mut Parser<'_>, kind: SyntaxKind) -> Option<()> {
     Some(())
 }
 
-/// `WITH [RECURSIVE] list`.
-fn with_clause(p: &mut Parser<'_>) -> Option<()> {
+/// `WITH [RECURSIVE] list`; in a projection only `WITH list` of
+/// expressions.
+fn with_clause(p: &mut Parser<'_>, form: Form) -> Option<()> {
     let m = p.start();
     p.bump_keyword();
-    p.eat_kw(K::Recursive);
+    if form == Form::Query {
+        p.eat_kw(K::Recursive);
+    }
     list(p, SyntaxKind::WithList, &mut |p| {
-        if at_common_table_expr(p) {
+        if form == Form::Query && at_common_table_expr(p) {
             common_table_expr(p)
         } else {
             exprs::expr_with_alias(p, AliasMode::As).map(drop)
@@ -574,10 +609,18 @@ fn common_table_expr(p: &mut Parser<'_>) -> Option<()> {
     Some(())
 }
 
-/// `SELECT [ALL] [DISTINCT [ON (…)]] [ALL] [TOP n [WITH TIES]] list`.
-fn select_clause(p: &mut Parser<'_>) -> Option<()> {
+/// `SELECT [ALL] [DISTINCT [ON (…)]] [ALL] [TOP n [WITH TIES]] list`; in a
+/// projection `SELECT list`.
+fn select_clause(p: &mut Parser<'_>, form: Form) -> Option<()> {
     let m = p.start();
     p.bump_keyword();
+    if form == Form::Projection {
+        list(p, SyntaxKind::SelectList, &mut |p| {
+            exprs::expr_with_alias(p, AliasMode::Implicit).map(drop)
+        })?;
+        m.complete(p, SyntaxKind::SelectClause);
+        return Some(());
+    }
     let all = p.eat_kw(K::All);
     if p.at_kws(&[K::Distinct, K::On]) && p.nth_at(2, T::OpeningRoundBracket) {
         let d = p.start();
@@ -640,13 +683,16 @@ fn at_group_by_modifier(p: &Parser<'_>) -> bool {
     p.at_kw(K::With) && matches!(p.nth_keyword(1), Some(K::Rollup | K::Cube | K::Totals))
 }
 
-/// `GROUP BY …` and its modifiers, or the modifiers alone.
-fn group_by_clause(p: &mut Parser<'_>) -> Option<()> {
+/// `GROUP BY …` and its modifiers, or the modifiers alone; in a projection
+/// `GROUP BY list`.
+fn group_by_clause(p: &mut Parser<'_>, form: Form) -> Option<()> {
     let m = p.start();
     if p.at_kw(K::Group) {
         p.bump_keyword();
         p.bump_keyword();
-        if (p.at_kw(K::Rollup) || p.at_kw(K::Cube)) && p.nth_at(1, T::OpeningRoundBracket) {
+        if form == Form::Projection {
+            expr_list(p)?;
+        } else if (p.at_kw(K::Rollup) || p.at_kw(K::Cube)) && p.nth_at(1, T::OpeningRoundBracket) {
             p.bump_keyword();
             paren_expr_list(p)?;
         } else if p.at_kws(&[K::Grouping, K::Sets]) && p.nth_at(2, T::OpeningRoundBracket) {
@@ -700,12 +746,13 @@ fn window_clause(p: &mut Parser<'_>) -> Option<()> {
     Some(())
 }
 
-/// `ORDER BY list`, or `ORDER BY ALL [ASC|DESC] [NULLS FIRST|LAST]`.
-fn order_by_clause(p: &mut Parser<'_>) -> Option<()> {
+/// `ORDER BY list`, or, but in a projection, `ORDER BY ALL [ASC|DESC]
+/// [NULLS FIRST|LAST]`.
+fn order_by_clause(p: &mut Parser<'_>, form: Form) -> Option<()> {
     let m = p.start();
     p.bump_keyword();
     p.bump_keyword();
-    if let Some(n) = order_by_all(p) {
+    if let Some(n) = order_by_all(p).filter(|_| form == Form::Query) {
         for _ in 0..n {
             p.bump_keyword();
         }

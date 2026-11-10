@@ -391,6 +391,28 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
         "SELECT x FROM t ORDER BY x WITH FILL INTERPOLATE (null)",
     ),
     ("select * from null.true", "SELECT * FROM null.true"),
+    // A projection's query has no modifiers, and `COMMENT 'x'` after the
+    // query of `CREATE … AS SELECT` is the statement's.
+    (
+        "create table t (a Int8, projection p (select distinct, all group by all order by all)) engine = MergeTree order by a",
+        "CREATE TABLE t (a Int8, PROJECTION p (SELECT distinct, all GROUP BY all ORDER BY all)) ENGINE = MergeTree ORDER BY a",
+    ),
+    (
+        "create table t (a Int8, projection p (with 1 as x select top, x group by rollup(a), cube)) engine = MergeTree order by a",
+        "CREATE TABLE t (a Int8, PROJECTION p (WITH 1 AS x SELECT top, x GROUP BY rollup(a), cube)) ENGINE = MergeTree ORDER BY a",
+    ),
+    (
+        "create table t engine = Memory as select a from u comment 'x'",
+        "CREATE TABLE t ENGINE = Memory AS SELECT a FROM u COMMENT 'x'",
+    ),
+    (
+        "create table t engine = Memory as select a comment from u",
+        "CREATE TABLE t ENGINE = Memory AS SELECT a comment FROM u",
+    ),
+    (
+        "create materialized view v to t as select a from u where b comment 'x'",
+        "CREATE MATERIALIZED VIEW v TO t AS SELECT a FROM u WHERE b COMMENT 'x'",
+    ),
     // Pipe syntax is not parsed, so nothing in it is re-cased.
     (
         "from select s |> where id = 2",
@@ -502,6 +524,11 @@ const WORD_POSITIONS: &[&str] = &[
     "SELECT {} FROM t UNION ALL SELECT 1",
     "SELECT * FROM (SELECT {} FROM t)",
     "SELECT * FROM t WHERE a IN (SELECT {} FROM u)",
+    "CREATE TABLE t ENGINE = Memory AS SELECT a FROM u {}",
+    "CREATE MATERIALIZED VIEW v TO t AS SELECT a FROM u {}",
+    "CREATE TABLE t (a Int8, PROJECTION p (SELECT {})) ENGINE = MergeTree ORDER BY a",
+    "CREATE TABLE t (a Int8, PROJECTION p (SELECT a GROUP BY {})) ENGINE = MergeTree ORDER BY a",
+    "CREATE TABLE t (a Int8, PROJECTION p (SELECT a ORDER BY {})) ENGINE = MergeTree ORDER BY a",
 ];
 
 /// Every ClickHouse keyword word, lower case and capitalised, in each of

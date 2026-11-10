@@ -93,7 +93,7 @@ fn projection(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     p.bump_keyword();
     names::name(p)?;
     if p.at(T::OpeningRoundBracket) {
-        select::subquery(p)?;
+        select::projection_subquery(p)?;
     } else if p.eat_kw(K::Index) {
         common::expr_list(p, &|p: &Parser<'_>| p.at_kw(K::Type), AliasMode::As)?;
         p.expect_kw(K::Type)?;
