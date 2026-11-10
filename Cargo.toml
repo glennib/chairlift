@@ -36,6 +36,11 @@ path = "tests/oracle.rs"
 required-features = ["oracle"]
 
 [[test]]
+name = "keyword_positions"
+path = "tests/keyword_positions.rs"
+required-features = ["oracle"]
+
+[[test]]
 name = "corpus_tool"
 path = "tests/corpus_tool.rs"
 required-features = ["corpus-tool"]

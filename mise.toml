@@ -43,7 +43,12 @@ run = "cargo nextest run --all-targets --all-features --no-tests=pass"
 [tasks."test:corpus"]
 description = "Run the tests that read the fetched corpus or run clickhouse-format, failing instead of skipping if either is missing"
 env = { CHAIRLIFT_REQUIRE_CORPUS = "1" }
-run = "cargo nextest run --all-features --test corpus --test keywords --test lexer --test oracle"
+run = "cargo nextest run --all-features --test corpus --test keywords --test lexer --test oracle --test keyword_positions"
+
+[tasks."test:keyword-positions"]
+description = "Put every keyword and literal word in every position of tests/keyword_positions.rs, and check the re-cased keyword slots with verify and clickhouse-format; fails instead of skipping without clickhouse-format"
+env = { CHAIRLIFT_REQUIRE_CORPUS = "1" }
+run = "cargo nextest run --all-features --test keyword_positions"
 
 [tasks."test:doc"]
 description = "Run doctests (nextest does not run them)"
