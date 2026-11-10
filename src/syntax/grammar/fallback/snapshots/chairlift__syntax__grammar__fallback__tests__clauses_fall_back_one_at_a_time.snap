@@ -1,0 +1,33 @@
+---
+source: src/syntax/grammar/fallback/tests.rs
+expression: "grammar(\"WHERE a\\n{% if x %}\\nWHERE b\\n{% else %}\\nWHERE c d\\n{% endif %}\\nGROUP BY e, f g, h\\nHAVING i\",\nclauses)"
+---
+WhereClause
+  Keyword "WHERE"
+  Name
+    BareWord "a"
+WhereClause
+  Keyword "WHERE"
+  Name
+    BareWord "b"
+VerbatimClause
+  BareWord "WHERE"
+  BareWord "c"
+  BareWord "d"
+GroupByClause
+  Keyword "GROUP"
+  Keyword "BY"
+  ExprList
+    Name
+      BareWord "e"
+    Comma ","
+    VerbatimItem
+      BareWord "f"
+      BareWord "g"
+    Comma ","
+    Name
+      BareWord "h"
+HavingClause
+  Keyword "HAVING"
+  Name
+    BareWord "i"

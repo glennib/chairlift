@@ -1,0 +1,69 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"f(a b, c)\", \"(a b, c)\", \"[1, 2 3]\", \"f(g(x y), z)\", \"x ->\", \"a +\",])"
+---
+> f(a b, c)
+FunctionCall
+  Name
+    BareWord "f"
+  ArgList
+    OpeningRoundBracket "("
+    VerbatimItem
+      BareWord "a"
+      BareWord "b"
+    Comma ","
+    Name
+      BareWord "c"
+    ClosingRoundBracket ")"
+
+> (a b, c)
+TupleExpr
+  OpeningRoundBracket "("
+  VerbatimItem
+    BareWord "a"
+    BareWord "b"
+  Comma ","
+  Name
+    BareWord "c"
+  ClosingRoundBracket ")"
+
+> [1, 2 3]
+ArrayExpr
+  OpeningSquareBracket "["
+  Literal
+    Number "1"
+  Comma ","
+  VerbatimItem
+    Number "2"
+    Number "3"
+  ClosingSquareBracket "]"
+
+> f(g(x y), z)
+FunctionCall
+  Name
+    BareWord "f"
+  ArgList
+    OpeningRoundBracket "("
+    FunctionCall
+      Name
+        BareWord "g"
+      ArgList
+        OpeningRoundBracket "("
+        VerbatimItem
+          BareWord "x"
+          BareWord "y"
+        ClosingRoundBracket ")"
+    Comma ","
+    Name
+      BareWord "z"
+    ClosingRoundBracket ")"
+
+> x ->
+VerbatimStatement
+  BareWord "x"
+  Arrow "->"
+
+> a +
+VerbatimStatement
+  BareWord "a"
+  Plus "+"

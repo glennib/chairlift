@@ -1,0 +1,77 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"a\", \"db.t.c\", \"`quoted name`\", \"\\\"double\\\"\", \"{{ column }}\",\n\"events_{{ suffix }}\", \"{{ schema }}.events\", \"{tbl:Identifier}\",\n\"json.a.:Int64\", \"key\", \"t.from\",])"
+---
+> a
+Name
+  BareWord "a"
+
+> db.t.c
+QualifiedName
+  Name
+    BareWord "db"
+  Dot "."
+  Name
+    BareWord "t"
+  Dot "."
+  Name
+    BareWord "c"
+
+> `quoted name`
+Name
+  QuotedIdentifier "`quoted name`"
+
+> "double"
+Name
+  QuotedIdentifier "\"double\""
+
+> {{ column }}
+Name
+  JinjaExpr "{{ column }}"
+
+> events_{{ suffix }}
+Name
+  BareWord "events_{{ suffix }}"
+
+> {{ schema }}.events
+QualifiedName
+  Name
+    JinjaExpr "{{ schema }}"
+  Dot "."
+  Name
+    BareWord "events"
+
+> {tbl:Identifier}
+QueryParameter
+  OpeningCurlyBrace "{"
+  Name
+    BareWord "tbl"
+  Colon ":"
+  DataType
+    Name
+      BareWord "Identifier"
+  ClosingCurlyBrace "}"
+
+> json.a.:Int64
+QualifiedName
+  Name
+    BareWord "json"
+  Dot "."
+  Name
+    BareWord "a"
+  Dot "."
+  Colon ":"
+  Name
+    BareWord "Int64"
+
+> key
+Name
+  BareWord "key"
+
+> t.from
+QualifiedName
+  Name
+    BareWord "t"
+  Dot "."
+  Name
+    BareWord "from"

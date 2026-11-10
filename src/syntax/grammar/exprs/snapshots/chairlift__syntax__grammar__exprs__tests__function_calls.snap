@@ -1,0 +1,259 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"f()\", \"count(*)\", \"count(DISTINCT a, b)\", \"f(DISTINCT)\", \"f(ALL, x)\",\n\"quantiles(0.5, 0.9)(x)\", \"f(a AS b, c)\", \"db.f(x)\",\n\"countIf(x) FILTER (WHERE y > 1)\", \"first_value(x) RESPECT NULLS\",\n\"sum(x) OVER (PARTITION BY y ORDER BY z)\", \"sum(x) OVER w\", \"left(s, 1)\",\n\"any(x)\", \"format('{}', x)\", \"if(a, b, c)\", \"not(x)\", \"{{ macro }}(x)\",\n\"f(a,)\",])"
+---
+> f()
+FunctionCall
+  Name
+    BareWord "f"
+  ArgList
+    OpeningRoundBracket "("
+    ClosingRoundBracket ")"
+
+> count(*)
+FunctionCall
+  Name
+    BareWord "count"
+  ArgList
+    OpeningRoundBracket "("
+    AsteriskExpr
+      Asterisk "*"
+    ClosingRoundBracket ")"
+
+> count(DISTINCT a, b)
+FunctionCall
+  Name
+    BareWord "count"
+  ArgList
+    OpeningRoundBracket "("
+    Keyword "DISTINCT"
+    Name
+      BareWord "a"
+    Comma ","
+    Name
+      BareWord "b"
+    ClosingRoundBracket ")"
+
+> f(DISTINCT)
+FunctionCall
+  Name
+    BareWord "f"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "DISTINCT"
+    ClosingRoundBracket ")"
+
+> f(ALL, x)
+FunctionCall
+  Name
+    BareWord "f"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "ALL"
+    Comma ","
+    Name
+      BareWord "x"
+    ClosingRoundBracket ")"
+
+> quantiles(0.5, 0.9)(x)
+FunctionCall
+  Name
+    BareWord "quantiles"
+  ArgList
+    OpeningRoundBracket "("
+    Literal
+      Number "0.5"
+    Comma ","
+    Literal
+      Number "0.9"
+    ClosingRoundBracket ")"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    ClosingRoundBracket ")"
+
+> f(a AS b, c)
+FunctionCall
+  Name
+    BareWord "f"
+  ArgList
+    OpeningRoundBracket "("
+    AliasedExpr
+      Name
+        BareWord "a"
+      Alias
+        Keyword "AS"
+        Name
+          BareWord "b"
+    Comma ","
+    Name
+      BareWord "c"
+    ClosingRoundBracket ")"
+
+> db.f(x)
+FunctionCall
+  QualifiedName
+    Name
+      BareWord "db"
+    Dot "."
+    Name
+      BareWord "f"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    ClosingRoundBracket ")"
+
+> countIf(x) FILTER (WHERE y > 1)
+FunctionCall
+  Name
+    BareWord "countIf"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    ClosingRoundBracket ")"
+  FunctionFilter
+    Keyword "FILTER"
+    OpeningRoundBracket "("
+    Keyword "WHERE"
+    BinaryExpr
+      Name
+        BareWord "y"
+      Greater ">"
+      Literal
+        Number "1"
+    ClosingRoundBracket ")"
+
+> first_value(x) RESPECT NULLS
+FunctionCall
+  Name
+    BareWord "first_value"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    ClosingRoundBracket ")"
+  NullsModifier
+    Keyword "RESPECT"
+    Keyword "NULLS"
+
+> sum(x) OVER (PARTITION BY y ORDER BY z)
+FunctionCall
+  Name
+    BareWord "sum"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    ClosingRoundBracket ")"
+  Over
+    Keyword "OVER"
+    Opaque
+      OpeningRoundBracket "("
+      BareWord "PARTITION"
+      BareWord "BY"
+      BareWord "y"
+      BareWord "ORDER"
+      BareWord "BY"
+      BareWord "z"
+      ClosingRoundBracket ")"
+
+> sum(x) OVER w
+FunctionCall
+  Name
+    BareWord "sum"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    ClosingRoundBracket ")"
+  Over
+    Keyword "OVER"
+    Name
+      BareWord "w"
+
+> left(s, 1)
+FunctionCall
+  Name
+    BareWord "left"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "s"
+    Comma ","
+    Literal
+      Number "1"
+    ClosingRoundBracket ")"
+
+> any(x)
+FunctionCall
+  Name
+    BareWord "any"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    ClosingRoundBracket ")"
+
+> format('{}', x)
+FunctionCall
+  Name
+    BareWord "format"
+  ArgList
+    OpeningRoundBracket "("
+    Literal
+      StringLiteral "'{}'"
+    Comma ","
+    Name
+      BareWord "x"
+    ClosingRoundBracket ")"
+
+> if(a, b, c)
+FunctionCall
+  Name
+    BareWord "if"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "a"
+    Comma ","
+    Name
+      BareWord "b"
+    Comma ","
+    Name
+      BareWord "c"
+    ClosingRoundBracket ")"
+
+> not(x)
+PrefixExpr
+  Keyword "not"
+  ParenExpr
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    ClosingRoundBracket ")"
+
+> {{ macro }}(x)
+FunctionCall
+  Name
+    JinjaExpr "{{ macro }}"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    ClosingRoundBracket ")"
+
+> f(a,)
+FunctionCall
+  Name
+    BareWord "f"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "a"
+    Comma ","
+    ClosingRoundBracket ")"

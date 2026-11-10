@@ -1,0 +1,83 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"1\", \"0x1F\", \"'it''s'\", \"$$text$$\", \"NULL\", \"null\", \"true\", \"FALSE\",\n\"inf\", \"NaN\", \"-1\", \"- 1.5\", \"-inf\", \"+1\", \"DATE '2026-01-01'\",\n\"TIMESTAMP '2026-01-01 00:00:00'\", \"date\",])"
+---
+> 1
+Literal
+  Number "1"
+
+> 0x1F
+Literal
+  Number "0x1F"
+
+> 'it''s'
+Literal
+  StringLiteral "'it''s'"
+
+> $$text$$
+Literal
+  HereDoc "$$text$$"
+
+> NULL
+Literal
+  Keyword "NULL"
+
+> null
+Literal
+  Keyword "null"
+
+> true
+Literal
+  LiteralWord "true"
+
+> FALSE
+Literal
+  LiteralWord "FALSE"
+
+> inf
+Literal
+  LiteralWord "inf"
+
+> NaN
+Literal
+  LiteralWord "NaN"
+
+> -1
+PrefixExpr
+  Minus "-"
+  Literal
+    Number "1"
+
+> - 1.5
+PrefixExpr
+  Minus "-"
+  Literal
+    Number "1.5"
+
+> -inf
+PrefixExpr
+  Minus "-"
+  Literal
+    LiteralWord "inf"
+
+> +1
+PrefixExpr
+  Plus "+"
+  Literal
+    Number "1"
+
+> DATE '2026-01-01'
+TypedLiteral
+  Keyword "DATE"
+  Literal
+    StringLiteral "'2026-01-01'"
+
+> TIMESTAMP '2026-01-01 00:00:00'
+TypedLiteral
+  Keyword "TIMESTAMP"
+  Literal
+    StringLiteral "'2026-01-01 00:00:00'"
+
+> date
+Name
+  BareWord "date"

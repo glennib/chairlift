@@ -6,7 +6,9 @@
 //! against its input with the [verifier](verify) before returning it.
 //!
 //! The crate is pre-release: formatting is the safe cleanup of [`format`]
-//! only, and `docs/MILESTONES.md` in the repository lays out what comes next.
+//! only, the [parser](syntax) turns the text into a lossless syntax tree that
+//! the formatter will lay out, and `docs/MILESTONES.md` in the repository lays
+//! out what comes next.
 //!
 //! ```
 //! let options = chairlift::Options::default();
@@ -24,6 +26,7 @@ mod options;
 #[cfg(feature = "oracle")]
 pub mod oracle;
 pub mod split;
+pub mod syntax;
 pub mod verify;
 
 use std::fmt;

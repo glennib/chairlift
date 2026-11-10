@@ -1,0 +1,160 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"x::Int8\", \"x::Nullable(String)\", \"[1,2]::Array(Int8)\",\n\"[1,\\n2]::Array(Int8)\", \"'1'::Int8\", \"-1::Int8\",\n\"(1, 'a')::Tuple(Int8, String)\", \"a.1::Int8\", \"{x:UInt32}\", \"{s: String}\",\n\"@@version\",])"
+---
+> x::Int8
+CastExpr
+  Name
+    BareWord "x"
+  DoubleColon "::"
+  DataType
+    Name
+      BareWord "Int8"
+
+> x::Nullable(String)
+CastExpr
+  Name
+    BareWord "x"
+  DoubleColon "::"
+  DataType
+    Name
+      BareWord "Nullable"
+    TypeArgList
+      OpeningRoundBracket "("
+      DataType
+        Name
+          BareWord "String"
+      ClosingRoundBracket ")"
+
+> [1,2]::Array(Int8)
+CastExpr
+  LiteralAsText
+    ArrayExpr
+      OpeningSquareBracket "["
+      Literal
+        Number "1"
+      Comma ","
+      Literal
+        Number "2"
+      ClosingSquareBracket "]"
+  DoubleColon "::"
+  DataType
+    Name
+      BareWord "Array"
+    TypeArgList
+      OpeningRoundBracket "("
+      DataType
+        Name
+          BareWord "Int8"
+      ClosingRoundBracket ")"
+
+> [1,
+2]::Array(Int8)
+CastExpr
+  LiteralAsText
+    ArrayExpr
+      OpeningSquareBracket "["
+      Literal
+        Number "1"
+      Comma ","
+      Literal
+        Number "2"
+      ClosingSquareBracket "]"
+  DoubleColon "::"
+  DataType
+    Name
+      BareWord "Array"
+    TypeArgList
+      OpeningRoundBracket "("
+      DataType
+        Name
+          BareWord "Int8"
+      ClosingRoundBracket ")"
+
+> '1'::Int8
+CastExpr
+  LiteralAsText
+    Literal
+      StringLiteral "'1'"
+  DoubleColon "::"
+  DataType
+    Name
+      BareWord "Int8"
+
+> -1::Int8
+CastExpr
+  LiteralAsText
+    PrefixExpr
+      Minus "-"
+      Literal
+        Number "1"
+  DoubleColon "::"
+  DataType
+    Name
+      BareWord "Int8"
+
+> (1, 'a')::Tuple(Int8, String)
+CastExpr
+  LiteralAsText
+    TupleExpr
+      OpeningRoundBracket "("
+      Literal
+        Number "1"
+      Comma ","
+      Literal
+        StringLiteral "'a'"
+      ClosingRoundBracket ")"
+  DoubleColon "::"
+  DataType
+    Name
+      BareWord "Tuple"
+    TypeArgList
+      OpeningRoundBracket "("
+      DataType
+        Name
+          BareWord "Int8"
+      Comma ","
+      DataType
+        Name
+          BareWord "String"
+      ClosingRoundBracket ")"
+
+> a.1::Int8
+CastExpr
+  TupleAccessExpr
+    Name
+      BareWord "a"
+    Dot "."
+    Number "1"
+  DoubleColon "::"
+  DataType
+    Name
+      BareWord "Int8"
+
+> {x:UInt32}
+QueryParameter
+  OpeningCurlyBrace "{"
+  Name
+    BareWord "x"
+  Colon ":"
+  DataType
+    Name
+      BareWord "UInt32"
+  ClosingCurlyBrace "}"
+
+> {s: String}
+QueryParameter
+  OpeningCurlyBrace "{"
+  Name
+    BareWord "s"
+  Colon ":"
+  DataType
+    Name
+      BareWord "String"
+  ClosingCurlyBrace "}"
+
+> @@version
+GlobalVariable
+  DoubleAt "@@"
+  Name
+    BareWord "version"

@@ -1,0 +1,87 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"1 AS limit\", \"x AS \\\"y\\\"\", \"x y\", \"x \\\"y\\\"\", \"x {{ name }}\",\n\"from AS x\", \"1 limit\", \"from x\", \"f(a + b AS x * 2)\",])"
+---
+> 1 AS limit
+AliasedExpr
+  Literal
+    Number "1"
+  Alias
+    Keyword "AS"
+    Name
+      BareWord "limit"
+
+> x AS "y"
+AliasedExpr
+  Name
+    BareWord "x"
+  Alias
+    Keyword "AS"
+    Name
+      QuotedIdentifier "\"y\""
+
+> x y
+AliasedExpr
+  Name
+    BareWord "x"
+  Alias
+    Name
+      BareWord "y"
+
+> x "y"
+AliasedExpr
+  Name
+    BareWord "x"
+  Alias
+    Name
+      QuotedIdentifier "\"y\""
+
+> x {{ name }}
+AliasedExpr
+  Name
+    BareWord "x"
+  Alias
+    Name
+      JinjaExpr "{{ name }}"
+
+> from AS x
+AliasedExpr
+  Name
+    BareWord "from"
+  Alias
+    Keyword "AS"
+    Name
+      BareWord "x"
+
+> 1 limit
+VerbatimStatement
+  Number "1"
+  BareWord "limit"
+
+> from x
+VerbatimStatement
+  BareWord "from"
+  BareWord "x"
+
+> f(a + b AS x * 2)
+FunctionCall
+  Name
+    BareWord "f"
+  ArgList
+    OpeningRoundBracket "("
+    BinaryExpr
+      AliasedExpr
+        BinaryExpr
+          Name
+            BareWord "a"
+          Plus "+"
+          Name
+            BareWord "b"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "x"
+      Asterisk "*"
+      Literal
+        Number "2"
+    ClosingRoundBracket ")"

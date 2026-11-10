@@ -1,0 +1,401 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"CAST(x AS String)\", \"cast(x, 'String')\", \"CAST(x AS y AS String)\",\n\"CAST([1, 2] AS Array(Decimal(10, 2)))\", \"try_cast(x AS Int8)\",\n\"EXTRACT(DAY FROM d)\", \"extract(s, '\\\\\\\\d+')\", \"SUBSTRING(s FROM 2 FOR 3)\",\n\"substring(s, 2, 3)\", \"TRIM(BOTH ' ' FROM s)\", \"TRIM(LEADING FROM s)\",\n\"trim(s)\", \"POSITION('a' IN s)\", \"position(s, 'a')\",\n\"OVERLAY(s PLACING 'x' FROM 2 FOR 1)\", \"dateDiff(day, a, b)\",\n\"dateDiff('day', a, b)\", \"DATE_ADD(HOUR, 1, d)\", \"exists(SELECT 1)\",\n\"cast('1234' lhs AS UInt32)\", \"substring('1234' AS lhs FROM 2 FOR 2 AS n)\",\n\"position('a' AS h IN s)\", \"trim(LEADING 'a' AS x FROM s y)\",\n\"dateAdd(DAY, 1 n, d)\",])"
+---
+> CAST(x AS String)
+FunctionCall
+  Name
+    BareWord "CAST"
+  KeywordArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    Keyword "AS"
+    DataType
+      Name
+        BareWord "String"
+    ClosingRoundBracket ")"
+
+> cast(x, 'String')
+FunctionCall
+  Name
+    BareWord "cast"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    Comma ","
+    Literal
+      StringLiteral "'String'"
+    ClosingRoundBracket ")"
+
+> CAST(x AS y AS String)
+FunctionCall
+  Name
+    BareWord "CAST"
+  KeywordArgList
+    OpeningRoundBracket "("
+    AliasedExpr
+      Name
+        BareWord "x"
+      Alias
+        Keyword "AS"
+        Name
+          BareWord "y"
+    Keyword "AS"
+    DataType
+      Name
+        BareWord "String"
+    ClosingRoundBracket ")"
+
+> CAST([1, 2] AS Array(Decimal(10, 2)))
+FunctionCall
+  Name
+    BareWord "CAST"
+  KeywordArgList
+    OpeningRoundBracket "("
+    LiteralAsText
+      ArrayExpr
+        OpeningSquareBracket "["
+        Literal
+          Number "1"
+        Comma ","
+        Literal
+          Number "2"
+        ClosingSquareBracket "]"
+    Keyword "AS"
+    DataType
+      Name
+        BareWord "Array"
+      TypeArgList
+        OpeningRoundBracket "("
+        DataType
+          Name
+            BareWord "Decimal"
+          TypeArgList
+            OpeningRoundBracket "("
+            Literal
+              Number "10"
+            Comma ","
+            Literal
+              Number "2"
+            ClosingRoundBracket ")"
+        ClosingRoundBracket ")"
+    ClosingRoundBracket ")"
+
+> try_cast(x AS Int8)
+FunctionCall
+  Name
+    BareWord "try_cast"
+  KeywordArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    Keyword "AS"
+    DataType
+      Name
+        BareWord "Int8"
+    ClosingRoundBracket ")"
+
+> EXTRACT(DAY FROM d)
+FunctionCall
+  Name
+    BareWord "EXTRACT"
+  KeywordArgList
+    OpeningRoundBracket "("
+    IntervalUnit
+      Keyword "DAY"
+    Keyword "FROM"
+    Name
+      BareWord "d"
+    ClosingRoundBracket ")"
+
+> extract(s, '\\d+')
+FunctionCall
+  Name
+    BareWord "extract"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "s"
+    Comma ","
+    Literal
+      StringLiteral "'\\\\d+'"
+    ClosingRoundBracket ")"
+
+> SUBSTRING(s FROM 2 FOR 3)
+FunctionCall
+  Name
+    BareWord "SUBSTRING"
+  KeywordArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "s"
+    Keyword "FROM"
+    Literal
+      Number "2"
+    Keyword "FOR"
+    Literal
+      Number "3"
+    ClosingRoundBracket ")"
+
+> substring(s, 2, 3)
+FunctionCall
+  Name
+    BareWord "substring"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "s"
+    Comma ","
+    Literal
+      Number "2"
+    Comma ","
+    Literal
+      Number "3"
+    ClosingRoundBracket ")"
+
+> TRIM(BOTH ' ' FROM s)
+FunctionCall
+  Name
+    BareWord "TRIM"
+  KeywordArgList
+    OpeningRoundBracket "("
+    Keyword "BOTH"
+    Literal
+      StringLiteral "' '"
+    Keyword "FROM"
+    Name
+      BareWord "s"
+    ClosingRoundBracket ")"
+
+> TRIM(LEADING FROM s)
+FunctionCall
+  Name
+    BareWord "TRIM"
+  KeywordArgList
+    OpeningRoundBracket "("
+    Keyword "LEADING"
+    Keyword "FROM"
+    Name
+      BareWord "s"
+    ClosingRoundBracket ")"
+
+> trim(s)
+FunctionCall
+  Name
+    BareWord "trim"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "s"
+    ClosingRoundBracket ")"
+
+> POSITION('a' IN s)
+FunctionCall
+  Name
+    BareWord "POSITION"
+  KeywordArgList
+    OpeningRoundBracket "("
+    Literal
+      StringLiteral "'a'"
+    Keyword "IN"
+    Name
+      BareWord "s"
+    ClosingRoundBracket ")"
+
+> position(s, 'a')
+FunctionCall
+  Name
+    BareWord "position"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "s"
+    Comma ","
+    Literal
+      StringLiteral "'a'"
+    ClosingRoundBracket ")"
+
+> OVERLAY(s PLACING 'x' FROM 2 FOR 1)
+FunctionCall
+  Name
+    BareWord "OVERLAY"
+  KeywordArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "s"
+    Keyword "PLACING"
+    Literal
+      StringLiteral "'x'"
+    Keyword "FROM"
+    Literal
+      Number "2"
+    Keyword "FOR"
+    Literal
+      Number "1"
+    ClosingRoundBracket ")"
+
+> dateDiff(day, a, b)
+FunctionCall
+  Name
+    BareWord "dateDiff"
+  ArgList
+    OpeningRoundBracket "("
+    IntervalUnit
+      Keyword "day"
+    Comma ","
+    Name
+      BareWord "a"
+    Comma ","
+    Name
+      BareWord "b"
+    ClosingRoundBracket ")"
+
+> dateDiff('day', a, b)
+FunctionCall
+  Name
+    BareWord "dateDiff"
+  ArgList
+    OpeningRoundBracket "("
+    Literal
+      StringLiteral "'day'"
+    Comma ","
+    Name
+      BareWord "a"
+    Comma ","
+    Name
+      BareWord "b"
+    ClosingRoundBracket ")"
+
+> DATE_ADD(HOUR, 1, d)
+FunctionCall
+  Name
+    BareWord "DATE_ADD"
+  ArgList
+    OpeningRoundBracket "("
+    IntervalUnit
+      Keyword "HOUR"
+    Comma ","
+    Literal
+      Number "1"
+    Comma ","
+    Name
+      BareWord "d"
+    ClosingRoundBracket ")"
+
+> exists(SELECT 1)
+FunctionCall
+  Name
+    BareWord "exists"
+  Subquery
+    OpeningRoundBracket "("
+    Opaque
+      BareWord "SELECT"
+      Number "1"
+    ClosingRoundBracket ")"
+
+> cast('1234' lhs AS UInt32)
+FunctionCall
+  Name
+    BareWord "cast"
+  KeywordArgList
+    OpeningRoundBracket "("
+    AliasedExpr
+      Literal
+        StringLiteral "'1234'"
+      Alias
+        Name
+          BareWord "lhs"
+    Keyword "AS"
+    DataType
+      Name
+        BareWord "UInt32"
+    ClosingRoundBracket ")"
+
+> substring('1234' AS lhs FROM 2 FOR 2 AS n)
+FunctionCall
+  Name
+    BareWord "substring"
+  KeywordArgList
+    OpeningRoundBracket "("
+    AliasedExpr
+      Literal
+        StringLiteral "'1234'"
+      Alias
+        Keyword "AS"
+        Name
+          BareWord "lhs"
+    Keyword "FROM"
+    Literal
+      Number "2"
+    Keyword "FOR"
+    AliasedExpr
+      Literal
+        Number "2"
+      Alias
+        Keyword "AS"
+        Name
+          BareWord "n"
+    ClosingRoundBracket ")"
+
+> position('a' AS h IN s)
+FunctionCall
+  Name
+    BareWord "position"
+  KeywordArgList
+    OpeningRoundBracket "("
+    AliasedExpr
+      Literal
+        StringLiteral "'a'"
+      Alias
+        Keyword "AS"
+        Name
+          BareWord "h"
+    Keyword "IN"
+    Name
+      BareWord "s"
+    ClosingRoundBracket ")"
+
+> trim(LEADING 'a' AS x FROM s y)
+FunctionCall
+  Name
+    BareWord "trim"
+  KeywordArgList
+    OpeningRoundBracket "("
+    Keyword "LEADING"
+    AliasedExpr
+      Literal
+        StringLiteral "'a'"
+      Alias
+        Keyword "AS"
+        Name
+          BareWord "x"
+    Keyword "FROM"
+    AliasedExpr
+      Name
+        BareWord "s"
+      Alias
+        Name
+          BareWord "y"
+    ClosingRoundBracket ")"
+
+> dateAdd(DAY, 1 n, d)
+FunctionCall
+  Name
+    BareWord "dateAdd"
+  ArgList
+    OpeningRoundBracket "("
+    IntervalUnit
+      Keyword "DAY"
+    Comma ","
+    AliasedExpr
+      Literal
+        Number "1"
+      Alias
+        Name
+          BareWord "n"
+    Comma ","
+    Name
+      BareWord "d"
+    ClosingRoundBracket ")"

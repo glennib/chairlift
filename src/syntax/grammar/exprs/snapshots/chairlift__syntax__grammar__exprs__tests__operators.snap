@@ -1,0 +1,168 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"a NOT LIKE 'x%' ESCAPE '!'\", \"a ILIKE b\", \"a SIMILAR TO 'x'\",\n\"a NOT SIMILAR TO 'x'\", \"a REGEXP 'x'\", \"a !~* 'x'\", \"a GLOBAL NOT IN (1, 2)\",\n\"a IS NOT DISTINCT FROM b\", \"a IS TRUE\", \"x AT TIME ZONE 'UTC'\", \"x AT LOCAL\",\n\"a <=> b\", \"a MOD b DIV c\", \"a || b\", \"f | g\", \"a NOT BETWEEN 1 AND 2\",\n\"c ? a : b\",])"
+---
+> a NOT LIKE 'x%' ESCAPE '!'
+BinaryExpr
+  Name
+    BareWord "a"
+  Keyword "NOT"
+  Keyword "LIKE"
+  Literal
+    StringLiteral "'x%'"
+  Keyword "ESCAPE"
+  Literal
+    StringLiteral "'!'"
+
+> a ILIKE b
+BinaryExpr
+  Name
+    BareWord "a"
+  Keyword "ILIKE"
+  Name
+    BareWord "b"
+
+> a SIMILAR TO 'x'
+BinaryExpr
+  Name
+    BareWord "a"
+  Keyword "SIMILAR"
+  Keyword "TO"
+  Literal
+    StringLiteral "'x'"
+
+> a NOT SIMILAR TO 'x'
+BinaryExpr
+  Name
+    BareWord "a"
+  Keyword "NOT"
+  Keyword "SIMILAR"
+  Keyword "TO"
+  Literal
+    StringLiteral "'x'"
+
+> a REGEXP 'x'
+BinaryExpr
+  Name
+    BareWord "a"
+  Keyword "REGEXP"
+  Literal
+    StringLiteral "'x'"
+
+> a !~* 'x'
+BinaryExpr
+  Name
+    BareWord "a"
+  NotTildeAsterisk "!~*"
+  Literal
+    StringLiteral "'x'"
+
+> a GLOBAL NOT IN (1, 2)
+BinaryExpr
+  Name
+    BareWord "a"
+  Keyword "GLOBAL"
+  Keyword "NOT"
+  Keyword "IN"
+  TupleExpr
+    OpeningRoundBracket "("
+    Literal
+      Number "1"
+    Comma ","
+    Literal
+      Number "2"
+    ClosingRoundBracket ")"
+
+> a IS NOT DISTINCT FROM b
+BinaryExpr
+  Name
+    BareWord "a"
+  Keyword "IS"
+  Keyword "NOT"
+  Keyword "DISTINCT"
+  Keyword "FROM"
+  Name
+    BareWord "b"
+
+> a IS TRUE
+PostfixExpr
+  Name
+    BareWord "a"
+  Keyword "IS"
+  LiteralWord "TRUE"
+
+> x AT TIME ZONE 'UTC'
+BinaryExpr
+  Name
+    BareWord "x"
+  Keyword "AT"
+  Keyword "TIME"
+  Keyword "ZONE"
+  Literal
+    StringLiteral "'UTC'"
+
+> x AT LOCAL
+PostfixExpr
+  Name
+    BareWord "x"
+  Keyword "AT"
+  Keyword "LOCAL"
+
+> a <=> b
+BinaryExpr
+  Name
+    BareWord "a"
+  Spaceship "<=>"
+  Name
+    BareWord "b"
+
+> a MOD b DIV c
+BinaryExpr
+  BinaryExpr
+    Name
+      BareWord "a"
+    Keyword "MOD"
+    Name
+      BareWord "b"
+  Keyword "DIV"
+  Name
+    BareWord "c"
+
+> a || b
+BinaryExpr
+  Name
+    BareWord "a"
+  Concatenation "||"
+  Name
+    BareWord "b"
+
+> f | g
+BinaryExpr
+  Name
+    BareWord "f"
+  PipeMark "|"
+  Name
+    BareWord "g"
+
+> a NOT BETWEEN 1 AND 2
+BetweenExpr
+  Name
+    BareWord "a"
+  Keyword "NOT"
+  Keyword "BETWEEN"
+  Literal
+    Number "1"
+  Keyword "AND"
+  Literal
+    Number "2"
+
+> c ? a : b
+TernaryExpr
+  Name
+    BareWord "c"
+  QuestionMark "?"
+  Name
+    BareWord "a"
+  Colon ":"
+  Name
+    BareWord "b"

@@ -1,0 +1,53 @@
+---
+source: src/syntax/tests.rs
+expression: "file_tree(\"SELECT -- after select\\n    f( /* first */ a, -- after a\\n    b /* before ) */ ),\\n    \\\n         x {# jinja comment #} AND {% if c %} y {% endif %}\\n; -- after ;\\n\",\nMode::Jinja, Entry::SelectListProbe)"
+---
+Root@0..148
+  Statement@0..136
+    ExpressionProbe@0..122
+      Keyword@0..6 "SELECT"
+      Whitespace@6..7 " "
+      LineComment@7..22 "-- after select"
+      Whitespace@22..27 "\n    "
+      ExprList@27..122
+        FunctionCall@27..78
+          Name@27..28
+            BareWord@27..28 "f"
+          ArgList@28..78
+            OpeningRoundBracket@28..29 "("
+            Whitespace@29..30 " "
+            BlockComment@30..41 "/* first */"
+            Whitespace@41..42 " "
+            Name@42..43
+              BareWord@42..43 "a"
+            Comma@43..44 ","
+            Whitespace@44..45 " "
+            LineComment@45..55 "-- after a"
+            Whitespace@55..60 "\n    "
+            Name@60..61
+              BareWord@60..61 "b"
+            Whitespace@61..62 " "
+            BlockComment@62..76 "/* before ) */"
+            Whitespace@76..77 " "
+            ClosingRoundBracket@77..78 ")"
+        Comma@78..79 ","
+        Whitespace@79..84 "\n    "
+        AndExpr@84..122
+          Name@84..85
+            BareWord@84..85 "x"
+          Whitespace@85..86 " "
+          JinjaComment@86..105 "{# jinja comment #}"
+          Whitespace@105..106 " "
+          Keyword@106..109 "AND"
+          Whitespace@109..110 " "
+          JinjaBlock@110..120 "{% if c %}"
+          Whitespace@120..121 " "
+          Name@121..122
+            BareWord@121..122 "y"
+    Whitespace@122..123 " "
+    JinjaBlock@123..134 "{% endif %}"
+    Whitespace@134..135 "\n"
+    Semicolon@135..136 ";"
+  Whitespace@136..137 " "
+  LineComment@137..147 "-- after ;"
+  Whitespace@147..148 "\n"

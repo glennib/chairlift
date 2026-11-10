@@ -1,0 +1,33 @@
+---
+source: src/syntax/grammar/common/tests.rs
+expression: "trees(&[\"IF NOT EXISTS\", \"IF EXISTS ON CLUSTER '{cluster}'\",\n\"ON CLUSTER main\", \"ON CLUSTER {{ cluster }}\",], head)"
+---
+> IF NOT EXISTS
+IfNotExists
+  Keyword "IF"
+  Keyword "NOT"
+  Keyword "EXISTS"
+
+> IF EXISTS ON CLUSTER '{cluster}'
+IfExists
+  Keyword "IF"
+  Keyword "EXISTS"
+OnCluster
+  Keyword "ON"
+  Keyword "CLUSTER"
+  Literal
+    StringLiteral "'{cluster}'"
+
+> ON CLUSTER main
+OnCluster
+  Keyword "ON"
+  Keyword "CLUSTER"
+  Name
+    BareWord "main"
+
+> ON CLUSTER {{ cluster }}
+OnCluster
+  Keyword "ON"
+  Keyword "CLUSTER"
+  Name
+    JinjaExpr "{{ cluster }}"

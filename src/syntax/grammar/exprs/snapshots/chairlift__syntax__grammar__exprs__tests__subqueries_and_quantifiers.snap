@@ -1,0 +1,123 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"x IN (SELECT 1)\", \"x = ANY (SELECT 1)\", \"x = any(y)\",\n\"x = SOME([1, 2])\", \"x < ALL (SELECT y)\", \"(SELECT 1) + 1\",\n\"(WITH 1 AS y SELECT y)\", \"1 IN (FROM t)\", \"(from + 1)\",])"
+---
+> x IN (SELECT 1)
+BinaryExpr
+  Name
+    BareWord "x"
+  Keyword "IN"
+  Subquery
+    OpeningRoundBracket "("
+    Opaque
+      BareWord "SELECT"
+      Number "1"
+    ClosingRoundBracket ")"
+
+> x = ANY (SELECT 1)
+BinaryExpr
+  Name
+    BareWord "x"
+  Equals "="
+  QuantifiedExpr
+    Keyword "ANY"
+    Subquery
+      OpeningRoundBracket "("
+      Opaque
+        BareWord "SELECT"
+        Number "1"
+      ClosingRoundBracket ")"
+
+> x = any(y)
+BinaryExpr
+  Name
+    BareWord "x"
+  Equals "="
+  FunctionCall
+    Name
+      BareWord "any"
+    ArgList
+      OpeningRoundBracket "("
+      Name
+        BareWord "y"
+      ClosingRoundBracket ")"
+
+> x = SOME([1, 2])
+BinaryExpr
+  Name
+    BareWord "x"
+  Equals "="
+  QuantifiedExpr
+    Keyword "SOME"
+    ParenExpr
+      OpeningRoundBracket "("
+      ArrayExpr
+        OpeningSquareBracket "["
+        Literal
+          Number "1"
+        Comma ","
+        Literal
+          Number "2"
+        ClosingSquareBracket "]"
+      ClosingRoundBracket ")"
+
+> x < ALL (SELECT y)
+BinaryExpr
+  Name
+    BareWord "x"
+  Less "<"
+  QuantifiedExpr
+    Keyword "ALL"
+    Subquery
+      OpeningRoundBracket "("
+      Opaque
+        BareWord "SELECT"
+        BareWord "y"
+      ClosingRoundBracket ")"
+
+> (SELECT 1) + 1
+BinaryExpr
+  Subquery
+    OpeningRoundBracket "("
+    Opaque
+      BareWord "SELECT"
+      Number "1"
+    ClosingRoundBracket ")"
+  Plus "+"
+  Literal
+    Number "1"
+
+> (WITH 1 AS y SELECT y)
+Subquery
+  OpeningRoundBracket "("
+  Opaque
+    BareWord "WITH"
+    Number "1"
+    BareWord "AS"
+    BareWord "y"
+    BareWord "SELECT"
+    BareWord "y"
+  ClosingRoundBracket ")"
+
+> 1 IN (FROM t)
+BinaryExpr
+  Literal
+    Number "1"
+  Keyword "IN"
+  Subquery
+    OpeningRoundBracket "("
+    Opaque
+      BareWord "FROM"
+      BareWord "t"
+    ClosingRoundBracket ")"
+
+> (from + 1)
+ParenExpr
+  OpeningRoundBracket "("
+  BinaryExpr
+    Name
+      BareWord "from"
+    Plus "+"
+    Literal
+      Number "1"
+  ClosingRoundBracket ")"

@@ -1,0 +1,103 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"x -> x + 1\", \"(x, y) -> x + y\", \"arrayMap(x -> x * 2, arr)\",\n\"arrayFilter((x, i) -> i > 1, arr, idx)\", \"() -> 1\", \"(a + 1) -> b\",])"
+---
+> x -> x + 1
+LambdaExpr
+  Name
+    BareWord "x"
+  Arrow "->"
+  BinaryExpr
+    Name
+      BareWord "x"
+    Plus "+"
+    Literal
+      Number "1"
+
+> (x, y) -> x + y
+LambdaExpr
+  TupleExpr
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    Comma ","
+    Name
+      BareWord "y"
+    ClosingRoundBracket ")"
+  Arrow "->"
+  BinaryExpr
+    Name
+      BareWord "x"
+    Plus "+"
+    Name
+      BareWord "y"
+
+> arrayMap(x -> x * 2, arr)
+FunctionCall
+  Name
+    BareWord "arrayMap"
+  ArgList
+    OpeningRoundBracket "("
+    LambdaExpr
+      Name
+        BareWord "x"
+      Arrow "->"
+      BinaryExpr
+        Name
+          BareWord "x"
+        Asterisk "*"
+        Literal
+          Number "2"
+    Comma ","
+    Name
+      BareWord "arr"
+    ClosingRoundBracket ")"
+
+> arrayFilter((x, i) -> i > 1, arr, idx)
+FunctionCall
+  Name
+    BareWord "arrayFilter"
+  ArgList
+    OpeningRoundBracket "("
+    LambdaExpr
+      TupleExpr
+        OpeningRoundBracket "("
+        Name
+          BareWord "x"
+        Comma ","
+        Name
+          BareWord "i"
+        ClosingRoundBracket ")"
+      Arrow "->"
+      BinaryExpr
+        Name
+          BareWord "i"
+        Greater ">"
+        Literal
+          Number "1"
+    Comma ","
+    Name
+      BareWord "arr"
+    Comma ","
+    Name
+      BareWord "idx"
+    ClosingRoundBracket ")"
+
+> () -> 1
+LambdaExpr
+  TupleExpr
+    OpeningRoundBracket "("
+    ClosingRoundBracket ")"
+  Arrow "->"
+  Literal
+    Number "1"
+
+> (a + 1) -> b
+VerbatimStatement
+  OpeningRoundBracket "("
+  BareWord "a"
+  Plus "+"
+  Number "1"
+  ClosingRoundBracket ")"
+  Arrow "->"
+  BareWord "b"

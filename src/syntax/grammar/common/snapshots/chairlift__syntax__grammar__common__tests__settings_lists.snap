@@ -1,0 +1,93 @@
+---
+source: src/syntax/grammar/common/tests.rs
+expression: "trees(&[\"SETTINGS max_threads = 8, join_algorithm = 'hash'\",\n\"SETTINGS a.b = 1, c = DEFAULT, d = true, e = -1\",\n\"SETTINGS x = {'k': 1}, disk = disk(type = s3)\",], settings)"
+---
+> SETTINGS max_threads = 8, join_algorithm = 'hash'
+SettingsClause
+  Keyword "SETTINGS"
+  SettingsList
+    SettingItem
+      Name
+        BareWord "max_threads"
+      Equals "="
+      Literal
+        Number "8"
+    Comma ","
+    SettingItem
+      Name
+        BareWord "join_algorithm"
+      Equals "="
+      Literal
+        StringLiteral "'hash'"
+
+> SETTINGS a.b = 1, c = DEFAULT, d = true, e = -1
+SettingsClause
+  Keyword "SETTINGS"
+  SettingsList
+    SettingItem
+      QualifiedName
+        Name
+          BareWord "a"
+        Dot "."
+        Name
+          BareWord "b"
+      Equals "="
+      Literal
+        Number "1"
+    Comma ","
+    SettingItem
+      Name
+        BareWord "c"
+      Equals "="
+      Keyword "DEFAULT"
+    Comma ","
+    SettingItem
+      Name
+        BareWord "d"
+      Equals "="
+      Literal
+        LiteralWord "true"
+    Comma ","
+    SettingItem
+      Name
+        BareWord "e"
+      Equals "="
+      PrefixExpr
+        Minus "-"
+        Literal
+          Number "1"
+
+> SETTINGS x = {'k': 1}, disk = disk(type = s3)
+SettingsClause
+  Keyword "SETTINGS"
+  SettingsList
+    SettingItem
+      Name
+        BareWord "x"
+      Equals "="
+      MapExpr
+        OpeningCurlyBrace "{"
+        MapEntry
+          Literal
+            StringLiteral "'k'"
+          Colon ":"
+          Literal
+            Number "1"
+        ClosingCurlyBrace "}"
+    Comma ","
+    SettingItem
+      Name
+        BareWord "disk"
+      Equals "="
+      FunctionCall
+        Name
+          BareWord "disk"
+        ArgList
+          OpeningRoundBracket "("
+          BinaryExpr
+            Name
+              BareWord "type"
+            Equals "="
+            Name
+              BareWord "s3"
+          ClosingRoundBracket ")"

@@ -1,0 +1,89 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"a AND b AND c\", \"a OR b AND c OR d\", \"a AND (b OR c)\",\n\"true\\n    AND a = 1 -- trailing\\n    -- own line\\n    AND b = 2\",\n\"true\\n    {% if x -%}\\n    AND a = {{ x }}\\n    {% endif -%}\\n    AND b\",])"
+---
+> a AND b AND c
+AndExpr
+  Name
+    BareWord "a"
+  Keyword "AND"
+  Name
+    BareWord "b"
+  Keyword "AND"
+  Name
+    BareWord "c"
+
+> a OR b AND c OR d
+OrExpr
+  Name
+    BareWord "a"
+  Keyword "OR"
+  AndExpr
+    Name
+      BareWord "b"
+    Keyword "AND"
+    Name
+      BareWord "c"
+  Keyword "OR"
+  Name
+    BareWord "d"
+
+> a AND (b OR c)
+AndExpr
+  Name
+    BareWord "a"
+  Keyword "AND"
+  ParenExpr
+    OpeningRoundBracket "("
+    OrExpr
+      Name
+        BareWord "b"
+      Keyword "OR"
+      Name
+        BareWord "c"
+    ClosingRoundBracket ")"
+
+> true
+    AND a = 1 -- trailing
+    -- own line
+    AND b = 2
+AndExpr
+  Literal
+    LiteralWord "true"
+  Keyword "AND"
+  BinaryExpr
+    Name
+      BareWord "a"
+    Equals "="
+    Literal
+      Number "1"
+  LineComment "-- trailing"
+  LineComment "-- own line"
+  Keyword "AND"
+  BinaryExpr
+    Name
+      BareWord "b"
+    Equals "="
+    Literal
+      Number "2"
+
+> true
+    {% if x -%}
+    AND a = {{ x }}
+    {% endif -%}
+    AND b
+AndExpr
+  Literal
+    LiteralWord "true"
+  JinjaBlock "{% if x -%}"
+  Keyword "AND"
+  BinaryExpr
+    Name
+      BareWord "a"
+    Equals "="
+    Name
+      JinjaExpr "{{ x }}"
+  JinjaBlock "{% endif -%}"
+  Keyword "AND"
+  Name
+    BareWord "b"

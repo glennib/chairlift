@@ -1,0 +1,37 @@
+---
+source: src/syntax/tests.rs
+expression: "file_tree(\"INSERT INTO t VALUES (1, 'a'),\\n(2, 'b');\\nINSERT INTO t FORMAT CSV\\n1,2\\n\\nSELECT 1\",\nMode::Sql)"
+---
+Root@0..79
+  Statement@0..40
+    VerbatimStatement@0..39
+      BareWord@0..6 "INSERT"
+      Whitespace@6..7 " "
+      BareWord@7..11 "INTO"
+      Whitespace@11..12 " "
+      BareWord@12..13 "t"
+      Whitespace@13..14 " "
+      BareWord@14..20 "VALUES"
+      Whitespace@20..21 " "
+      InsertData@21..39 "(1, 'a'),\n(2, 'b')"
+    Semicolon@39..40 ";"
+  Whitespace@40..41 "\n"
+  Statement@41..69
+    VerbatimStatement@41..69
+      BareWord@41..47 "INSERT"
+      Whitespace@47..48 " "
+      BareWord@48..52 "INTO"
+      Whitespace@52..53 " "
+      BareWord@53..54 "t"
+      Whitespace@54..55 " "
+      BareWord@55..61 "FORMAT"
+      Whitespace@61..62 " "
+      BareWord@62..65 "CSV"
+      Whitespace@65..66 "\n"
+      InsertData@66..69 "1,2"
+  Whitespace@69..71 "\n\n"
+  Statement@71..79
+    VerbatimStatement@71..79
+      BareWord@71..77 "SELECT"
+      Whitespace@77..78 " "
+      Number@78..79 "1"

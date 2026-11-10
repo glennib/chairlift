@@ -1,0 +1,173 @@
+//! Grammar that several statements share: expression lists, `ORDER BY`
+//! items, `SETTINGS`, `ON CLUSTER`, `IF [NOT] EXISTS`.
+
+use crate::keyword::Keyword as K;
+use crate::lexer::TokenKind as T;
+use crate::syntax::SyntaxKind;
+use crate::syntax::grammar::exprs;
+use crate::syntax::grammar::exprs::AliasMode;
+use crate::syntax::grammar::fallback;
+use crate::syntax::grammar::fallback::Stop;
+use crate::syntax::grammar::names;
+use crate::syntax::parser::CompletedMarker;
+use crate::syntax::parser::Parser;
+
+/// Expressions separated by commas, each with an alias as `alias` allows and
+/// with item fallback, as an [`ExprList`](SyntaxKind::ExprList), up to
+/// `ends`, a closing bracket or the end of the statement. Fails if the list
+/// is empty.
+pub(crate) fn expr_list(
+    p: &mut Parser<'_>,
+    ends: Stop<'_>,
+    alias: AliasMode,
+) -> Option<CompletedMarker> {
+    let m = p.start();
+    let shape =
+        fallback::comma_separated(p, ends, &mut |p| exprs::expr_with_alias(p, alias).map(drop));
+    if shape.items == 0 && shape.commas == 0 {
+        m.abandon(p);
+        return p.expected("an expression");
+    }
+    Some(m.complete(p, SyntaxKind::ExprList))
+}
+
+/// `ORDER BY` items separated by commas, as an
+/// [`OrderByList`](SyntaxKind::OrderByList), up to `ends`. Fails if the list
+/// is empty.
+#[allow(dead_code, reason = "for the statement grammar that builds on it")]
+pub(crate) fn order_by_list(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<CompletedMarker> {
+    let m = p.start();
+    let shape = fallback::comma_separated(p, ends, &mut |p| order_by_item(p).map(drop));
+    if shape.items == 0 && shape.commas == 0 {
+        m.abandon(p);
+        return p.expected("an ORDER BY item");
+    }
+    Some(m.complete(p, SyntaxKind::OrderByList))
+}
+
+/// An [`OrderByItem`](SyntaxKind::OrderByItem) (`ParserOrderByElement`):
+/// an expression with an optional `AS` alias, then any of `ASC`/`DESC`,
+/// `NULLS FIRST|LAST`, `COLLATE '…'` and `WITH FILL [FROM e] [TO e] [STEP e]
+/// [STALENESS e]`, in that order.
+pub(crate) fn order_by_item(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    let m = p.start();
+    exprs::expr_with_alias(p, AliasMode::As)?;
+    if matches!(
+        p.nth_keyword(0),
+        Some(K::Asc | K::Desc | K::Ascending | K::Descending)
+    ) {
+        p.bump_keyword();
+    }
+    if p.at_kw(K::Nulls) && matches!(p.nth_keyword(1), Some(K::First | K::Last)) {
+        p.bump_keyword();
+        p.bump_keyword();
+    }
+    if p.at_kw(K::Collate) && p.nth_at(1, T::StringLiteral) {
+        p.bump_keyword();
+        exprs::literal(p)?;
+    }
+    if p.eat_kws(&[K::With, K::Fill]) {
+        for keyword in [K::From, K::To, K::Step, K::Staleness] {
+            if p.eat_kw(keyword) {
+                exprs::expr(p)?;
+            }
+        }
+    }
+    Some(m.complete(p, SyntaxKind::OrderByItem))
+}
+
+/// Whether `SETTINGS` at the current token starts a settings clause: it does
+/// only when a setting's name and `=` follow, since `settings` is also a
+/// valid name.
+#[allow(dead_code, reason = "for the statement grammar that builds on it")]
+pub(crate) fn at_settings(p: &Parser<'_>) -> bool {
+    if !p.at_kw(K::Settings) || !names::at_name(p, 1) {
+        return false;
+    }
+    let mut n = 2;
+    while p.nth_at(n, T::Dot) && names::at_name(p, n + 1) {
+        n += 2;
+    }
+    p.nth_at(n, T::Equals)
+}
+
+/// `SETTINGS a = 1, …` as a [`SettingsClause`](SyntaxKind::SettingsClause),
+/// with the list up to `ends`.
+#[allow(dead_code, reason = "for the statement grammar that builds on it")]
+pub(crate) fn settings_clause(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<CompletedMarker> {
+    let m = p.start();
+    p.expect_kw(K::Settings)?;
+    settings_list(p, ends)?;
+    Some(m.complete(p, SyntaxKind::SettingsClause))
+}
+
+/// `a = 1, b = 'x', c = DEFAULT` as a
+/// [`SettingsList`](SyntaxKind::SettingsList), up to `ends`. Values are
+/// expressions; setting names keep their case.
+pub(crate) fn settings_list(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<CompletedMarker> {
+    let m = p.start();
+    let shape = fallback::comma_separated(p, ends, &mut |p| {
+        let item = p.start();
+        names::compound_name(p)?;
+        p.expect(T::Equals)?;
+        if p.at_kw(K::Default) && (p.nth_at(1, T::Comma) || p.nth(1).is_none() || ends_at(p, 1)) {
+            p.bump_keyword();
+        } else {
+            exprs::expr(p)?;
+        }
+        item.complete(p, SyntaxKind::SettingItem);
+        Some(())
+    });
+    if shape.items == 0 && shape.commas == 0 {
+        m.abandon(p);
+        return p.expected("a setting");
+    }
+    Some(m.complete(p, SyntaxKind::SettingsList))
+}
+
+/// Whether the `n`th token closes a bracket.
+fn ends_at(p: &Parser<'_>, n: usize) -> bool {
+    p.nth(n).is_some_and(fallback::is_closer)
+}
+
+/// `ON CLUSTER name` or `ON CLUSTER 'name'`, if it follows.
+#[allow(dead_code, reason = "for the statement grammar that builds on it")]
+pub(crate) fn on_cluster(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    if !p.at_kws(&[K::On, K::Cluster]) {
+        return None;
+    }
+    let m = p.start();
+    p.bump_keyword();
+    p.bump_keyword();
+    if p.at(T::StringLiteral) {
+        exprs::literal(p)?;
+    } else {
+        names::name(p)?;
+    }
+    Some(m.complete(p, SyntaxKind::OnCluster))
+}
+
+/// `IF NOT EXISTS`, if it follows.
+#[allow(dead_code, reason = "for the statement grammar that builds on it")]
+pub(crate) fn if_not_exists(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    keywords(p, &[K::If, K::Not, K::Exists], SyntaxKind::IfNotExists)
+}
+
+/// `IF EXISTS`, if it follows.
+#[allow(dead_code, reason = "for the statement grammar that builds on it")]
+pub(crate) fn if_exists(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    keywords(p, &[K::If, K::Exists], SyntaxKind::IfExists)
+}
+
+/// `words` as a node of `kind`, if they follow.
+fn keywords(p: &mut Parser<'_>, words: &[K], kind: SyntaxKind) -> Option<CompletedMarker> {
+    if !p.at_kws(words) {
+        return None;
+    }
+    let m = p.start();
+    p.eat_kws(words);
+    Some(m.complete(p, kind))
+}
+
+#[cfg(test)]
+mod tests;

@@ -1,0 +1,125 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"(1, 2)\", \"(1)\", \"()\", \"(a,)\", \"[1, 2]\", \"[]\", \"ARRAY[1, 2]\",\n\"array[1]\", \"array(1, 2)\", \"{'a': 1, 'b': 2}\", \"tuple(1, 2)\", \"map('a', 1)\",])"
+---
+> (1, 2)
+TupleExpr
+  OpeningRoundBracket "("
+  Literal
+    Number "1"
+  Comma ","
+  Literal
+    Number "2"
+  ClosingRoundBracket ")"
+
+> (1)
+ParenExpr
+  OpeningRoundBracket "("
+  Literal
+    Number "1"
+  ClosingRoundBracket ")"
+
+> ()
+TupleExpr
+  OpeningRoundBracket "("
+  ClosingRoundBracket ")"
+
+> (a,)
+TupleExpr
+  OpeningRoundBracket "("
+  Name
+    BareWord "a"
+  Comma ","
+  ClosingRoundBracket ")"
+
+> [1, 2]
+ArrayExpr
+  OpeningSquareBracket "["
+  Literal
+    Number "1"
+  Comma ","
+  Literal
+    Number "2"
+  ClosingSquareBracket "]"
+
+> []
+ArrayExpr
+  OpeningSquareBracket "["
+  ClosingSquareBracket "]"
+
+> ARRAY[1, 2]
+ArrayExpr
+  Keyword "ARRAY"
+  OpeningSquareBracket "["
+  Literal
+    Number "1"
+  Comma ","
+  Literal
+    Number "2"
+  ClosingSquareBracket "]"
+
+> array[1]
+IndexExpr
+  Name
+    BareWord "array"
+  OpeningSquareBracket "["
+  Literal
+    Number "1"
+  ClosingSquareBracket "]"
+
+> array(1, 2)
+FunctionCall
+  Name
+    BareWord "array"
+  ArgList
+    OpeningRoundBracket "("
+    Literal
+      Number "1"
+    Comma ","
+    Literal
+      Number "2"
+    ClosingRoundBracket ")"
+
+> {'a': 1, 'b': 2}
+MapExpr
+  OpeningCurlyBrace "{"
+  MapEntry
+    Literal
+      StringLiteral "'a'"
+    Colon ":"
+    Literal
+      Number "1"
+  Comma ","
+  MapEntry
+    Literal
+      StringLiteral "'b'"
+    Colon ":"
+    Literal
+      Number "2"
+  ClosingCurlyBrace "}"
+
+> tuple(1, 2)
+FunctionCall
+  Name
+    BareWord "tuple"
+  ArgList
+    OpeningRoundBracket "("
+    Literal
+      Number "1"
+    Comma ","
+    Literal
+      Number "2"
+    ClosingRoundBracket ")"
+
+> map('a', 1)
+FunctionCall
+  Name
+    BareWord "map"
+  ArgList
+    OpeningRoundBracket "("
+    Literal
+      StringLiteral "'a'"
+    Comma ","
+    Literal
+      Number "1"
+    ClosingRoundBracket ")"

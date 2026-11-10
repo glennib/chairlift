@@ -1,0 +1,110 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"CASE WHEN a THEN b END\",\n\"CASE x WHEN 1 THEN 'a' WHEN 2 THEN 'b' ELSE 'c' END\", \"INTERVAL 1 DAY\",\n\"INTERVAL '1 day'\", \"INTERVAL '1' DAY\", \"INTERVAL 1 + 1 HOUR\",\n\"INTERVAL '1-2' YEAR TO MONTH\", \"toStartOfInterval(t, INTERVAL 1 HOUR)\",\n\"interval\", \"case\",])"
+---
+> CASE WHEN a THEN b END
+CaseExpr
+  Keyword "CASE"
+  CaseWhen
+    Keyword "WHEN"
+    Name
+      BareWord "a"
+    Keyword "THEN"
+    Name
+      BareWord "b"
+  Keyword "END"
+
+> CASE x WHEN 1 THEN 'a' WHEN 2 THEN 'b' ELSE 'c' END
+CaseExpr
+  Keyword "CASE"
+  Name
+    BareWord "x"
+  CaseWhen
+    Keyword "WHEN"
+    Literal
+      Number "1"
+    Keyword "THEN"
+    Literal
+      StringLiteral "'a'"
+  CaseWhen
+    Keyword "WHEN"
+    Literal
+      Number "2"
+    Keyword "THEN"
+    Literal
+      StringLiteral "'b'"
+  CaseElse
+    Keyword "ELSE"
+    Literal
+      StringLiteral "'c'"
+  Keyword "END"
+
+> INTERVAL 1 DAY
+IntervalExpr
+  Keyword "INTERVAL"
+  Literal
+    Number "1"
+  IntervalUnit
+    Keyword "DAY"
+
+> INTERVAL '1 day'
+IntervalExpr
+  Keyword "INTERVAL"
+  Literal
+    StringLiteral "'1 day'"
+
+> INTERVAL '1' DAY
+IntervalExpr
+  Keyword "INTERVAL"
+  Literal
+    StringLiteral "'1'"
+  IntervalUnit
+    Keyword "DAY"
+
+> INTERVAL 1 + 1 HOUR
+IntervalExpr
+  Keyword "INTERVAL"
+  BinaryExpr
+    Literal
+      Number "1"
+    Plus "+"
+    Literal
+      Number "1"
+  IntervalUnit
+    Keyword "HOUR"
+
+> INTERVAL '1-2' YEAR TO MONTH
+IntervalExpr
+  Keyword "INTERVAL"
+  Literal
+    StringLiteral "'1-2'"
+  IntervalUnit
+    Keyword "YEAR"
+  Keyword "TO"
+  IntervalUnit
+    Keyword "MONTH"
+
+> toStartOfInterval(t, INTERVAL 1 HOUR)
+FunctionCall
+  Name
+    BareWord "toStartOfInterval"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "t"
+    Comma ","
+    IntervalExpr
+      Keyword "INTERVAL"
+      Literal
+        Number "1"
+      IntervalUnit
+        Keyword "HOUR"
+    ClosingRoundBracket ")"
+
+> interval
+Name
+  BareWord "interval"
+
+> case
+Name
+  BareWord "case"

@@ -1,0 +1,38 @@
+---
+source: src/syntax/tests.rs
+expression: "file_tree(\"-- header\\n\\nDROP TABLE t; ;\\nSELECT 1 -- trailing\\n;\\nSET x = 1\",\nMode::Sql)"
+---
+Root@0..59
+  LineComment@0..9 "-- header"
+  Whitespace@9..11 "\n\n"
+  Statement@11..24
+    VerbatimStatement@11..23
+      BareWord@11..15 "DROP"
+      Whitespace@15..16 " "
+      BareWord@16..21 "TABLE"
+      Whitespace@21..22 " "
+      BareWord@22..23 "t"
+    Semicolon@23..24 ";"
+  Whitespace@24..25 " "
+  Statement@25..26
+    Semicolon@25..26 ";"
+  Whitespace@26..27 "\n"
+  Statement@27..49
+    VerbatimStatement@27..35
+      BareWord@27..33 "SELECT"
+      Whitespace@33..34 " "
+      Number@34..35 "1"
+    Whitespace@35..36 " "
+    LineComment@36..47 "-- trailing"
+    Whitespace@47..48 "\n"
+    Semicolon@48..49 ";"
+  Whitespace@49..50 "\n"
+  Statement@50..59
+    VerbatimStatement@50..59
+      BareWord@50..53 "SET"
+      Whitespace@53..54 " "
+      BareWord@54..55 "x"
+      Whitespace@55..56 " "
+      Equals@56..57 "="
+      Whitespace@57..58 " "
+      Number@58..59 "1"

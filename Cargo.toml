@@ -57,6 +57,8 @@ oracle = []
 corpus-tool = ["cli", "oracle"]
 
 [dependencies]
+# The concrete syntax tree.
+rowan = "0.17"
 thiserror = "2"
 # CLI-only dependencies (gated behind the `cli` feature).
 clap = { version = "4.6", features = ["derive"], optional = true }

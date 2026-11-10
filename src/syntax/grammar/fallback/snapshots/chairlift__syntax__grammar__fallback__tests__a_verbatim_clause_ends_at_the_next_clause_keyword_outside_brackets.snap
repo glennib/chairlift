@@ -1,0 +1,16 @@
+---
+source: src/syntax/grammar/fallback/tests.rs
+expression: "grammar(\"WHERE a b (WHERE c) HAVING d\", clauses)"
+---
+VerbatimClause
+  BareWord "WHERE"
+  BareWord "a"
+  BareWord "b"
+  OpeningRoundBracket "("
+  BareWord "WHERE"
+  BareWord "c"
+  ClosingRoundBracket ")"
+HavingClause
+  Keyword "HAVING"
+  Name
+    BareWord "d"

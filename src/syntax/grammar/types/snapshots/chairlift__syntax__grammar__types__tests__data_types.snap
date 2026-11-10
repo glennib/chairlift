@@ -1,0 +1,377 @@
+---
+source: src/syntax/grammar/types/tests.rs
+expression: "trees(&[\"UInt64\", \"Nullable(String)\", \"LowCardinality(Nullable(String))\",\n\"Array(Array(Int8))\", \"Map(String, UInt64)\", \"Tuple(a Int8, b String)\",\n\"Tuple(Int8, String)\", \"Tuple()\", \"Nested(a UInt8, b Array(String))\",\n\"Enum8('a' = 1, 'b' = -2)\", \"Enum('a', 'b')\", \"DateTime64(3, 'UTC')\",\n\"Decimal(10, 2)\", \"FixedString(16)\", \"AggregateFunction(uniq, String)\",\n\"AggregateFunction(quantiles(0.5, 0.9), UInt64)\",\n\"AggregateFunction(1, sum, UInt64)\",\n\"SimpleAggregateFunction(anyLast, String)\",\n\"JSON(max_dynamic_paths = 10, a.b UInt32, SKIP a.c, SKIP REGEXP 'x.*')\",\n\"Dynamic(max_types = 10)\", \"Object('json')\", \"DOUBLE PRECISION\",\n\"INT(11) UNSIGNED\", \"NATIONAL CHARACTER VARYING\", \"`UInt8`\",\n\"{{ column_type }}\",])"
+---
+> UInt64
+DataType
+  Name
+    BareWord "UInt64"
+
+> Nullable(String)
+DataType
+  Name
+    BareWord "Nullable"
+  TypeArgList
+    OpeningRoundBracket "("
+    DataType
+      Name
+        BareWord "String"
+    ClosingRoundBracket ")"
+
+> LowCardinality(Nullable(String))
+DataType
+  Name
+    BareWord "LowCardinality"
+  TypeArgList
+    OpeningRoundBracket "("
+    DataType
+      Name
+        BareWord "Nullable"
+      TypeArgList
+        OpeningRoundBracket "("
+        DataType
+          Name
+            BareWord "String"
+        ClosingRoundBracket ")"
+    ClosingRoundBracket ")"
+
+> Array(Array(Int8))
+DataType
+  Name
+    BareWord "Array"
+  TypeArgList
+    OpeningRoundBracket "("
+    DataType
+      Name
+        BareWord "Array"
+      TypeArgList
+        OpeningRoundBracket "("
+        DataType
+          Name
+            BareWord "Int8"
+        ClosingRoundBracket ")"
+    ClosingRoundBracket ")"
+
+> Map(String, UInt64)
+DataType
+  Name
+    BareWord "Map"
+  TypeArgList
+    OpeningRoundBracket "("
+    DataType
+      Name
+        BareWord "String"
+    Comma ","
+    DataType
+      Name
+        BareWord "UInt64"
+    ClosingRoundBracket ")"
+
+> Tuple(a Int8, b String)
+DataType
+  Name
+    BareWord "Tuple"
+  TypeArgList
+    OpeningRoundBracket "("
+    NameTypePair
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int8"
+    Comma ","
+    NameTypePair
+      Name
+        BareWord "b"
+      DataType
+        Name
+          BareWord "String"
+    ClosingRoundBracket ")"
+
+> Tuple(Int8, String)
+DataType
+  Name
+    BareWord "Tuple"
+  TypeArgList
+    OpeningRoundBracket "("
+    DataType
+      Name
+        BareWord "Int8"
+    Comma ","
+    DataType
+      Name
+        BareWord "String"
+    ClosingRoundBracket ")"
+
+> Tuple()
+DataType
+  Name
+    BareWord "Tuple"
+  TypeArgList
+    OpeningRoundBracket "("
+    ClosingRoundBracket ")"
+
+> Nested(a UInt8, b Array(String))
+DataType
+  Name
+    BareWord "Nested"
+  TypeArgList
+    OpeningRoundBracket "("
+    NameTypePair
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "UInt8"
+    Comma ","
+    NameTypePair
+      Name
+        BareWord "b"
+      DataType
+        Name
+          BareWord "Array"
+        TypeArgList
+          OpeningRoundBracket "("
+          DataType
+            Name
+              BareWord "String"
+          ClosingRoundBracket ")"
+    ClosingRoundBracket ")"
+
+> Enum8('a' = 1, 'b' = -2)
+DataType
+  Name
+    BareWord "Enum8"
+  TypeArgList
+    OpeningRoundBracket "("
+    BinaryExpr
+      Literal
+        StringLiteral "'a'"
+      Equals "="
+      Literal
+        Number "1"
+    Comma ","
+    BinaryExpr
+      Literal
+        StringLiteral "'b'"
+      Equals "="
+      PrefixExpr
+        Minus "-"
+        Literal
+          Number "2"
+    ClosingRoundBracket ")"
+
+> Enum('a', 'b')
+DataType
+  Name
+    BareWord "Enum"
+  TypeArgList
+    OpeningRoundBracket "("
+    Literal
+      StringLiteral "'a'"
+    Comma ","
+    Literal
+      StringLiteral "'b'"
+    ClosingRoundBracket ")"
+
+> DateTime64(3, 'UTC')
+DataType
+  Name
+    BareWord "DateTime64"
+  TypeArgList
+    OpeningRoundBracket "("
+    Literal
+      Number "3"
+    Comma ","
+    Literal
+      StringLiteral "'UTC'"
+    ClosingRoundBracket ")"
+
+> Decimal(10, 2)
+DataType
+  Name
+    BareWord "Decimal"
+  TypeArgList
+    OpeningRoundBracket "("
+    Literal
+      Number "10"
+    Comma ","
+    Literal
+      Number "2"
+    ClosingRoundBracket ")"
+
+> FixedString(16)
+DataType
+  Name
+    BareWord "FixedString"
+  TypeArgList
+    OpeningRoundBracket "("
+    Literal
+      Number "16"
+    ClosingRoundBracket ")"
+
+> AggregateFunction(uniq, String)
+DataType
+  Name
+    BareWord "AggregateFunction"
+  TypeArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "uniq"
+    Comma ","
+    DataType
+      Name
+        BareWord "String"
+    ClosingRoundBracket ")"
+
+> AggregateFunction(quantiles(0.5, 0.9), UInt64)
+DataType
+  Name
+    BareWord "AggregateFunction"
+  TypeArgList
+    OpeningRoundBracket "("
+    FunctionCall
+      Name
+        BareWord "quantiles"
+      ArgList
+        OpeningRoundBracket "("
+        Literal
+          Number "0.5"
+        Comma ","
+        Literal
+          Number "0.9"
+        ClosingRoundBracket ")"
+    Comma ","
+    DataType
+      Name
+        BareWord "UInt64"
+    ClosingRoundBracket ")"
+
+> AggregateFunction(1, sum, UInt64)
+DataType
+  Name
+    BareWord "AggregateFunction"
+  TypeArgList
+    OpeningRoundBracket "("
+    Literal
+      Number "1"
+    Comma ","
+    Name
+      BareWord "sum"
+    Comma ","
+    DataType
+      Name
+        BareWord "UInt64"
+    ClosingRoundBracket ")"
+
+> SimpleAggregateFunction(anyLast, String)
+DataType
+  Name
+    BareWord "SimpleAggregateFunction"
+  TypeArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "anyLast"
+    Comma ","
+    DataType
+      Name
+        BareWord "String"
+    ClosingRoundBracket ")"
+
+> JSON(max_dynamic_paths = 10, a.b UInt32, SKIP a.c, SKIP REGEXP 'x.*')
+DataType
+  Name
+    BareWord "JSON"
+  TypeArgList
+    OpeningRoundBracket "("
+    BinaryExpr
+      Name
+        BareWord "max_dynamic_paths"
+      Equals "="
+      Literal
+        Number "10"
+    Comma ","
+    NameTypePair
+      QualifiedName
+        Name
+          BareWord "a"
+        Dot "."
+        Name
+          BareWord "b"
+      DataType
+        Name
+          BareWord "UInt32"
+    Comma ","
+    JsonSkip
+      Keyword "SKIP"
+      QualifiedName
+        Name
+          BareWord "a"
+        Dot "."
+        Name
+          BareWord "c"
+    Comma ","
+    JsonSkip
+      Keyword "SKIP"
+      Keyword "REGEXP"
+      Literal
+        StringLiteral "'x.*'"
+    ClosingRoundBracket ")"
+
+> Dynamic(max_types = 10)
+DataType
+  Name
+    BareWord "Dynamic"
+  TypeArgList
+    OpeningRoundBracket "("
+    BinaryExpr
+      Name
+        BareWord "max_types"
+      Equals "="
+      Literal
+        Number "10"
+    ClosingRoundBracket ")"
+
+> Object('json')
+DataType
+  Name
+    BareWord "Object"
+  TypeArgList
+    OpeningRoundBracket "("
+    Literal
+      StringLiteral "'json'"
+    ClosingRoundBracket ")"
+
+> DOUBLE PRECISION
+DataType
+  Name
+    BareWord "DOUBLE"
+    BareWord "PRECISION"
+
+> INT(11) UNSIGNED
+DataType
+  Name
+    BareWord "INT"
+  TypeArgList
+    OpeningRoundBracket "("
+    Literal
+      Number "11"
+    ClosingRoundBracket ")"
+  BareWord "UNSIGNED"
+
+> NATIONAL CHARACTER VARYING
+DataType
+  Name
+    BareWord "NATIONAL"
+    BareWord "CHARACTER"
+    BareWord "VARYING"
+
+> `UInt8`
+DataType
+  Name
+    QuotedIdentifier "`UInt8`"
+
+> {{ column_type }}
+DataType
+  Name
+    JinjaExpr "{{ column_type }}"

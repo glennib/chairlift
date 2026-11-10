@@ -1,0 +1,163 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"a[1]\", \"m['k'][2]\", \"x.1\", \"a.1.2\", \"f(x).1\", \"f(x).name\", \"t.*\",\n\"db.t.*\", \"t.COLUMNS('re')\", \"json.a.b[]\", \"(1, 2).-1\", \"t.(1 AS a)\",\n\"{f:Identifier}(x)\",])"
+---
+> a[1]
+IndexExpr
+  Name
+    BareWord "a"
+  OpeningSquareBracket "["
+  Literal
+    Number "1"
+  ClosingSquareBracket "]"
+
+> m['k'][2]
+IndexExpr
+  IndexExpr
+    Name
+      BareWord "m"
+    OpeningSquareBracket "["
+    Literal
+      StringLiteral "'k'"
+    ClosingSquareBracket "]"
+  OpeningSquareBracket "["
+  Literal
+    Number "2"
+  ClosingSquareBracket "]"
+
+> x.1
+TupleAccessExpr
+  Name
+    BareWord "x"
+  Dot "."
+  Number "1"
+
+> a.1.2
+TupleAccessExpr
+  TupleAccessExpr
+    Name
+      BareWord "a"
+    Dot "."
+    Number "1"
+  Dot "."
+  Number "2"
+
+> f(x).1
+TupleAccessExpr
+  FunctionCall
+    Name
+      BareWord "f"
+    ArgList
+      OpeningRoundBracket "("
+      Name
+        BareWord "x"
+      ClosingRoundBracket ")"
+  Dot "."
+  Number "1"
+
+> f(x).name
+TupleAccessExpr
+  FunctionCall
+    Name
+      BareWord "f"
+    ArgList
+      OpeningRoundBracket "("
+      Name
+        BareWord "x"
+      ClosingRoundBracket ")"
+  Dot "."
+  Name
+    BareWord "name"
+
+> t.*
+AsteriskExpr
+  Name
+    BareWord "t"
+  Dot "."
+  Asterisk "*"
+
+> db.t.*
+AsteriskExpr
+  QualifiedName
+    Name
+      BareWord "db"
+    Dot "."
+    Name
+      BareWord "t"
+  Dot "."
+  Asterisk "*"
+
+> t.COLUMNS('re')
+ColumnsMatcher
+  Name
+    BareWord "t"
+  Dot "."
+  Keyword "COLUMNS"
+  ArgList
+    OpeningRoundBracket "("
+    Literal
+      StringLiteral "'re'"
+    ClosingRoundBracket ")"
+
+> json.a.b[]
+IndexExpr
+  QualifiedName
+    Name
+      BareWord "json"
+    Dot "."
+    Name
+      BareWord "a"
+    Dot "."
+    Name
+      BareWord "b"
+  OpeningSquareBracket "["
+  ClosingSquareBracket "]"
+
+> (1, 2).-1
+TupleAccessExpr
+  TupleExpr
+    OpeningRoundBracket "("
+    Literal
+      Number "1"
+    Comma ","
+    Literal
+      Number "2"
+    ClosingRoundBracket ")"
+  Dot "."
+  PrefixExpr
+    Minus "-"
+    Literal
+      Number "1"
+
+> t.(1 AS a)
+TupleAccessExpr
+  Name
+    BareWord "t"
+  Dot "."
+  ParenExpr
+    OpeningRoundBracket "("
+    AliasedExpr
+      Literal
+        Number "1"
+      Alias
+        Keyword "AS"
+        Name
+          BareWord "a"
+    ClosingRoundBracket ")"
+
+> {f:Identifier}(x)
+FunctionCall
+  QueryParameter
+    OpeningCurlyBrace "{"
+    Name
+      BareWord "f"
+    Colon ":"
+    DataType
+      Name
+        BareWord "Identifier"
+    ClosingCurlyBrace "}"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    ClosingRoundBracket ")"

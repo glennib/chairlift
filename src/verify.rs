@@ -108,6 +108,13 @@ impl Facts {
     pub fn keep_verbatim(&mut self, first: usize, last: usize) {
         self.verbatim.push((first.min(last), first.max(last)));
     }
+
+    /// The regions recorded with [`keep_verbatim`](Self::keep_verbatim), as
+    /// first and last token.
+    #[must_use]
+    pub fn verbatim_regions(&self) -> &[(usize, usize)] {
+        &self.verbatim
+    }
 }
 
 /// The output differs from the input in more than layout: a bug in the

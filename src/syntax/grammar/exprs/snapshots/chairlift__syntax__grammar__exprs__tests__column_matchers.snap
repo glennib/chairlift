@@ -1,0 +1,131 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"*\", \"* EXCEPT (a, b)\", \"* EXCEPT a\", \"* EXCEPT STRICT a\",\n\"* REPLACE (a + 1 AS a)\", \"* APPLY toString\", \"* APPLY(x -> x + 1)\",\n\"* LIKE 'a%'\", \"COLUMNS('a.*')\", \"COLUMNS(a, b) APPLY sum\",\n\"t.* EXCEPT (a)\",])"
+---
+> *
+AsteriskExpr
+  Asterisk "*"
+
+> * EXCEPT (a, b)
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "EXCEPT"
+    TupleExpr
+      OpeningRoundBracket "("
+      Name
+        BareWord "a"
+      Comma ","
+      Name
+        BareWord "b"
+      ClosingRoundBracket ")"
+
+> * EXCEPT a
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "EXCEPT"
+    Name
+      BareWord "a"
+
+> * EXCEPT STRICT a
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "EXCEPT"
+    Keyword "STRICT"
+    Name
+      BareWord "a"
+
+> * REPLACE (a + 1 AS a)
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "REPLACE"
+    ParenExpr
+      OpeningRoundBracket "("
+      AliasedExpr
+        BinaryExpr
+          Name
+            BareWord "a"
+          Plus "+"
+          Literal
+            Number "1"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "a"
+      ClosingRoundBracket ")"
+
+> * APPLY toString
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "APPLY"
+    Name
+      BareWord "toString"
+
+> * APPLY(x -> x + 1)
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "APPLY"
+    ParenExpr
+      OpeningRoundBracket "("
+      LambdaExpr
+        Name
+          BareWord "x"
+        Arrow "->"
+        BinaryExpr
+          Name
+            BareWord "x"
+          Plus "+"
+          Literal
+            Number "1"
+      ClosingRoundBracket ")"
+
+> * LIKE 'a%'
+AsteriskExpr
+  Asterisk "*"
+  Keyword "LIKE"
+  Literal
+    StringLiteral "'a%'"
+
+> COLUMNS('a.*')
+ColumnsMatcher
+  Keyword "COLUMNS"
+  ArgList
+    OpeningRoundBracket "("
+    Literal
+      StringLiteral "'a.*'"
+    ClosingRoundBracket ")"
+
+> COLUMNS(a, b) APPLY sum
+ColumnsMatcher
+  Keyword "COLUMNS"
+  ArgList
+    OpeningRoundBracket "("
+    Name
+      BareWord "a"
+    Comma ","
+    Name
+      BareWord "b"
+    ClosingRoundBracket ")"
+  ColumnTransformer
+    Keyword "APPLY"
+    Name
+      BareWord "sum"
+
+> t.* EXCEPT (a)
+AsteriskExpr
+  Name
+    BareWord "t"
+  Dot "."
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "EXCEPT"
+    ParenExpr
+      OpeningRoundBracket "("
+      Name
+        BareWord "a"
+      ClosingRoundBracket ")"
