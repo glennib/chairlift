@@ -11,7 +11,7 @@ AsteriskExpr
   Asterisk "*"
   ColumnTransformer
     Keyword "EXCEPT"
-    TupleExpr
+    ColumnList
       OpeningRoundBracket "("
       Name
         BareWord "a"
@@ -42,7 +42,7 @@ AsteriskExpr
   Asterisk "*"
   ColumnTransformer
     Keyword "REPLACE"
-    ParenExpr
+    ColumnList
       OpeningRoundBracket "("
       AliasedExpr
         BinaryExpr
@@ -70,19 +70,18 @@ AsteriskExpr
   Asterisk "*"
   ColumnTransformer
     Keyword "APPLY"
-    ParenExpr
-      OpeningRoundBracket "("
-      LambdaExpr
+    OpeningRoundBracket "("
+    LambdaExpr
+      Name
+        BareWord "x"
+      Arrow "->"
+      BinaryExpr
         Name
           BareWord "x"
-        Arrow "->"
-        BinaryExpr
-          Name
-            BareWord "x"
-          Plus "+"
-          Literal
-            Number "1"
-      ClosingRoundBracket ")"
+        Plus "+"
+        Literal
+          Number "1"
+    ClosingRoundBracket ")"
 
 > * LIKE 'a%'
 AsteriskExpr
@@ -124,7 +123,7 @@ AsteriskExpr
   Asterisk "*"
   ColumnTransformer
     Keyword "EXCEPT"
-    ParenExpr
+    ColumnList
       OpeningRoundBracket "("
       Name
         BareWord "a"

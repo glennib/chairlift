@@ -1275,24 +1275,112 @@ fn column_transformers(p: &mut Parser<'_>) -> Option<()> {
         let m = p.start();
         p.bump_keyword();
         match keyword {
-            Some(K::Apply) => {
-                expr(p)?;
-            }
+            Some(K::Apply) => apply_operand(p)?,
             Some(K::Except) => {
                 p.eat_kw(K::Strict);
-                prefix(p)?;
+                except_operand(p)?;
             }
             _ => {
                 p.eat_kw(K::Strict);
-                if p.at(T::OpeningRoundBracket) {
-                    paren(p)?;
-                } else {
-                    expr_with_alias(p, AliasMode::As)?;
-                }
+                replace_operand(p)?;
             }
         }
         m.complete(p, SyntaxKind::ColumnTransformer);
     }
+}
+
+/// What `APPLY` applies: a lambda, or a function's name with any
+/// parameters (`quantile(0.5)`), in brackets or not; in brackets, a
+/// `, 'prefix'` for the new columns' names may follow.
+fn apply_operand(p: &mut Parser<'_>) -> Option<()> {
+    let brackets = p.eat(T::OpeningRoundBracket);
+    if at_lambda(p) {
+        p.with_no_in(false, expr)?;
+    } else {
+        let name = names::name(p)?;
+        if p.at(T::OpeningRoundBracket) {
+            let call = name.precede(p);
+            arg_list(p)?;
+            call.complete(p, SyntaxKind::FunctionCall);
+        }
+    }
+    if brackets {
+        if p.eat(T::Comma) {
+            if !p.at(T::StringLiteral) {
+                return p.expected("a string");
+            }
+            literal(p)?;
+        }
+        p.expect(T::ClosingRoundBracket)?;
+    }
+    Some(())
+}
+
+/// Whether a lambda starts here: a name, or names in brackets, then `->`.
+fn at_lambda(p: &Parser<'_>) -> bool {
+    if names::at_name(p, 0) {
+        return p.nth_at(1, T::Arrow);
+    }
+    if !p.at(T::OpeningRoundBracket) {
+        return false;
+    }
+    let mut i = 1;
+    if !p.nth_at(i, T::ClosingRoundBracket) {
+        loop {
+            let Some(name) = names::name_tokens(p, i) else {
+                return false;
+            };
+            i += name;
+            if !p.nth_at(i, T::Comma) {
+                break;
+            }
+            i += 1;
+        }
+    }
+    p.nth_at(i, T::ClosingRoundBracket) && p.nth_at(i + 1, T::Arrow)
+}
+
+/// What `EXCEPT` removes: a name or a pattern, or several names or a
+/// pattern in a [`ColumnList`](SyntaxKind::ColumnList).
+fn except_operand(p: &mut Parser<'_>) -> Option<()> {
+    let list = p.at(T::OpeningRoundBracket).then(|| {
+        let m = p.start();
+        p.bump();
+        m
+    });
+    if p.at(T::StringLiteral) {
+        literal(p)?;
+    } else {
+        names::name(p)?;
+        while list.is_some() && p.eat(T::Comma) {
+            names::name(p)?;
+        }
+    }
+    if let Some(list) = list {
+        p.expect(T::ClosingRoundBracket)?;
+        list.complete(p, SyntaxKind::ColumnList);
+    }
+    Some(())
+}
+
+/// What `REPLACE` puts in place of columns: `expr AS name`, or several in a
+/// [`ColumnList`](SyntaxKind::ColumnList).
+fn replace_operand(p: &mut Parser<'_>) -> Option<()> {
+    if !p.at(T::OpeningRoundBracket) {
+        return expr_with_alias(p, AliasMode::As).map(drop);
+    }
+    let list = p.start();
+    p.bump();
+    p.with_no_in(false, |p| {
+        expr_with_alias(p, AliasMode::As)?;
+        while p.eat(T::Comma) {
+            expr_with_alias(p, AliasMode::As)?;
+        }
+        Some(())
+    })?;
+    p.expect(T::ClosingRoundBracket)?;
+    list.complete(p, SyntaxKind::ColumnList);
+    Some(())
 }
 
 #[cfg(test)]

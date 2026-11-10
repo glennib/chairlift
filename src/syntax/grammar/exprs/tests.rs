@@ -232,6 +232,24 @@ fn column_matchers() {
     ]));
 }
 
+/// `EXCEPT` takes names or a pattern, `APPLY` a lambda or a function's
+/// name, so words that are literals elsewhere are names here.
+#[test]
+fn column_transformer_operands() {
+    insta::assert_snapshot!(trees(&[
+        "* EXCEPT null",
+        "* EXCEPT (null, true)",
+        "* EXCEPT ('a.*')",
+        "* APPLY inf",
+        "* APPLY(nan)",
+        "* APPLY quantile(0.5)",
+        "* APPLY(x -> x + 1, 'p_')",
+        "* APPLY((x) -> x)",
+        "* REPLACE (null AS a, 2 AS b)",
+        "* REPLACE STRICT x + 1 AS x",
+    ]));
+}
+
 /// `COLUMNS(…)` is a matcher only with a string or names in its brackets;
 /// otherwise it calls a function named `columns`.
 #[test]
@@ -511,6 +529,11 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
     ("columns(a, 'b')", "columns(a, 'b')"),
     ("columns()", "columns()"),
     ("* except (a)", "* EXCEPT (a)"),
+    ("* except (null, true)", "* EXCEPT (null, true)"),
+    ("* except strict nan", "* EXCEPT STRICT nan"),
+    ("* apply false", "* APPLY false"),
+    ("* apply(Inf) apply(x -> x)", "* APPLY(Inf) APPLY(x -> x)"),
+    ("* replace (null as x)", "* REPLACE (NULL AS x)"),
     ("not(x)", "NOT(x)"),
     ("array(1, 2)", "array(1, 2)"),
     ("array[1, 2]", "ARRAY[1, 2]"),

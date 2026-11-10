@@ -135,7 +135,7 @@ SelectQuery
         Asterisk "*"
         ColumnTransformer
           Keyword "EXCEPT"
-          ParenExpr
+          ColumnList
             OpeningRoundBracket "("
             Name
               BareWord "raw"
@@ -148,7 +148,7 @@ SelectQuery
         Asterisk "*"
         ColumnTransformer
           Keyword "REPLACE"
-          ParenExpr
+          ColumnList
             OpeningRoundBracket "("
             AliasedExpr
               BinaryExpr

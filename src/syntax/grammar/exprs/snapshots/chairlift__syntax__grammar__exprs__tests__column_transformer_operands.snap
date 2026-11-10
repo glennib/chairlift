@@ -1,0 +1,148 @@
+---
+source: src/syntax/grammar/exprs/tests.rs
+expression: "trees(&[\"* EXCEPT null\", \"* EXCEPT (null, true)\", \"* EXCEPT ('a.*')\",\n\"* APPLY inf\", \"* APPLY(nan)\", \"* APPLY quantile(0.5)\",\n\"* APPLY(x -> x + 1, 'p_')\", \"* APPLY((x) -> x)\",\n\"* REPLACE (null AS a, 2 AS b)\", \"* REPLACE STRICT x + 1 AS x\",])"
+---
+> * EXCEPT null
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "EXCEPT"
+    Name
+      BareWord "null"
+
+> * EXCEPT (null, true)
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "EXCEPT"
+    ColumnList
+      OpeningRoundBracket "("
+      Name
+        BareWord "null"
+      Comma ","
+      Name
+        BareWord "true"
+      ClosingRoundBracket ")"
+
+> * EXCEPT ('a.*')
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "EXCEPT"
+    ColumnList
+      OpeningRoundBracket "("
+      Literal
+        StringLiteral "'a.*'"
+      ClosingRoundBracket ")"
+
+> * APPLY inf
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "APPLY"
+    Name
+      BareWord "inf"
+
+> * APPLY(nan)
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "APPLY"
+    OpeningRoundBracket "("
+    Name
+      BareWord "nan"
+    ClosingRoundBracket ")"
+
+> * APPLY quantile(0.5)
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "APPLY"
+    FunctionCall
+      Name
+        BareWord "quantile"
+      ArgList
+        OpeningRoundBracket "("
+        Literal
+          Number "0.5"
+        ClosingRoundBracket ")"
+
+> * APPLY(x -> x + 1, 'p_')
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "APPLY"
+    OpeningRoundBracket "("
+    LambdaExpr
+      Name
+        BareWord "x"
+      Arrow "->"
+      BinaryExpr
+        Name
+          BareWord "x"
+        Plus "+"
+        Literal
+          Number "1"
+    Comma ","
+    Literal
+      StringLiteral "'p_'"
+    ClosingRoundBracket ")"
+
+> * APPLY((x) -> x)
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "APPLY"
+    OpeningRoundBracket "("
+    LambdaExpr
+      ParenExpr
+        OpeningRoundBracket "("
+        Name
+          BareWord "x"
+        ClosingRoundBracket ")"
+      Arrow "->"
+      Name
+        BareWord "x"
+    ClosingRoundBracket ")"
+
+> * REPLACE (null AS a, 2 AS b)
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "REPLACE"
+    ColumnList
+      OpeningRoundBracket "("
+      AliasedExpr
+        Literal
+          Keyword "null"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "a"
+      Comma ","
+      AliasedExpr
+        Literal
+          Number "2"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "b"
+      ClosingRoundBracket ")"
+
+> * REPLACE STRICT x + 1 AS x
+AsteriskExpr
+  Asterisk "*"
+  ColumnTransformer
+    Keyword "REPLACE"
+    Keyword "STRICT"
+    AliasedExpr
+      BinaryExpr
+        Name
+          BareWord "x"
+        Plus "+"
+        Literal
+          Number "1"
+      Alias
+        Keyword "AS"
+        Name
+          BareWord "x"
