@@ -9,7 +9,7 @@ M9 (chum integration) is not part of this run.
 | --- | --- | --- |
 | M0. Repository scaffolding | done | CI green |
 | M1. Lossless lexer | done | reviewed; CI green |
-| M2. Verifier, splitter, safe-cleanup CLI | fixes in progress | review found a blocker, see the M2 notes |
+| M2. Verifier, splitter, safe-cleanup CLI | done | review findings fixed; oracle per-statement judgement in progress |
 | M3. Parser core | in progress | part 1 of 3: infrastructure and expressions; then `SELECT`; then `CREATE TABLE` and materialized views |
 | M4. Formatting rules and printer | not started | |
 | M5. Jinja templates | not started | |
@@ -155,8 +155,8 @@ Corpus numbers:
   hard links to a formatted file are broken by the rename-based write;
   whether cargo-dist would ship the `corpus` binary is unchecked.
 - `mise run corpus` and `mise run corpus:oracle` run the corpus tool; `--csv FILE` writes one row per file.
-- Review: acceptance numbers re-measured correctly, but **not accepted yet**.
-  Fixes are in progress for:
+- Review: acceptance numbers re-measured correctly.
+  It found the following, all since fixed except the last, which is in progress:
   - **Blocker**: `INSERT` data is not recognised when the statement starts with a `{{ }}` tag,
     or when a bare word `format` appears earlier in it.
     Cleanup then strips trailing spaces inside the data and the verifier accepts it.
@@ -166,6 +166,21 @@ Corpus numbers:
   - A read-only file is rewritten.
   - The oracle judges whole files, so one rejected statement hides the file:
     about 11,800 statements in the stateless corpus are not judged.
-- A 30-minute fuzz run after the milestone found two more bugs, also being fixed: a heredoc closed by the wrong closer
-  (from the linear closer search), and a `#` comment in a template losing the space that makes it a comment.
+- A 30-minute fuzz run after the milestone found two more bugs, both fixed:
+  `can_touch` let a token ending in `$` touch a word character, which can form a heredoc closer,
+  and a `#` comment in a template lost the space that makes it a comment.
+- After the fixes each fuzz target ran 15 minutes without a crash
+  (about 857,000 and 970,000 runs),
+  the corpus and oracle numbers are unchanged,
+  and the reviewer's whitespace-mutation harness finds no unsound acceptance on the real templates.
+- Rules that came out of the fixes, which the printer in M4 must follow:
+  - Whitespace next to a `{{ }}` tag or a raw block stays present or absent as in the input;
+    `can_touch` answers no for any pair that includes one.
+  - In a template, cleanup changes a run of whitespace only when the run is outside every rendered token
+    and its rendered left neighbour is the one it has in the template.
+  - In a template with block tags, everything from an `INSERT … FORMAT` to the end of the file is left as it is.
+  - A recorded keyword slot may only change into its canonical case,
+    and the word must be a ClickHouse keyword or a literal word
+    (`true`, `false`, `inf`, `infinity`, `nan` lower case; everything else, `NULL` included, upper).
+  - A file without write permission is an error (exit 2) and is not rewritten.
 - Known limitation, owned by M5: the verifier models only the render in which every `{% if %}` branch is taken.
