@@ -7,9 +7,9 @@ M9 (chum integration) is not part of this run.
 
 | Milestone | State | Notes |
 | --- | --- | --- |
-| M0. Repository scaffolding | done | first CI run pending |
-| M1. Lossless lexer | in progress | |
-| M2. Verifier, splitter, safe-cleanup CLI | not started | |
+| M0. Repository scaffolding | done | CI green |
+| M1. Lossless lexer | implemented | independent review running |
+| M2. Verifier, splitter, safe-cleanup CLI | in progress | |
 | M3. Parser core | not started | planned in three parts: infrastructure and expressions, `SELECT`, `CREATE TABLE` and materialized views |
 | M4. Formatting rules and printer | not started | |
 | M5. Jinja templates | not started | |
@@ -59,7 +59,18 @@ Those assumptions are used unless the project owner decides otherwise:
 
 ## Deviations from the plan
 
-None yet.
+- **Lexer rules (M1)**: where the plan's summary of ClickHouse's lexer differs from ClickHouse's source,
+  the source is followed.
+  The lexer's token stream is compared with ClickHouse's own lexer, compiled from the fetched source, in the tests.
+  - A `.` not followed by a digit is a `Dot`; at offset 0 of the input a `.` always starts a number.
+  - `1e` at the end of input is a bare word; `1e+` is the number `1e` and a `Plus`.
+  - `$` is a bare word only when a word character follows, otherwise a `DollarSign`.
+  - A hex or binary string with a wrong character is an error token that runs to the end of input.
+  - ASCII and Unicode whitespace are one `Whitespace` token; ClickHouse emits them separately.
+- **Jinja mode (M2)**: dbt models are templates in files named `.sql`, so the extension alone cannot decide.
+  The CLI takes `--jinja auto|on|off`, with `auto` deciding by extension.
+- **Lexer throughput (M1)** is measured per file, not over one concatenated input: concatenated,
+  an unclosed string in one file swallows every file after it.
 
 ## Milestone notes
 
@@ -77,3 +88,24 @@ Filled in as milestones complete: what was built, measured acceptance numbers, k
   `release-plz.yml` exists but runs only on manual dispatch.
 - `CHAIRLIFT_LOCAL_CORPORA` (`:`-separated directories) is documented for the local-only corpora;
   the corpus tool that reads it comes in M2.
+- CI: the first run on `main` passed, including the corpus job that fetches and caches the stateless corpus.
+
+### M1
+
+Acceptance, as measured by the implementer (the independent review re-runs these):
+
+| Criterion | Result |
+| --- | --- |
+| Round trip on every corpus file | holds in both modes: 14 fixtures, 12,866 stateless (9 non-UTF-8 skipped), 38 dbt, 9 local |
+| Edge-case table of at least 60 | 147 cases (99 SQL, 48 Jinja) |
+| Token kinds agree with ClickHouse | identical streams to ClickHouse's compiled lexer on the edge cases and on 12,978 corpus files |
+| Throughput of at least 200 MB/s | about 255 MB/s for `tokenize`, 274 MB/s streaming |
+| Fuzzing for 10 minutes | 601 s, 1.94 million runs, no crash |
+| minijinja differential | about 3,930 tags, no disagreement, nothing allowlisted |
+
+- The keyword list has 514 words from 666 phrases, as the plan expects.
+  `mise run keywords:check` verifies the checked-in list against the fetched source.
+- `mise run test:corpus` runs the corpus tests;
+  the CI corpus job runs it with `CHAIRLIFT_REQUIRE_CORPUS` so that a missing corpus fails.
+- Compiling ClickHouse's standalone lexer for the comparison needs clang.
+- The private migrations corpus has 4 files and no template, not the 6 the plan lists.
