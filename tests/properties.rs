@@ -7,6 +7,7 @@ use chairlift::lexer::TokenKind;
 use chairlift::lexer::can_touch;
 use chairlift::lexer::jinja;
 use chairlift::lexer::tokenize;
+use chairlift::split::split;
 use proptest::prelude::*;
 
 /// Pieces of SQL and Jinja syntax whose rules depend on what is next to them.
@@ -28,6 +29,24 @@ fn fragments() -> impl Strategy<Value = String> {
 
 fn inputs() -> impl Strategy<Value = String> {
     prop_oneof![fragments(), "[ -~\n\t]{0,64}", any::<String>(),]
+}
+
+/// Pieces of statements, for the splitter and the formatter: `INSERT` heads
+/// and their data, among the lexer's fragments.
+#[rustfmt::skip]
+const STATEMENT_FRAGMENTS: &[&str] = &[
+    "INSERT INTO t ", "insert into ", "VALUES ", "FORMAT ", "CSV", "Values", " (a, b) ", "SELECT ",
+    "input('a Int8')", "FROM ", "INFILE 'f' ", "WITH ", "EXPLAIN ", "FUNCTION f(1) ", "(1)", "(2, 'x')",
+    ", ", ";", "; ", "\n", "\n\n", "\n\n\n", "  \n", "\t\n", "\r\n", "\r\n\r\n", " ", "\\N", "-- c",
+    "-- c  ", "# ", "/* c\n */", "'a\nb'", "SETTINGS x = 1 ", "=", "\u{feff}", "\u{a0}",
+];
+
+fn statement_inputs() -> impl Strategy<Value = String> {
+    let piece = prop_oneof![
+        3 => prop::sample::select(STATEMENT_FRAGMENTS),
+        1 => prop::sample::select(FRAGMENTS),
+    ];
+    prop::collection::vec(piece, 0..40).prop_map(|v| v.concat())
 }
 
 fn modes() -> impl Strategy<Value = Mode> {
@@ -176,5 +195,37 @@ proptest! {
     #[test]
     fn jinja_mode_without_tags_is_sql(source in inputs().prop_map(|s| s.replace('{', "("))) {
         prop_assert_eq!(tokenize(&source, Mode::Jinja), tokenize(&source, Mode::Sql));
+    }
+
+    /// The splitter's tokens keep the lexer's guarantees, and its statements
+    /// are ordered runs of tokens with only trivia between them.
+    #[test]
+    fn statements_partition_the_tokens(
+        source in prop_oneof![statement_inputs(), inputs()],
+        mode in modes(),
+    ) {
+        let split = split(&source, mode);
+        let tokens = split.tokens();
+        check_lossless(&source, tokens)?;
+        for pair in tokens.windows(2) {
+            prop_assert!(
+                !(pair[0].kind() == TokenKind::Whitespace && pair[1].kind() == TokenKind::Whitespace),
+                "adjacent whitespace {:?}", pair
+            );
+        }
+        let mut after = 0;
+        for statement in split.statements() {
+            let range = statement.tokens.clone();
+            prop_assert!(range.start >= after && range.start < range.end);
+            prop_assert!(tokens[after..range.start].iter().all(|t| t.kind().is_trivia()));
+            prop_assert!(tokens[range.start].kind().is_significant());
+            prop_assert!(tokens[range.end - 1].kind().is_significant());
+            if let Some(data) = statement.data {
+                prop_assert!(range.contains(&data.token));
+                prop_assert_eq!(tokens[data.token].kind(), TokenKind::InsertData);
+            }
+            after = range.end;
+        }
+        prop_assert!(tokens[after..].iter().all(|t| t.kind().is_trivia()));
     }
 }

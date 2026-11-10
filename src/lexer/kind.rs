@@ -13,7 +13,9 @@
 /// ClickHouse's lexer never produces for input without a size limit.
 ///
 /// The `Jinja*` kinds, [`Verbatim`](Self::Verbatim) and the `ErrorJinja*`
-/// kinds only occur in [Jinja mode](super::Mode::Jinja).
+/// kinds only occur in [Jinja mode](super::Mode::Jinja), and
+/// [`InsertData`](Self::InsertData) only in the
+/// [statement splitter](crate::split)'s tokens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum TokenKind {
@@ -150,6 +152,14 @@ pub enum TokenKind {
     /// `{% raw %}…{% endraw %}`: text the template renders as written, which
     /// is never looked inside and stands as an opaque atom.
     Verbatim,
+
+    /// The inline data of an `INSERT`, which ClickHouse reads as text rather
+    /// than lexing it: the rows after `VALUES`, or everything after
+    /// `FORMAT name` up to the first blank line.
+    ///
+    /// The lexer never produces it; the [statement splitter](crate::split)
+    /// does, in place of whatever the lexer would make of the data.
+    InsertData,
 
     /// An unrecognised character, with its UTF-8 continuation bytes: `#` not
     /// followed by a space or `!`, `\` not followed by `G`, or a non-ASCII
@@ -309,6 +319,7 @@ impl TokenKind {
             | Self::JinjaBlock
             | Self::JinjaComment
             | Self::Verbatim
+            | Self::InsertData
             | Self::ErrorJinjaTagIsNotClosed
             | Self::ErrorJinjaRawIsNotClosed => return None,
         })

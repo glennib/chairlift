@@ -8,6 +8,7 @@
 
 pub mod keyword;
 pub mod lexer;
+pub mod split;
 
 /// The ClickHouse release whose grammar chairlift targets.
 ///

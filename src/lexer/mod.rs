@@ -166,6 +166,50 @@ impl Token {
     pub fn text(self, source: &str) -> &str {
         &source[self.range()]
     }
+
+    /// A token of a kind the lexer does not classify further, such as
+    /// [`InsertData`](TokenKind::InsertData) or a piece of a whitespace run.
+    ///
+    /// `range` must lie within an input of under 4 GiB, as every token's does.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "token ranges lie within inputs `Lexer::new` accepted"
+    )]
+    pub(crate) fn synthetic(kind: TokenKind, range: Range<usize>) -> Token {
+        debug_assert!(range.start < range.end && u32::try_from(range.end).is_ok());
+        Token {
+            start: range.start as u32,
+            end: range.end as u32,
+            kind,
+            keyword: None,
+        }
+    }
+
+    /// The token moved `by` bytes later, for tokens lexed from a suffix of a
+    /// text.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the suffix and its offset lie within an input `Lexer::new` accepted"
+    )]
+    pub(crate) fn shifted(self, by: usize) -> Token {
+        Token {
+            start: self.start + by as u32,
+            end: self.end + by as u32,
+            ..self
+        }
+    }
+
+    /// The token extended to end at `end`, for merging adjacent whitespace.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "token ranges lie within inputs `Lexer::new` accepted"
+    )]
+    pub(crate) fn extended_to(self, end: usize) -> Token {
+        Token {
+            end: end as u32,
+            ..self
+        }
+    }
 }
 
 impl fmt::Debug for Token {

@@ -17,6 +17,8 @@ use chairlift::lexer::Token;
 use chairlift::lexer::jinja;
 use chairlift::lexer::jinja::TagKind;
 use chairlift::lexer::tokenize;
+use chairlift::split::DataFormat;
+use chairlift::split::split;
 
 struct Corpus {
     name: String,
@@ -159,6 +161,39 @@ fn every_corpus_file_round_trips() {
         eprintln!(
             "{}: {files} files ({templates} templates, {bytes} bytes) round-trip in both modes; \
              {not_utf8} not UTF-8; {with_errors} with error tokens in their own mode",
+            corpus.name
+        );
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The splitter's tokens cover every file, and the counts of statements and
+/// of inline data are reported per corpus.
+#[test]
+fn every_corpus_file_splits() {
+    let mut failures = Vec::new();
+    for corpus in corpora() {
+        let (mut files, mut statements, mut values, mut other) = (0, 0, 0, 0);
+        for path in &corpus.files {
+            let Some(source) = read(path) else {
+                continue;
+            };
+            let split = split(&source, corpus.mode(path));
+            if let Err(e) = check_lossless(&source, split.tokens()) {
+                failures.push(format!("{}: {e}", path.display()));
+            }
+            files += 1;
+            statements += split.statements().len();
+            for data in split.statements().iter().filter_map(|s| s.data) {
+                match data.format {
+                    DataFormat::Values => values += 1,
+                    DataFormat::Other => other += 1,
+                }
+            }
+        }
+        eprintln!(
+            "{}: {files} files, {statements} statements, {values} with VALUES data, \
+             {other} with data in another format",
             corpus.name
         );
     }
