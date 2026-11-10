@@ -25,6 +25,11 @@ name = "cli"
 path = "tests/cli.rs"
 required-features = ["cli"]
 
+[[test]]
+name = "oracle"
+path = "tests/oracle.rs"
+required-features = ["oracle"]
+
 [[bench]]
 name = "throughput"
 harness = false
@@ -34,6 +39,9 @@ default = ["cli"]
 # The `chairlift` binary. The library needs none of these; a consumer that only
 # uses the library can disable default features.
 cli = ["dep:clap", "dep:ignore", "dep:similar"]
+# `chairlift::oracle`, which runs `clickhouse-format` to check formatting kept
+# a text's meaning. No dependencies.
+oracle = []
 
 [dependencies]
 thiserror = "2"

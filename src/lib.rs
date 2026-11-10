@@ -21,6 +21,8 @@ mod error;
 pub mod keyword;
 pub mod lexer;
 mod options;
+#[cfg(feature = "oracle")]
+pub mod oracle;
 pub mod split;
 pub mod verify;
 

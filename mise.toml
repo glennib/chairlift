@@ -38,16 +38,16 @@ run = "shellcheck scripts/*.sh"
 
 [tasks.test]
 description = "Run tests"
-run = "cargo nextest run --all-targets --no-tests=pass"
+run = "cargo nextest run --all-targets --all-features --no-tests=pass"
 
 [tasks."test:corpus"]
-description = "Run the tests that read the fetched corpus, failing instead of skipping if it is missing"
+description = "Run the tests that read the fetched corpus or run clickhouse-format, failing instead of skipping if either is missing"
 env = { CHAIRLIFT_REQUIRE_CORPUS = "1" }
-run = "cargo nextest run --test corpus --test keywords --test lexer"
+run = "cargo nextest run --all-features --test corpus --test keywords --test lexer --test oracle"
 
 [tasks."test:doc"]
 description = "Run doctests (nextest does not run them)"
-run = "cargo test --doc"
+run = "cargo test --doc --all-features"
 
 [tasks.build]
 description = "Build release binary"
