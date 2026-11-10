@@ -10,7 +10,7 @@ M9 (chum integration) is not part of this run.
 | M0. Repository scaffolding | done | CI green |
 | M1. Lossless lexer | done | reviewed; CI green |
 | M2. Verifier, splitter, safe-cleanup CLI | done | review findings fixed |
-| M3. Parser core | in progress | part 1 of 3: infrastructure and expressions; then `SELECT`; then `CREATE TABLE` and materialized views |
+| M3. Parser core | in progress | part 1 (infrastructure, expressions) done and under review; part 2 (`SELECT`) and part 3 (`CREATE TABLE`, materialized views) in parallel |
 | M4. Formatting rules and printer | not started | |
 | M5. Jinja templates | not started | |
 | M6. CLI polish and performance | not started | |
@@ -60,6 +60,8 @@ Those assumptions are used unless the project owner decides otherwise:
 - Snapshot review: `insta` snapshots are committed so that every commit passes its tests.
   They are listed here per milestone until reviewed.
   - M0: the inline snapshot of `--help` in `tests/cli.rs`.
+  - M3 part 1: 24 tree-dump snapshots under `src/syntax/snapshots/`
+    and `src/syntax/grammar/{exprs,types,common,fallback}/snapshots/`.
 
 ## Deviations from the plan
 
@@ -71,6 +73,18 @@ Those assumptions are used unless the project owner decides otherwise:
   - `$` is a bare word only when a word character follows, otherwise a `DollarSign`.
   - A hex or binary string with a wrong character is an error token that runs to the end of input.
   - ASCII and Unicode whitespace are one `Whitespace` token; ClickHouse emits them separately.
+- **Expression grammar (M3)**: ClickHouse's parser is followed where the plan's summary differs.
+  - `LIKE` and `IN` share the comparison level; `BETWEEN`, then `IS NULL`, bind more loosely;
+    `||` sits between the comparisons and `+`.
+  - There are 45 restricted words for implicit aliases, not 44,
+    and `COMMENT 'x'` at the end of a statement is an exception.
+  - Only a literal left operand of `::`
+    (and the literal first argument of `CAST`)
+    is read as source text, and only whether whitespace follows each comma matters there.
+  - `inf`, `infinity` and `nan` are always literals.
+    `TRUE` and `FALSE` after `IS` are literals too, so they print lower case.
+  - `NOT` in operand position is always the operator, so `not(x)` is re-cased to `NOT(x)`.
+  - chairlift parses `a ? b : c ? d : e` and `x -> y -> z`, which ClickHouse rejects.
 - **Jinja mode (M2)**: dbt models are templates in files named `.sql`, so the extension alone cannot decide.
   The CLI takes `--jinja auto|on|off`, with `auto` deciding by extension.
 - **Lexer throughput (M1)** is measured per file, not over one concatenated input: concatenated,
@@ -193,3 +207,27 @@ Corpus numbers:
   A rejected statement costs a `clickhouse-format` process of its own.
   `clickhouse local` with a formatting function is an untried faster route.
 - Oracle blind spot: `clickhouse-format` prints the same `GRANULARITY` for a text index whatever the input says.
+
+### M3
+
+Part 1: parser infrastructure, syntax tree, expression grammar, keyword-slot recording.
+
+- Every corpus file's tree reproduces its input; verify and idempotence hold;
+  the oracle judges 270,259 stateless statements the same and none differing.
+- `format` parses every statement but still only applies M2's cleanup.
+  `--check` over the stateless corpus takes 1.1–1.2 s, against 0.8 s before parsing.
+- Expressions, measured on `SELECT <list>` statements without further clauses:
+  58,318 of 58,583 statements (99.5%) and 80,130 of 80,426 items (99.6%) parse without fallback.
+  The failures are 225 Trino typed literals
+  (`TINYINT '1'`), about 8 `{{ op }}` tags in operator position, and negative tests that ClickHouse rejects too.
+- Re-casing the recorded keyword slots changes nothing the oracle prints (`mise run corpus:recase`).
+  One file stays on the oracle allowlist for the whole-text comparison: `INSERT … VALUES (1); SELECT 1;` on one line,
+  the quirk the plan names.
+- Tree rules the printer relies on: a node never starts or ends with trivia;
+  trivia sits between siblings in the deepest node holding both neighbours,
+  so an `{% if %}` and its `{% endif %}` can sit at different depths; each run of `AND` or `OR` is one flat node;
+  nesting stops at about 200 levels and degrades to verbatim.
+- `mise run corpus` prints parse statistics per statement kind and the top fallback reasons;
+  `mise run tree -- FILE` prints a file's tree.
+- Known gaps: a `{{ config() }}` before a statement makes the statement verbatim until M5;
+  there is no typed layer over the tree.
