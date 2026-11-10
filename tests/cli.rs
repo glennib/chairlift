@@ -40,12 +40,28 @@ fn stderr(output: &Output) -> String {
 }
 
 /// A fresh directory for a test, outside any repository so that no
-/// `.gitignore` above it applies.
-fn temp_dir(test: &str) -> PathBuf {
+/// `.gitignore` above it applies; removed when dropped.
+fn temp_dir(test: &str) -> TempDir {
     let dir = std::env::temp_dir().join(format!("chairlift-cli-{}-{test}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
-    dir
+    TempDir(dir)
+}
+
+struct TempDir(PathBuf);
+
+impl std::ops::Deref for TempDir {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
 }
 
 fn write(dir: &Path, name: &str, contents: &str) -> PathBuf {
@@ -219,7 +235,7 @@ fn files_are_formatted_in_place() {
         "1 file reformatted, 1 file already formatted\n"
     );
     // No temporary file is left behind.
-    let names: Vec<_> = fs::read_dir(&dir)
+    let names: Vec<_> = fs::read_dir(&*dir)
         .unwrap()
         .map(|e| e.unwrap().file_name())
         .collect();
@@ -259,7 +275,7 @@ fn a_read_only_file_is_an_error() {
     let dir = temp_dir("read-only");
     let file = write(&dir, "ro.sql", MESSY);
     fs::set_permissions(&file, fs::Permissions::from_mode(0o444)).unwrap();
-    let output = run(&["ro.sql"], None, Some(&dir));
+    let output = run(&["ro.sql"], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
     assert!(
         stderr(&output).starts_with("error: ro.sql: cannot be written: "),
@@ -270,7 +286,7 @@ fn a_read_only_file_is_an_error() {
     let mode = fs::metadata(&file).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o444);
     // `--check` only reads.
-    let output = run(&["--check", "ro.sql"], None, Some(&dir));
+    let output = run(&["--check", "ro.sql"], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
 }
 
@@ -279,7 +295,7 @@ fn check_lists_files_and_writes_nothing() {
     let dir = temp_dir("check");
     let messy = write(&dir, "a/messy.sql", MESSY);
     write(&dir, "a/clean.sql", CLEAN);
-    let output = run(&["--check", "a"], None, Some(&dir));
+    let output = run(&["--check", "a"], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         stdout(&output),
@@ -295,7 +311,7 @@ fn check_lists_files_and_writes_nothing() {
     assert_eq!(read(&messy), MESSY);
 
     fs::write(&messy, CLEAN).unwrap();
-    let output = run(&["--check", "a"], None, Some(&dir));
+    let output = run(&["--check", "a"], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(stdout(&output), "");
 }
@@ -304,7 +320,7 @@ fn check_lists_files_and_writes_nothing() {
 fn diff_prints_changes_and_writes_nothing() {
     let dir = temp_dir("diff");
     let messy = write(&dir, "q.sql", "SELECT 1;\n\n\n\nSELECT 2; \n");
-    let output = run(&["--diff", "q.sql"], None, Some(&dir));
+    let output = run(&["--diff", "q.sql"], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         stdout(&output),
@@ -312,7 +328,7 @@ fn diff_prints_changes_and_writes_nothing() {
     );
     assert_eq!(read(&messy), "SELECT 1;\n\n\n\nSELECT 2; \n");
     // `--check` with `--diff` diffs.
-    let output = run(&["--check", "--diff", "q.sql"], None, Some(&dir));
+    let output = run(&["--check", "--diff", "q.sql"], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(1));
     assert!(stdout(&output).starts_with("--- a/q.sql\n"));
 }
@@ -335,7 +351,7 @@ fn directories_are_searched_for_sql_files() {
         write(&dir, name, "SELECT 1; ");
     }
     write(&dir, ".gitignore", "ignored.sql\nskipped/\n");
-    let output = run(&["--check", "."], None, Some(&dir));
+    let output = run(&["--check", "."], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(1));
     let listed: Vec<String> = stdout(&output)
         .lines()
@@ -360,7 +376,7 @@ fn directories_are_searched_for_sql_files() {
     let output = run(
         &["--check", "notes.txt", "ignored.sql", "notes.txt"],
         None,
-        Some(&dir),
+        Some(&*dir),
     );
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
@@ -380,14 +396,18 @@ fn jinja_mode_by_name() {
     let output = run(
         &["--check", "t.sql.j2", "u.j2.sql", "W.SQL.J2"],
         None,
-        Some(&dir),
+        Some(&*dir),
     );
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
-    let output = run(&["--check", "v.sql"], None, Some(&dir));
+    let output = run(&["--check", "v.sql"], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(2));
-    let output = run(&["--check", "--jinja", "on", "v.sql"], None, Some(&dir));
+    let output = run(&["--check", "--jinja", "on", "v.sql"], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(0));
-    let output = run(&["--check", "--jinja", "off", "t.sql.j2"], None, Some(&dir));
+    let output = run(
+        &["--check", "--jinja", "off", "t.sql.j2"],
+        None,
+        Some(&*dir),
+    );
     assert_eq!(output.status.code(), Some(2));
 }
 
@@ -398,7 +418,7 @@ fn errors_leave_files_alone_and_exit_with_2() {
     let latin1 = dir.join("latin1.sql");
     fs::write(&latin1, b"SELECT 'caf\xe9';  \n").unwrap();
     let messy = write(&dir, "messy.sql", MESSY);
-    let output = run(&["."], None, Some(&dir));
+    let output = run(&["."], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(read(&broken), "SELECT 1;  \nSELECT 'x");
     assert_eq!(fs::read(&latin1).unwrap(), b"SELECT 'caf\xe9';  \n");
@@ -414,7 +434,7 @@ fn errors_leave_files_alone_and_exit_with_2() {
     // An error wins over differences found by `--check`.
     fs::write(&messy, MESSY).unwrap();
     assert_eq!(
-        run(&["--check", "."], None, Some(&dir)).status.code(),
+        run(&["--check", "."], None, Some(&*dir)).status.code(),
         Some(2)
     );
 }
@@ -422,7 +442,7 @@ fn errors_leave_files_alone_and_exit_with_2() {
 #[test]
 fn a_missing_path_is_an_error() {
     let dir = temp_dir("missing");
-    let output = run(&["nope.sql"], None, Some(&dir));
+    let output = run(&["nope.sql"], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(2));
     assert!(
         stderr(&output).starts_with("error: nope.sql: cannot be read: "),

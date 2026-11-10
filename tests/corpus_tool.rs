@@ -15,11 +15,28 @@ fn corpus(args: &[&str]) -> Output {
         .expect("the corpus tool runs")
 }
 
-fn temp_dir(test: &str) -> PathBuf {
+/// A fresh directory for a test; removed when dropped.
+fn temp_dir(test: &str) -> TempDir {
     let dir = std::env::temp_dir().join(format!("chairlift-corpus-{}-{test}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
-    dir
+    TempDir(dir)
+}
+
+struct TempDir(PathBuf);
+
+impl std::ops::Deref for TempDir {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
 }
 
 fn oracle_available() -> bool {
@@ -51,7 +68,8 @@ fn field<'a>(row: &'a [(String, String)], name: &str) -> &'a str {
 #[test]
 fn fixtures_verify_and_keep_their_meaning() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let csv = temp_dir("fixtures").join("out.csv");
+    let dir = temp_dir("fixtures");
+    let csv = dir.join("out.csv");
     let corpus_arg = format!("fixtures={}", fixtures.display());
     let mut args = vec!["--corpus", &corpus_arg, "--csv", csv.to_str().unwrap()];
     let oracle = oracle_available();
