@@ -1,6 +1,6 @@
 ---
 source: src/syntax/grammar/exprs/tests.rs
-expression: "trees(&[\"(1, 2)\", \"(1)\", \"()\", \"(a,)\", \"[1, 2]\", \"[]\", \"ARRAY[1, 2]\",\n\"array[1]\", \"array(1, 2)\", \"{'a': 1, 'b': 2}\", \"tuple(1, 2)\", \"map('a', 1)\",])"
+expression: "trees(&[\"(1, 2)\", \"(1)\", \"()\", \"(a,)\", \"[1, 2]\", \"[]\", \"ARRAY[1, 2]\",\n\"array[1]\", \"array(1, 2)\", \"tuple(1, 2)\", \"map('a', 1)\",])"
 ---
 > (1, 2)
 TupleExpr
@@ -79,24 +79,6 @@ FunctionCall
     Literal
       Number "2"
     ClosingRoundBracket ")"
-
-> {'a': 1, 'b': 2}
-MapExpr
-  OpeningCurlyBrace "{"
-  MapEntry
-    Literal
-      StringLiteral "'a'"
-    Colon ":"
-    Literal
-      Number "1"
-  Comma ","
-  MapEntry
-    Literal
-      StringLiteral "'b'"
-    Colon ":"
-    Literal
-      Number "2"
-  ClosingCurlyBrace "}"
 
 > tuple(1, 2)
 FunctionCall

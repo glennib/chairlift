@@ -1,6 +1,6 @@
 ---
 source: src/syntax/grammar/common/tests.rs
-expression: "trees(&[\"SETTINGS max_threads = 8, join_algorithm = 'hash'\",\n\"SETTINGS a.b = 1, c = DEFAULT, d = true, e = -1\",\n\"SETTINGS x = {'k': 1}, disk = disk(type = s3)\",], settings)"
+expression: "trees(&[\"SETTINGS max_threads = 8, join_algorithm = 'hash'\",\n\"SETTINGS a.b = 1, c = DEFAULT, d = true, e = -1\",\n\"SETTINGS x = {'k': 'v', 'l': 'w'}, y = {}, disk = disk(type = s3)\",\n\"SETTINGS x = {'k': 1}, n = {n:UInt64}\",], settings)"
 ---
 > SETTINGS max_threads = 8, join_algorithm = 'hash'
 SettingsClause
@@ -57,7 +57,7 @@ SettingsClause
         Literal
           Number "1"
 
-> SETTINGS x = {'k': 1}, disk = disk(type = s3)
+> SETTINGS x = {'k': 'v', 'l': 'w'}, y = {}, disk = disk(type = s3)
 SettingsClause
   Keyword "SETTINGS"
   SettingsList
@@ -72,7 +72,22 @@ SettingsClause
             StringLiteral "'k'"
           Colon ":"
           Literal
-            Number "1"
+            StringLiteral "'v'"
+        Comma ","
+        MapEntry
+          Literal
+            StringLiteral "'l'"
+          Colon ":"
+          Literal
+            StringLiteral "'w'"
+        ClosingCurlyBrace "}"
+    Comma ","
+    SettingItem
+      Name
+        BareWord "y"
+      Equals "="
+      MapExpr
+        OpeningCurlyBrace "{"
         ClosingCurlyBrace "}"
     Comma ","
     SettingItem
@@ -91,3 +106,30 @@ SettingsClause
             Name
               BareWord "s3"
           ClosingRoundBracket ")"
+
+> SETTINGS x = {'k': 1}, n = {n:UInt64}
+SettingsClause
+  Keyword "SETTINGS"
+  SettingsList
+    VerbatimItem
+      BareWord "x"
+      Equals "="
+      OpeningCurlyBrace "{"
+      StringLiteral "'k'"
+      Colon ":"
+      Number "1"
+      ClosingCurlyBrace "}"
+    Comma ","
+    SettingItem
+      Name
+        BareWord "n"
+      Equals "="
+      QueryParameter
+        OpeningCurlyBrace "{"
+        Name
+          BareWord "n"
+        Colon ":"
+        DataType
+          Name
+            BareWord "UInt64"
+        ClosingCurlyBrace "}"

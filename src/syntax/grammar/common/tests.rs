@@ -57,7 +57,8 @@ fn settings_lists() {
         &[
             "SETTINGS max_threads = 8, join_algorithm = 'hash'",
             "SETTINGS a.b = 1, c = DEFAULT, d = true, e = -1",
-            "SETTINGS x = {'k': 1}, disk = disk(type = s3)",
+            "SETTINGS x = {'k': 'v', 'l': 'w'}, y = {}, disk = disk(type = s3)",
+            "SETTINGS x = {'k': 1}, n = {n:UInt64}",
         ],
         settings
     ));

@@ -174,7 +174,6 @@ fn collections() {
         "ARRAY[1, 2]",
         "array[1]",
         "array(1, 2)",
-        "{'a': 1, 'b': 2}",
         "tuple(1, 2)",
         "map('a', 1)",
     ]));
@@ -320,6 +319,7 @@ fn failures_stay_inside_the_smallest_list_item() {
         "(a b, c)",
         "[1, 2 3]",
         "f(g(x y), z)",
+        "[1, {'a': 'b'}]",
         "x ->",
         "a +",
     ]));

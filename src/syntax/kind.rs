@@ -315,9 +315,11 @@ syntax_kinds! {
         TupleExpr: List,
         /// `[ a, b ]`, or `ARRAY[ a, b ]`.
         ArrayExpr: List,
-        /// `{ key: value, … }`.
+        /// `{ 'key': value, … }`: a map with string keys, as the value of a
+        /// setting (string values) or the cursor of `STREAM CURSOR`
+        /// (numbers or nested maps).
         MapExpr: List,
-        /// `key: value` in a [`MapExpr`](Self::MapExpr).
+        /// `'key': value` in a [`MapExpr`](Self::MapExpr).
         MapEntry: Node,
         /// A binary operator and its operands, for every binary operator but
         /// `AND` and `OR`; the operator may be several tokens (`NOT LIKE`,

@@ -603,7 +603,6 @@ fn atom(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         Some(T::OpeningRoundBracket) => paren(p),
         Some(T::OpeningSquareBracket) => array(p, false),
         Some(T::OpeningCurlyBrace) if names::at_query_parameter(p, 0) => name_or_call(p),
-        Some(T::OpeningCurlyBrace) => map(p),
         Some(T::Asterisk) => asterisk(p, None),
         Some(T::DoubleAt) => {
             let m = p.start();
@@ -1223,23 +1222,38 @@ fn array_constructor(p: &Parser<'_>) -> bool {
     false
 }
 
-/// `{ key: value, … }`.
-fn map(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+/// `{ 'key': value, … }`, with each value as `value` parses it. ClickHouse
+/// reads such a map as a setting's value, where the values are strings
+/// ([`string`]), and as the cursor of `STREAM CURSOR`, but nowhere in an
+/// expression.
+pub(crate) fn map_literal(
+    p: &mut Parser<'_>,
+    value: &mut dyn FnMut(&mut Parser<'_>) -> Option<()>,
+) -> Option<CompletedMarker> {
     let m = p.start();
     p.expect(T::OpeningCurlyBrace)?;
-    p.with_no_in(false, |p| {
-        fallback::comma_separated(p, &fallback::never, &mut |p| {
+    if !p.at(T::ClosingCurlyBrace) {
+        loop {
             let e = p.start();
-            expr(p)?;
+            string(p)?;
             p.expect(T::Colon)?;
-            expr(p)?;
+            value(p)?;
             e.complete(p, SyntaxKind::MapEntry);
-            Some(())
-        });
-        Some(())
-    })?;
+            if !p.eat(T::Comma) {
+                break;
+            }
+        }
+    }
     p.expect(T::ClosingCurlyBrace)?;
     Some(m.complete(p, SyntaxKind::MapExpr))
+}
+
+/// A string [`Literal`](SyntaxKind::Literal).
+pub(crate) fn string(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    if !p.at(T::StringLiteral) {
+        return p.expected("a string");
+    }
+    literal(p)
 }
 
 /// `{name:Type}`.

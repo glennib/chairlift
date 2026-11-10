@@ -1,6 +1,6 @@
 ---
 source: src/syntax/grammar/select/tests.rs
-expression: "trees(&[\"SELECT * FROM db.t AS x FINAL SAMPLE 1 / 10 OFFSET 1 / 2\",\n\"SELECT * FROM t x\", \"SELECT * FROM (SELECT 1) AS daily\",\n\"SELECT * FROM numbers(10) n\",\n\"SELECT * FROM remote('host', db.t), cluster('c', view(SELECT 1))\",\n\"SELECT * FROM view(SELECT a FROM t UNION ALL SELECT b FROM u)\",\n\"SELECT * FROM viewIfPermitted(SELECT 1 ELSE null('x UInt8'))\",\n\"SELECT * FROM file('a.csv', SETTINGS format_csv_delimiter = ';', input_format_csv_skip_first_lines = 1)\",\n\"SELECT * FROM VALUES('a UInt8', 1, 2)\", \"SELECT * FROM 'data.csv'\",\n\"SELECT * FROM t AS x (a, b)\",\n\"SELECT * FROM t STREAM BOUNDED WATERMARK FOR ts AS ts - INTERVAL 10 SECOND\",\n\"SELECT * FROM {db:Identifier}.{t:Identifier}\",\n\"SELECT * FROM {{ ref('events') }} AS e\",\n\"SELECT * FROM (a JOIN b ON a.x = b.x) AS j\",])"
+expression: "trees(&[\"SELECT * FROM db.t AS x FINAL SAMPLE 1 / 10 OFFSET 1 / 2\",\n\"SELECT * FROM t x\", \"SELECT * FROM (SELECT 1) AS daily\",\n\"SELECT * FROM numbers(10) n\",\n\"SELECT * FROM remote('host', db.t), cluster('c', view(SELECT 1))\",\n\"SELECT * FROM view(SELECT a FROM t UNION ALL SELECT b FROM u)\",\n\"SELECT * FROM viewIfPermitted(SELECT 1 ELSE null('x UInt8'))\",\n\"SELECT * FROM file('a.csv', SETTINGS format_csv_delimiter = ';', input_format_csv_skip_first_lines = 1)\",\n\"SELECT * FROM VALUES('a UInt8', 1, 2)\", \"SELECT * FROM 'data.csv'\",\n\"SELECT * FROM t AS x (a, b)\",\n\"SELECT * FROM t STREAM BOUNDED WATERMARK FOR ts AS ts - INTERVAL 10 SECOND\",\n\"SELECT * FROM t STREAM CURSOR {'0': {'block_number': 10, 'block_offset': 1}}\",\n\"SELECT * FROM {db:Identifier}.{t:Identifier}\",\n\"SELECT * FROM {{ ref('events') }} AS e\",\n\"SELECT * FROM (a JOIN b ON a.x = b.x) AS j\",])"
 ---
 > SELECT * FROM db.t AS x FINAL SAMPLE 1 / 10 OFFSET 1 / 2
 SelectQuery
@@ -369,6 +369,46 @@ SelectQuery
                 Number "10"
               IntervalUnit
                 Keyword "SECOND"
+
+> SELECT * FROM t STREAM CURSOR {'0': {'block_number': 10, 'block_offset': 1}}
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      AsteriskExpr
+        Asterisk "*"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+        StreamClause
+          Keyword "STREAM"
+          Keyword "CURSOR"
+          MapExpr
+            OpeningCurlyBrace "{"
+            MapEntry
+              Literal
+                StringLiteral "'0'"
+              Colon ":"
+              MapExpr
+                OpeningCurlyBrace "{"
+                MapEntry
+                  Literal
+                    StringLiteral "'block_number'"
+                  Colon ":"
+                  Literal
+                    Number "10"
+                Comma ","
+                MapEntry
+                  Literal
+                    StringLiteral "'block_offset'"
+                  Colon ":"
+                  Literal
+                    Number "1"
+                ClosingCurlyBrace "}"
+            ClosingCurlyBrace "}"
 
 > SELECT * FROM {db:Identifier}.{t:Identifier}
 SelectQuery

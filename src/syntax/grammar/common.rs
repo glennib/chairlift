@@ -103,7 +103,8 @@ pub(crate) fn settings_clause(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<Comp
 
 /// `a = 1, b = 'x', c = DEFAULT` as a
 /// [`SettingsList`](SyntaxKind::SettingsList), up to `ends`. Values are
-/// expressions; setting names keep their case.
+/// expressions, or maps of strings (`{'k': 'v'}`); setting names keep their
+/// case.
 pub(crate) fn settings_list(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<CompletedMarker> {
     let m = p.start();
     let shape = fallback::comma_separated(p, ends, &mut |p| {
@@ -112,6 +113,8 @@ pub(crate) fn settings_list(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<Comple
         p.expect(T::Equals)?;
         if p.at_kw(K::Default) && (p.nth_at(1, T::Comma) || p.nth(1).is_none() || ends_at(p, 1)) {
             p.bump_keyword();
+        } else if p.at(T::OpeningCurlyBrace) && !names::at_query_parameter(p, 0) {
+            exprs::map_literal(p, &mut |p| exprs::string(p).map(drop))?;
         } else {
             exprs::expr(p)?;
         }

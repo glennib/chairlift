@@ -85,6 +85,7 @@ fn tables() {
         "SELECT * FROM 'data.csv'",
         "SELECT * FROM t AS x (a, b)",
         "SELECT * FROM t STREAM BOUNDED WATERMARK FOR ts AS ts - INTERVAL 10 SECOND",
+        "SELECT * FROM t STREAM CURSOR {'0': {'block_number': 10, 'block_offset': 1}}",
         "SELECT * FROM {db:Identifier}.{t:Identifier}",
         "SELECT * FROM {{ ref('events') }} AS e",
         "SELECT * FROM (a JOIN b ON a.x = b.x) AS j",

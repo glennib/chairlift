@@ -224,7 +224,7 @@ fn stream(p: &mut Parser<'_>) -> Option<()> {
     p.eat_kw(K::Unordered);
     if p.at_kw(K::Cursor) && p.nth_at(1, T::OpeningCurlyBrace) {
         p.bump_keyword();
-        exprs::expr(p)?;
+        cursor(p)?;
     }
     if p.eat_kw(K::Watermark) {
         p.expect_kw(K::For)?;
@@ -237,6 +237,23 @@ fn stream(p: &mut Parser<'_>) -> Option<()> {
     }
     m.complete(p, SyntaxKind::StreamClause);
     Some(())
+}
+
+/// `{'0': {'block_number': 10}, …}`, where `STREAM CURSOR` resumes: string
+/// keys, and unsigned numbers or nested maps as values
+/// (`parseCursorObject`).
+fn cursor(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    p.nested(|p| {
+        exprs::map_literal(p, &mut |p| {
+            if p.at(T::OpeningCurlyBrace) {
+                cursor(p).map(drop)
+            } else if p.at(T::Number) {
+                exprs::literal(p).map(drop)
+            } else {
+                p.expected("a number")
+            }
+        })
+    })
 }
 
 /// The number of tokens of a join's keywords up to `JOIN`, if a join starts
