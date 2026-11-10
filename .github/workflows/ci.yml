@@ -95,3 +95,8 @@ jobs:
 
       - name: Check the generated keyword list
         run: mise run keywords:check
+
+      # Includes the comparison with ClickHouse's own lexer, built from the
+      # fetched source with the runner's clang.
+      - name: Run the corpus tests
+        run: mise run test:corpus

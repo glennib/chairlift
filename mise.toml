@@ -40,6 +40,11 @@ run = "shellcheck scripts/*.sh"
 description = "Run tests"
 run = "cargo nextest run --all-targets --no-tests=pass"
 
+[tasks."test:corpus"]
+description = "Run the tests that read the fetched corpus, failing instead of skipping if it is missing"
+env = { CHAIRLIFT_REQUIRE_CORPUS = "1" }
+run = "cargo nextest run --test corpus --test keywords --test lexer"
+
 [tasks."test:doc"]
 description = "Run doctests (nextest does not run them)"
 run = "cargo test --doc"

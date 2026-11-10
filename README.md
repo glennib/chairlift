@@ -53,6 +53,9 @@ Test corpora:
 - `tests/fixtures/` holds the vendored ones; its README says where each comes from.
 - `mise run corpus:fetch` clones the public ones into `$CHAIRLIFT_CORPUS_DIR`, by default `corpus/`, which git ignores.
   Point several checkouts at one directory to share a copy.
+- Tests that read a fetched corpus skip when it is absent; `mise run test:corpus` runs them and fails instead.
+  They include a comparison with ClickHouse's own lexer, compiled from the fetched source, which needs `clang++`
+  (or the compiler named in `CHAIRLIFT_CLICKHOUSE_CXX`).
 - Corpora that must stay on one machine, such as private migrations, are never fetched or vendored.
   List their directories in `CHAIRLIFT_LOCAL_CORPORA`, separated by `:`, for the corpus tooling to include;
   directories that do not exist are skipped.
