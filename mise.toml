@@ -65,6 +65,17 @@ run = "cargo build --lib --no-default-features"
 description = "Run benchmarks"
 run = "cargo bench --bench throughput"
 
+[tasks."fuzz:check"]
+description = "Check that the fuzz targets compile"
+run = "cargo check --manifest-path fuzz/Cargo.toml"
+
+[tasks."fuzz:lexer"]
+description = "Fuzz the lexer (nightly toolchain); pass libFuzzer options after --, e.g. -max_total_time=600"
+# cargo-fuzz defaults to the target it was built for, which for a prebuilt
+# binary can be musl; build for the toolchain's host instead.
+env = { RUSTUP_TOOLCHAIN = "nightly" }
+run = 'cargo fuzz run --target "$(rustc -vV | sed -n "s/^host: //p")" lexer -- -dict=fuzz/lexer.dict'
+
 [tasks."corpus:fetch"]
 description = "Fetch the ClickHouse and dbt corpora into $CHAIRLIFT_CORPUS_DIR (default corpus/)"
 run = "scripts/fetch-corpus.sh"
@@ -93,4 +104,5 @@ depends = [
   "test:doc",
   "build:debug",
   "build:lib",
+  "fuzz:check",
 ]

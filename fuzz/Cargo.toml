@@ -18,3 +18,10 @@ default-features = false
 # Targets are added with `cargo fuzz add <name>`, which appends a `[[bin]]`.
 [workspace]
 members = ["."]
+
+[[bin]]
+name = "lexer"
+path = "fuzz_targets/lexer.rs"
+test = false
+doc = false
+bench = false

@@ -46,6 +46,8 @@ The tools are pinned in `mise.toml`, including ClickHouse 26.10, whose `clickhou
 mise install          # toolchain helpers and ClickHouse
 mise run ci           # formatting, clippy, actionlint, shellcheck, tests, builds
 mise run corpus:fetch # the ClickHouse stateless tests and the dbt samples
+mise run bench        # throughput, including the stateless corpus when it is fetched
+mise run fuzz:lexer -- -max_total_time=600  # fuzz the lexer; needs the nightly toolchain
 ```
 
 Test corpora:
