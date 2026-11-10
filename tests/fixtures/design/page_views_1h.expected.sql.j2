@@ -1,0 +1,33 @@
+-- Hourly page views per site. The blank line after this header is
+-- intentional.
+
+CREATE TABLE analytics.page_views_1h
+(
+    hour DateTime('UTC') CODEC(Delta, ZSTD(1)),
+    site LowCardinality(String),
+    views UInt64,
+
+    -- A comment inside a column list must survive.
+    visitors AggregateFunction(uniq, String)
+)
+ENGINE = AggregatingMergeTree
+PARTITION BY toStartOfDay(hour)
+ORDER BY (site, hour)
+TTL hour + INTERVAL 90 DAY
+SETTINGS ttl_only_drop_parts = 1;
+
+CREATE MATERIALIZED VIEW analytics.page_views_1h_mv TO analytics.page_views_1h AS
+SELECT
+    toStartOfHour(event_time) AS hour,
+    site,
+    count() AS views,
+    uniqState(visitor_id) AS visitors
+FROM raw.events
+WHERE true
+    AND event_type = 'page_view'
+    {% if this.cutoff is defined -%}
+    AND event_time >= {{ this.cutoff | sql_datetime }}
+    {% endif -%}
+GROUP BY hour, site;
+
+GRANT SELECT ON analytics.page_views_1h TO {{ this.reader_role | sql_ident }};
