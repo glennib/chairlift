@@ -493,6 +493,18 @@ fn a_file_named_twice_is_formatted_once() {
     assert_eq!(read(&file), CLEAN);
 }
 
+/// The temporary file's name does not grow with the file's, so a file
+/// whose name is as long as the file system allows can be written.
+#[test]
+fn a_file_with_the_longest_name_is_written() {
+    let dir = temp_dir("long-name");
+    let name = format!("{}.sql", "x".repeat(251));
+    let file = write(&dir, &name, MESSY);
+    let output = run(&[&name], None, Some(&*dir));
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(read(&file), CLEAN);
+}
+
 #[test]
 fn jinja_mode_by_name() {
     let dir = temp_dir("jinja");

@@ -20,6 +20,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use chairlift::Options;
@@ -766,6 +768,9 @@ impl From<io::Error> for WriteError {
     }
 }
 
+/// Temporary files [`write_atomically`] has made.
+static TEMP_FILES: AtomicUsize = AtomicUsize::new(0);
+
 /// A file that is not found any more has changed since it was read.
 fn gone(e: io::Error) -> WriteError {
     if e.kind() == io::ErrorKind::NotFound {
@@ -794,19 +799,18 @@ fn write_atomically(path: &Path, before: &str, contents: &str) -> Result<(), Wri
     let dir = target
         .parent()
         .ok_or_else(|| io::Error::other("the file has no parent directory"))?;
-    let name = target
-        .file_name()
-        .ok_or_else(|| io::Error::other("the path has no file name"))?;
-    let mut temp_name = std::ffi::OsString::from(".");
-    temp_name.push(name);
-    temp_name.push(format!(".chairlift-{}.tmp", std::process::id()));
-    let temp = dir.join(temp_name);
+    // Unique to this call, and short whatever the file's name is.
+    let temp = dir.join(format!(
+        ".chairlift-{}-{}.tmp",
+        std::process::id(),
+        TEMP_FILES.fetch_add(1, Ordering::Relaxed)
+    ));
     let permissions = fs::metadata(&target)?.permissions();
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)?;
     let result = (|| {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp)?;
         file.write_all(contents.as_bytes())?;
         file.set_permissions(permissions)?;
         file.sync_all()?;
