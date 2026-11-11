@@ -8,6 +8,7 @@
 use super::tree::El;
 use super::tree::Node;
 use super::tree::Part;
+use super::writer::CloserLine;
 use super::writer::Sep;
 use super::writer::Writer;
 use crate::syntax::SyntaxKind;
@@ -26,25 +27,52 @@ pub(crate) fn binary(w: &mut Writer<'_>, node: &Node) {
         return;
     };
     let mut opens: Vec<_> = rest.iter().map(|_| w.b.open_group()).collect();
-    w.inline(kind, &parts[first.operand.clone()]);
-    for segment in rest {
+    let first = &parts[first.operand.clone()];
+    w.inline(kind, first);
+    let mut closer = closer_line(w, first);
+    for (k, segment) in rest.iter().enumerate() {
         let ops = &parts[segment.op.clone()];
         let operand = &parts[segment.operand.clone()];
         let indent = w.b.open_indent();
-        let sep = if hugs_after(w, ops, operand) {
-            Sep::Space
+        let trivia = ops[0].trivia.clone();
+        let mut on_closer_line = None;
+        if hugs_after(w, ops, operand) {
+            w.gap(trivia, Sep::Space, 0);
+        } else if let Some(closer) = closer.filter(|_| w.only_whitespace(&trivia)) {
+            on_closer_line = Some(w.open_after_closer(closer));
+            w.gap(trivia, Sep::Nothing, 0);
         } else {
-            Sep::Line
-        };
-        w.gap(ops[0].trivia.clone(), sep, 0);
+            w.gap(trivia, Sep::Line, 0);
+        }
         w.inline(kind, ops);
+        if let Some(open) = on_closer_line {
+            w.b.close(open);
+        }
         w.gap(operand[0].trivia.clone(), Sep::Space, 0);
         w.inline(kind, operand);
+        if k + 1 < rest.len() {
+            closer = closer_line(w, operand);
+        }
         w.b.close(indent);
         if let Some(open) = opens.pop() {
             w.b.close(open);
         }
     }
+}
+
+/// When the last line of `operand`, just added, starts with a closer with
+/// no place to break after it: a subquery's `)`, or the `)` or `END` of a
+/// list or `CASE` that breaks. The operator after it then stays on that
+/// line if it fits there with the start of its operand: `) > 0`, `)) = 0`,
+/// `) = g(`. After a closer followed by more code that can break, or one
+/// that ends a line of other code, `(a\n    || b) = c`, the operator breaks
+/// as anywhere else rather than hide in the middle of a line.
+fn closer_line(w: &Writer<'_>, operand: &[Part]) -> Option<CloserLine> {
+    let first = match &operand.first()?.el {
+        El::Node(node) => w.range(node).0,
+        El::Token { index, .. } => *index,
+    };
+    w.closer_line(first)
 }
 
 /// One operand of a binary expression and the operator before it, as
@@ -155,6 +183,7 @@ pub(crate) fn case(w: &mut Writer<'_>, node: &Node) {
     };
     let end = parts.iter().rposition(arm).map_or(parts.len(), |i| i + 1);
     let open = w.b.open_group();
+    let group = open.group();
     // `END` goes back to the indentation of the line `CASE` is on.
     let hug = w.b.open_hug();
     w.inline(kind, &parts[..first_arm]);
@@ -170,6 +199,13 @@ pub(crate) fn case(w: &mut Writer<'_>, node: &Node) {
     }
     w.b.close(hug);
     w.b.close(open);
+    if let Some(El::Token { index, .. }) = parts.get(end).map(|part| &part.el)
+        && end + 1 == parts.len()
+        && w.text(*index).eq_ignore_ascii_case("end")
+        && let Some(group) = group
+    {
+        w.closed(*index, CloserLine::IfBroken(group));
+    }
 }
 
 /// A lambda: one line if it fits, otherwise a line break after `->` and

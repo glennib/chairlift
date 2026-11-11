@@ -11,11 +11,14 @@ use super::tree::Node;
 use super::tree::Part;
 use super::tree::Tree;
 use crate::doc::Builder;
+use crate::doc::Gap;
 use crate::doc::GroupId;
+use crate::doc::Open;
 use crate::doc::TagId;
 use crate::lexer::Mode;
 use crate::lexer::Token;
 use crate::lexer::TokenKind;
+use crate::lexer::jinja;
 use crate::syntax::SyntaxKind;
 
 /// What a layout rule puts between two children, before the trivia between
@@ -49,6 +52,29 @@ pub(crate) struct Writer<'s> {
     frozen: Vec<bool>,
     /// Between statements, where blank lines are kept next to brackets too.
     pub(crate) between_statements: bool,
+    /// The places a line can break, counted as they are added.
+    breaks: u32,
+    /// The last closer added that starts a line of its own when its list or
+    /// `CASE` breaks.
+    closer: Option<Closer>,
+}
+
+/// A closer that starts a line of its own when its list or `CASE` breaks.
+#[derive(Clone, Copy)]
+struct Closer {
+    token: usize,
+    line: CloserLine,
+    /// [`Writer::breaks`] when it was added.
+    breaks: u32,
+}
+
+/// When a closer starts a line of its own.
+#[derive(Clone, Copy)]
+pub(crate) enum CloserLine {
+    /// Always, as a subquery's `)` does.
+    Always,
+    /// When the group breaks, as the `)` of a list and `END` do.
+    IfBroken(GroupId),
 }
 
 impl<'s> Writer<'s> {
@@ -62,7 +88,65 @@ impl<'s> Writer<'s> {
             started: false,
             frozen: Vec::new(),
             between_statements: false,
+            breaks: 0,
+            closer: None,
         }
+    }
+
+    // Closers.
+
+    /// Records that token `index`, just added, is a closer that starts a line
+    /// of its own as `line` says, unless what is before it can keep it off
+    /// the start of a line: frozen whitespace, or a Jinja tag it touches.
+    pub(crate) fn closed(&mut self, index: usize, line: CloserLine) {
+        let held = index.checked_sub(1).is_some_and(|i| {
+            self.frozen.get(i).copied().unwrap_or(false)
+                || (self.tokens[i].kind() != TokenKind::Whitespace
+                    && jinja::tags(self.text(i)).next().is_some())
+        });
+        self.closer = (!held).then_some(Closer {
+            token: index,
+            line,
+            breaks: self.breaks,
+        });
+    }
+
+    /// When the line being written starts with a closer at or after token
+    /// `first`, with no place to break after it.
+    pub(crate) fn closer_line(&self, first: usize) -> Option<CloserLine> {
+        self.closer
+            .filter(|c| c.token >= first && c.breaks == self.breaks)
+            .map(|c| c.line)
+    }
+
+    /// Adds the place a line can break before what follows a closer that
+    /// starts its line as `closer` says, and opens a group, which the caller
+    /// closes after what should stay on the closer's line: it stays there if
+    /// it fits with what follows it up to the next place a line can break.
+    /// Where the closer does not start its line, the line is the enclosing
+    /// group's, as anywhere else.
+    pub(crate) fn open_after_closer(&mut self, closer: CloserLine) -> Open {
+        self.breaks += 1;
+        match closer {
+            CloserLine::Always => {
+                let open = self.b.open_group();
+                self.b.line();
+                open
+            }
+            CloserLine::IfBroken(group) => {
+                self.b.if_break(group, Gap::Nothing, Gap::Line);
+                let open = self.b.open_group();
+                self.b.if_break(group, Gap::Line, Gap::Nothing);
+                open
+            }
+        }
+    }
+
+    /// Whether `trivia` holds whitespace only.
+    pub(crate) fn only_whitespace(&self, trivia: &Range<usize>) -> bool {
+        trivia
+            .clone()
+            .all(|i| self.tokens[i].kind() == TokenKind::Whitespace)
     }
 
     // The tree.
@@ -176,6 +260,7 @@ impl<'s> Writer<'s> {
 
     pub(crate) fn verbatim_range(&mut self, first: usize, last: usize) {
         self.started = true;
+        self.breaks += 1;
         self.track_tags(first, last);
         self.b.verbatim(first, last);
     }
@@ -190,14 +275,16 @@ impl<'s> Writer<'s> {
     /// Adds tokens `first` to `last` on the lines they are on in the input.
     pub(crate) fn as_written(&mut self, first: usize, last: usize) {
         self.started = true;
+        self.breaks += 1;
         self.track_tags(first, last);
         self.b.as_written(first, last);
     }
 
     // Separators and trivia.
 
-    /// Adds `sep`.
+    /// Adds `sep`, counting it if a line can break there.
     pub(crate) fn sep(&mut self, sep: Sep) {
+        self.breaks += u32::from(matches!(sep, Sep::Line | Sep::Soft | Sep::Hard));
         match sep {
             Sep::Nothing => {}
             Sep::Space => self.b.space(),
@@ -230,6 +317,8 @@ impl<'s> Writer<'s> {
             self.blank_before(next, blank);
             return false;
         }
+        // A comment or tag can end the line.
+        self.breaks += 1;
         let after_opener = trivia.start.checked_sub(1).is_some_and(|i| {
             matches!(
                 self.tokens[i].kind(),

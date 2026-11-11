@@ -4,6 +4,7 @@
 use super::tree::El;
 use super::tree::Node;
 use super::tree::Part;
+use super::writer::CloserLine;
 use super::writer::Sep;
 use super::writer::Writer;
 use crate::doc::GroupId;
@@ -137,12 +138,14 @@ pub(crate) fn bracketed_parts(w: &mut Writer<'_>, parent: SyntaxKind, parts: &[P
     w.inline(parent, &parts[..=open]);
     let inner = &parts[open + 1..close];
     let closer = &parts[close];
+    let mut group = None;
     if inner.is_empty() {
         w.gap(closer.trivia.clone(), Sep::Nothing, 0);
     } else {
         let list = split_items(inner);
         let hug = w.b.open_hug();
         let open = w.b.open_group();
+        group = open.group();
         let indent = w.b.open_indent();
         items(w, parent, &list, Sep::Soft, None);
         w.b.close(indent);
@@ -151,6 +154,9 @@ pub(crate) fn bracketed_parts(w: &mut Writer<'_>, parent: SyntaxKind, parts: &[P
         w.b.close(hug);
     }
     w.el(&closer.el);
+    if let (Some(group), El::Token { index, .. }) = (group, &closer.el) {
+        w.closed(*index, CloserLine::IfBroken(group));
+    }
     for (k, part) in parts.iter().enumerate().skip(close + 1) {
         let sep = w.join(parent, &parts[k - 1].el, &part.el);
         w.gap(part.trivia.clone(), sep, 0);
@@ -258,6 +264,7 @@ pub(crate) fn hugged(w: &mut Writer<'_>, node: &Node) {
     w.gap(last.trivia.clone(), Sep::Hard, 0);
     w.el(&last.el);
     w.b.close(hug);
+    w.closed(w.range(node).1, CloserLine::Always);
 }
 
 /// Whether `el` starts with a token of `kind`.

@@ -191,6 +191,151 @@ fn or_inside_parentheses_hangs_one_level_deeper() {
     );
 }
 
+/// After an operand whose last line starts with its closer (`)`, `END`),
+/// the operator stays on that line.
+#[test]
+fn an_operator_stays_after_a_broken_operand() {
+    assert_eq!(
+        fmt("select 1 from t where (select count() from u) > 0"),
+        "SELECT 1\nFROM t\nWHERE (\n    SELECT count()\n    FROM u\n) > 0\n"
+    );
+    assert_eq!(
+        fmt_in(
+            "select case when a = 1 then 'b' else 'c' end = 'x'",
+            false,
+            30
+        ),
+        "SELECT\n    CASE\n        WHEN a = 1 THEN 'b'\n        ELSE 'c'\n    END = 'x'\n"
+    );
+    assert_eq!(
+        fmt_in("select f(aaaaaaaa, bbbbbbbb, cccccccc) + 1", false, 30),
+        "SELECT\n    f(\n        aaaaaaaa,\n        bbbbbbbb,\n        cccccccc\n    ) + 1\n"
+    );
+    assert_eq!(
+        fmt_in("select [aaaaaaaa, bbbbbbbb, cccccccc] = x", false, 30),
+        "SELECT\n    [\n        aaaaaaaa,\n        bbbbbbbb,\n        cccccccc\n    ] = x\n"
+    );
+    // On the closer's line, more that cannot break may follow it.
+    assert_eq!(
+        fmt_in(
+            "select (f(aaaaaaaa, bbbbbbbb, cccccccc) as x) > 0",
+            false,
+            30
+        ),
+        "SELECT\n    (f(\n        aaaaaaaa,\n        bbbbbbbb,\n        cccccccc\n    ) AS x) > 0\n"
+    );
+    // After a closer followed by more that can break, or one that ends a
+    // line of other code, the operator breaks before it as anywhere else,
+    // rather than hide in the middle of a line.
+    assert_eq!(
+        fmt_in(
+            "select f(aaaaaaaa, bbbbbbbb, cccccccc) * g(1) + 1",
+            false,
+            30
+        ),
+        "SELECT\n    f(\n        aaaaaaaa,\n        bbbbbbbb,\n        cccccccc\n    ) * g(1)\n        + 1\n"
+    );
+    assert_eq!(
+        fmt_in(
+            "select ('aaaaaaaaaaaaaaaa' || 'bbbbbbbbbbbbbbbbbbbbbbbb' || 'c') = 'x'",
+            false,
+            30
+        ),
+        "SELECT\n    ('aaaaaaaaaaaaaaaa'\n        || 'bbbbbbbbbbbbbbbbbbbbbbbb'\n        || 'c')\n        = 'x'\n"
+    );
+    assert_eq!(
+        fmt_in(
+            "select aaaaaaaa + bbbbbbbb + e['cccccccc'] > 8 * f(dddd)",
+            false,
+            30
+        ),
+        "SELECT\n    aaaaaaaa + bbbbbbbb\n        + e['cccccccc']\n        > 8 * f(dddd)\n"
+    );
+    assert_eq!(
+        fmt_in(
+            "select (aaaaaaaa / bbbbbbbbbbbbbbbbbbb) / pow(cccccccccc, 2)",
+            false,
+            30
+        ),
+        "SELECT\n    (aaaaaaaa\n        / bbbbbbbbbbbbbbbbbbb)\n        / pow(cccccccccc, 2)\n"
+    );
+    // An operand too long for its line but without a place to break.
+    assert_eq!(
+        fmt_in("select aaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbb + c", false, 30),
+        "SELECT\n    aaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbb\n        + c\n"
+    );
+    // An operand that fits, with the operator breaking before it.
+    assert_eq!(
+        fmt_in(
+            "select aaaaaaaaaaaa + bbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            false,
+            30
+        ),
+        "SELECT\n    aaaaaaaaaaaa\n        + bbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
+    );
+    // A closer that touches a tag stays on the tag's line.
+    assert_eq!(
+        fmt_in("select f(aaaaaaaa, bbbbbbbb, {{ c }}) + 1", true, 30),
+        "SELECT\n    f(\n        aaaaaaaa,\n        bbbbbbbb,\n        {{ c }})\n        + 1\n"
+    );
+    // On the closer's line, the operator needs room for the start of its
+    // operand, which may break on its own.
+    assert_eq!(
+        fmt_in(
+            "select f(aaaaaaaa, bbbbbbbb, cccccccc) = g(dddddddd, eeeeeeee, ffffffff)",
+            false,
+            30
+        ),
+        "SELECT\n    f(\n        aaaaaaaa,\n        bbbbbbbb,\n        cccccccc\n    ) = g(\n        dddddddd,\n        eeeeeeee,\n        ffffffff\n    )\n"
+    );
+    assert_eq!(
+        fmt_in(
+            "select f(aaaaaaaa, bbbbbbbb, cccccccc) = 'a string too long for the line'",
+            false,
+            30
+        ),
+        "SELECT\n    f(\n        aaaaaaaa,\n        bbbbbbbb,\n        cccccccc\n    )\n        = 'a string too long for the line'\n"
+    );
+}
+
+/// The review's statements on operators after brackets, at several widths:
+/// formatting is idempotent, and no line over the width has an operator
+/// after a closer, where a line could have broken instead.
+#[test]
+fn operators_after_brackets_at_several_widths() {
+    let statements = [
+        "select a from t where (select count() from u) > 0",
+        "select someFunctionWithALongName(first_argument_column, second_argument_column, third_argument) + 1 as x from t",
+        "select some_very_long_array_column_name[1] + another_very_long_array_column_name[2] + yet_another_long_name[3] as s from t",
+        "select (aaaaaaaaaaaaaaaaaaaaaaaaaaa + bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) * (ccccccccccccccccccccccccccccccc - dddddddddddddddddddddddddd) as p from t",
+        "select f(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbbbbbbb, cccccccccccccccccccccccccccc) = g(dddddddddddddddddddddd, eeeeeeeeeeeeeeeeeeeeeeeeeeeeee) as eq from t",
+        "select aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa[1] + bbbbbbbbbbbbbbbbbbbbbbbb as x from t",
+        "select a from t where count() > 1 and (select max(x) from u where u.k = t.k and u.v > 100000) > (select min(y) from w)",
+        "select a from t where (aaaaaaaaaaaaaaaaa + bbbbbbbbbbbbbbbbbbbbbb + ccccccccccccccccccccccccccc) / 2 > ddddddddddddddddddddd",
+        "select (toUnixTimestamp(finished_at_with_a_long_name) - toUnixTimestamp(started_at_with_a_long_name)) * (weight_column_name + offset_column_name) as weighted from t",
+        "select (sumIf(duration_ms, event_type = 'inscreen') + sumIf(duration_ms, event_type = 'heartbeat_ping')) * (1 - bounce_rate_for_this_site) / 1000 as read_seconds from t",
+        "select case when a = 1 then 'one' when a = 2 then 'two' else 'many' end = 'one' as c from t",
+    ];
+    let operators = ["+", "-", "*", "/", "=", ">", "<", "!="];
+    for width in [40, 60, 80, 100] {
+        for statement in statements {
+            let out = fmt_in(statement, false, width);
+            for line in out.lines() {
+                if line.chars().count() <= usize::from(width) {
+                    continue;
+                }
+                let after_closer = operators.iter().any(|op| {
+                    line.contains(&format!(") {op} ")) || line.contains(&format!("] {op} "))
+                });
+                assert!(
+                    !after_closer,
+                    "an operator after a closer on a line over {width}:\n{line}\n--- in\n{out}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn between_never_breaks_at_its_and() {
     assert_eq!(
