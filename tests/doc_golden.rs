@@ -21,6 +21,9 @@ use chairlift::split::split;
 use chairlift::verify::Facts;
 use chairlift::verify::verify;
 
+#[path = "support/proposal.rs"]
+mod proposal;
+
 /// A layout in progress: a builder and the next token of the source.
 struct L<'s> {
     b: Builder<'s>,
@@ -487,91 +490,43 @@ fn golden(expected: &str, layout: impl Fn(&mut L<'_>)) {
 
 #[test]
 fn a_select_list_with_more_than_one_item_always_breaks() {
-    golden(
-        "
-SELECT
-    database,
-    table,
-    name,
-    reason
-FROM system.detached_parts
-",
-        |l| {
-            l.select(&["database", "table", "name", "reason"]);
-            l.clause("FROM", "system.detached_parts");
-        },
-    );
+    golden(proposal::SELECT_LIST_SPLITS, |l| {
+        l.select(&["database", "table", "name", "reason"]);
+        l.clause("FROM", "system.detached_parts");
+    });
 }
 
 #[test]
 fn a_list_that_does_not_fit_goes_one_item_per_line() {
-    golden(
-        "
-DELETE FROM raw.events
-WHERE event_type IN (
-    'page_view',
-    'article_view',
-    'video_start',
-    'video_complete',
-    'scroll_25',
-    'scroll_50',
-    'scroll_75',
-    'scroll_100',
-    'share',
-    'comment',
-    'subscribe',
-    'login'
-)
-",
-        |l| {
-            l.kw("DELETE FROM");
-            l.sp();
-            l.inline("raw.events");
-            l.clause(
-                "WHERE",
-                "event_type IN ('page_view', 'article_view', 'video_start', 'video_complete', \
+    golden(proposal::IN_LIST, |l| {
+        l.kw("DELETE FROM");
+        l.sp();
+        l.inline("raw.events");
+        l.clause(
+            "WHERE",
+            "event_type IN ('page_view', 'article_view', 'video_start', 'video_complete', \
                  'scroll_25', 'scroll_50', 'scroll_75', 'scroll_100', 'share', 'comment', \
                  'subscribe', 'login')",
-            );
-        },
-    );
+        );
+    });
 }
 
 #[test]
 fn an_array_literal_goes_one_item_per_line_too() {
-    golden(
-        "
-WITH
-    [
-        1024,
-        4096,
-        16384,
-        65536,
-        262144,
-        1048576,
-        4194304,
-        16777216,
-        67108864,
-        268435456,
-        1073741824
-    ] AS size_buckets_bytes
-SELECT arrayMap(b -> formatReadableSize(b), size_buckets_bytes) AS labels
-",
-        |l| {
-            l.group(|l| {
-                l.t("WITH");
-                l.indent(|l| {
-                    l.line();
-                    l.inline(
-                        "[1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, \
+    golden(proposal::ARRAY_LITERAL, |l| {
+        l.group(|l| {
+            l.t("WITH");
+            l.indent(|l| {
+                l.line();
+                l.inline(
+                    "[1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, \
                          67108864, 268435456, 1073741824] AS size_buckets_bytes",
-                    );
-                });
+                );
             });
-            l.hard();
-            l.select(&["arrayMap(b -> formatReadableSize(b), size_buckets_bytes) AS labels"]);
-        },
-    );
+        });
+        l.hard();
+        l.select(&["arrayMap(b -> formatReadableSize(b), size_buckets_bytes) AS labels"]);
+    });
 }
 
 /// `CREATE TABLE name (columns)` with the column list's `(` alone on its
@@ -601,632 +556,382 @@ fn create_table(l: &mut L<'_>, name: &str, columns: &[&str]) {
 
 #[test]
 fn settings_go_one_per_line_when_they_do_not_fit() {
-    golden(
-        "
-CREATE TABLE landing.events
-(
-    event_time DateTime64(3, 'UTC')
-)
-ENGINE = MergeTree
-ORDER BY event_time
-SETTINGS
-    ttl_only_drop_parts = 1,
-    merge_with_ttl_timeout = 900,
-    min_bytes_for_wide_part = 33554432,
-    index_granularity = 8192,
-    storage_policy = 'hot_cold',
-    allow_nullable_key = 1
-",
-        |l| {
-            create_table(l, "landing.events", &["event_time DateTime64(3, 'UTC')"]);
-            l.clause("ENGINE", "= MergeTree");
-            l.clause("ORDER BY", "event_time");
-            l.list_clause(
-                "SETTINGS",
-                &[
-                    "ttl_only_drop_parts = 1",
-                    "merge_with_ttl_timeout = 900",
-                    "min_bytes_for_wide_part = 33554432",
-                    "index_granularity = 8192",
-                    "storage_policy = 'hot_cold'",
-                    "allow_nullable_key = 1",
-                ],
-            );
-        },
-    );
+    golden(proposal::SETTINGS_LIST, |l| {
+        create_table(l, "landing.events", &["event_time DateTime64(3, 'UTC')"]);
+        l.clause("ENGINE", "= MergeTree");
+        l.clause("ORDER BY", "event_time");
+        l.list_clause(
+            "SETTINGS",
+            &[
+                "ttl_only_drop_parts = 1",
+                "merge_with_ttl_timeout = 900",
+                "min_bytes_for_wide_part = 33554432",
+                "index_granularity = 8192",
+                "storage_policy = 'hot_cold'",
+                "allow_nullable_key = 1",
+            ],
+        );
+    });
 }
 
 #[test]
 fn an_order_by_tuple_fits_or_hugs_one_key_per_line() {
-    golden(
-        "
-CREATE TABLE analytics.teaser_clicks
-(
-    site LowCardinality(String),
-    sero_time DateTime('UTC'),
-    product_feature LowCardinality(String),
-    content_id String
-)
-ENGINE = SummingMergeTree
-ORDER BY (site, sero_time, product_feature, content_id)
-",
-        |l| {
-            create_table(
-                l,
-                "analytics.teaser_clicks",
-                &[
-                    "site LowCardinality(String)",
-                    "sero_time DateTime('UTC')",
-                    "product_feature LowCardinality(String)",
-                    "content_id String",
-                ],
-            );
-            l.clause("ENGINE", "= SummingMergeTree");
-            l.clause("ORDER BY", "(site, sero_time, product_feature, content_id)");
-        },
-    );
-    golden(
-        "
-CREATE TABLE analytics.teaser_clicks_by_variant
-(
-    site LowCardinality(String),
-    sero_time DateTime('UTC'),
-    content_id String
-)
-ENGINE = SummingMergeTree
-ORDER BY (
-    site,
-    toStartOfHour(sero_time),
-    payload_product_feature,
-    payload_data_data_teaser_id,
-    payload_data_data_variant_id
-)
-",
-        |l| {
-            create_table(
-                l,
-                "analytics.teaser_clicks_by_variant",
-                &[
-                    "site LowCardinality(String)",
-                    "sero_time DateTime('UTC')",
-                    "content_id String",
-                ],
-            );
-            l.clause("ENGINE", "= SummingMergeTree");
-            l.clause(
-                "ORDER BY",
-                "(site, toStartOfHour(sero_time), payload_product_feature, \
+    golden(proposal::ORDER_BY_FITS, |l| {
+        create_table(
+            l,
+            "analytics.teaser_clicks",
+            &[
+                "site LowCardinality(String)",
+                "sero_time DateTime('UTC')",
+                "product_feature LowCardinality(String)",
+                "content_id String",
+            ],
+        );
+        l.clause("ENGINE", "= SummingMergeTree");
+        l.clause("ORDER BY", "(site, sero_time, product_feature, content_id)");
+    });
+    golden(proposal::ORDER_BY_BREAKS, |l| {
+        create_table(
+            l,
+            "analytics.teaser_clicks_by_variant",
+            &[
+                "site LowCardinality(String)",
+                "sero_time DateTime('UTC')",
+                "content_id String",
+            ],
+        );
+        l.clause("ENGINE", "= SummingMergeTree");
+        l.clause(
+            "ORDER BY",
+            "(site, toStartOfHour(sero_time), payload_product_feature, \
                  payload_data_data_teaser_id, payload_data_data_variant_id)",
-            );
-        },
-    );
+        );
+    });
 }
 
 // Section 2c: conditions and commas.
 
 #[test]
 fn conditions_hang_with_leading_operators() {
-    golden(
-        "
-SELECT count()
-FROM raw.events
-WHERE event_date >= today() - 7
-    AND event_type IN ('page_view', 'article_view')
-    AND site != ''
-    AND NOT is_bot
-",
-        |l| {
-            l.select(&["count()"]);
-            l.clause("FROM", "raw.events");
-            l.conditions(
-                "WHERE",
-                "event_date >= today() - 7",
-                &[
-                    "AND event_type IN ('page_view', 'article_view')",
-                    "AND site != ''",
-                    "AND NOT is_bot",
-                ],
-            );
-        },
-    );
+    golden(proposal::CONDITIONS_HANG, |l| {
+        l.select(&["count()"]);
+        l.clause("FROM", "raw.events");
+        l.conditions(
+            "WHERE",
+            "event_date >= today() - 7",
+            &[
+                "AND event_type IN ('page_view', 'article_view')",
+                "AND site != ''",
+                "AND NOT is_bot",
+            ],
+        );
+    });
 }
 
 #[test]
 fn commas_trail_and_group_by_fits() {
-    golden(
-        "
-SELECT
-    toStartOfHour(event_time) AS hour,
-    site,
-    count() AS views
-FROM raw.events
-GROUP BY hour, site
-",
-        |l| {
-            l.select(&[
-                "toStartOfHour(event_time) AS hour",
-                "site",
-                "count() AS views",
-            ]);
-            l.clause("FROM", "raw.events");
-            l.list_clause("GROUP BY", &["hour", "site"]);
-        },
-    );
+    golden(proposal::TRAILING_COMMAS, |l| {
+        l.select(&[
+            "toStartOfHour(event_time) AS hour",
+            "site",
+            "count() AS views",
+        ]);
+        l.clause("FROM", "raw.events");
+        l.list_clause("GROUP BY", &["hour", "site"]);
+    });
 }
 
 // Section 2d: column definitions, not aligned.
 
 #[test]
 fn column_definitions_are_not_aligned() {
-    golden(
-        "
-CREATE TABLE analytics.sessions
-(
-    session_id UUID,
-    site LowCardinality(String) COMMENT 'Publication slug',
-    started_at DateTime64(3, 'UTC') CODEC(Delta, ZSTD(1)) COMMENT 'First event of the session',
-    duration_ms UInt32 CODEC(T64, ZSTD(1)),
-    is_logged_in Bool DEFAULT false
-)
-ENGINE = MergeTree
-ORDER BY (site, started_at)
-",
-        |l| {
-            create_table(
-                l,
-                "analytics.sessions",
-                &[
-                    "session_id UUID",
-                    "site LowCardinality(String) COMMENT 'Publication slug'",
-                    "started_at DateTime64(3, 'UTC') CODEC(Delta, ZSTD(1)) COMMENT 'First event of the session'",
-                    "duration_ms UInt32 CODEC(T64, ZSTD(1))",
-                    "is_logged_in Bool DEFAULT false",
-                ],
-            );
-            l.clause("ENGINE", "= MergeTree");
-            l.clause("ORDER BY", "(site, started_at)");
-        },
-    );
+    golden(proposal::COLUMNS_NOT_ALIGNED, |l| {
+        create_table(
+            l,
+            "analytics.sessions",
+            &[
+                "session_id UUID",
+                "site LowCardinality(String) COMMENT 'Publication slug'",
+                "started_at DateTime64(3, 'UTC') CODEC(Delta, ZSTD(1)) COMMENT 'First event of the session'",
+                "duration_ms UInt32 CODEC(T64, ZSTD(1))",
+                "is_logged_in Bool DEFAULT false",
+            ],
+        );
+        l.clause("ENGINE", "= MergeTree");
+        l.clause("ORDER BY", "(site, started_at)");
+    });
 }
 
 // Section 2e: blank lines.
 
 #[test]
 fn blank_lines_between_statements_are_kept_up_to_two() {
-    golden(
-        "
--- The writer role: inserts into landing.events and nothing else.
-
-CREATE ROLE events_writer;
-GRANT INSERT ON landing.events TO events_writer;
-GRANT events_writer TO events_consumer;
-
-
-ALTER USER events_consumer DEFAULT ROLE ALL;
-",
-        |l| {
-            l.comment();
-            l.hard();
-            l.blank();
-            let statements = [
-                "CREATE ROLE events_writer",
-                "GRANT INSERT ON landing.events TO events_writer",
-                "GRANT events_writer TO events_consumer",
-                "ALTER USER events_consumer DEFAULT ROLE ALL",
-            ];
-            l.statements(statements.len(), |l, k| {
-                l.inline(statements[k]);
-                l.t(";");
-            });
-        },
-    );
+    golden(proposal::BLANK_LINES_KEPT, |l| {
+        l.comment();
+        l.hard();
+        l.blank();
+        let statements = [
+            "CREATE ROLE events_writer",
+            "GRANT INSERT ON landing.events TO events_writer",
+            "GRANT events_writer TO events_consumer",
+            "ALTER USER events_consumer DEFAULT ROLE ALL",
+        ];
+        l.statements(statements.len(), |l, k| {
+            l.inline(statements[k]);
+            l.t(";");
+        });
+    });
 }
 
 #[test]
 fn a_statement_on_several_lines_gets_a_blank_line_on_each_side() {
-    golden(
-        "
-SELECT 1;
-
-SELECT
-    a,
-    b
-FROM t;
-
-SELECT 2;
-",
-        |l| {
-            l.statements(3, |l, k| {
-                if k == 1 {
-                    l.select(&["a", "b"]);
-                    l.clause("FROM", "t");
-                } else {
-                    l.select(&[["1", "", "2"][k]]);
-                }
-                l.t(";");
-            });
-        },
-    );
+    golden(proposal::BLANK_AROUND_MULTILINE, |l| {
+        l.statements(3, |l, k| {
+            if k == 1 {
+                l.select(&["a", "b"]);
+                l.clause("FROM", "t");
+            } else {
+                l.select(&[["1", "", "2"][k]]);
+            }
+            l.t(";");
+        });
+    });
 }
 
 // Section 2f: comments.
 
 #[test]
 fn comments_in_a_column_list_and_between_clauses() {
-    golden(
-        "
-CREATE TABLE analytics.page_views_1h
-(
-    -- Start of the hour, in UTC.
-    hour DateTime('UTC'),
-    site LowCardinality(String),  -- the publication's slug
-    views UInt64
-)
--- Partial aggregates merge on read; query with sum and uniqMerge.
-ENGINE = AggregatingMergeTree
-ORDER BY (site, hour)
-",
-        |l| {
-            create_table(
-                l,
-                "analytics.page_views_1h",
-                &[
-                    "hour DateTime('UTC')",
-                    "site LowCardinality(String)",
-                    "views UInt64",
-                ],
-            );
-            l.hard();
-            l.comments();
-            l.clause("ENGINE", "= AggregatingMergeTree");
-            l.clause("ORDER BY", "(site, hour)");
-        },
-    );
+    golden(proposal::COLUMN_COMMENTS, |l| {
+        create_table(
+            l,
+            "analytics.page_views_1h",
+            &[
+                "hour DateTime('UTC')",
+                "site LowCardinality(String)",
+                "views UInt64",
+            ],
+        );
+        l.hard();
+        l.comments();
+        l.clause("ENGINE", "= AggregatingMergeTree");
+        l.clause("ORDER BY", "(site, hour)");
+    });
 }
 
 #[test]
 fn a_line_comment_breaks_the_group_it_is_in() {
-    golden(
-        "
-SELECT count()
-FROM raw.events
-ORDER BY (
-    site,  -- most queries filter on one site
-    event_time
-)
-",
-        |l| {
-            l.select(&["count()"]);
-            l.clause("FROM", "raw.events");
-            l.clause("ORDER BY", "(site, event_time)");
-        },
-    );
+    golden(proposal::LINE_COMMENT_BREAKS, |l| {
+        l.select(&["count()"]);
+        l.clause("FROM", "raw.events");
+        l.clause("ORDER BY", "(site, event_time)");
+    });
 }
 
 #[test]
 fn a_comment_pins_a_leading_comma() {
-    golden(
-        "
-SELECT
-    toStartOfHour(event_time) AS hour,
-    site  -- the publication's slug
-    , count() AS views
-FROM raw.events
-GROUP BY hour, site
-",
-        |l| {
-            l.forced(|l| {
-                l.t("SELECT");
-                l.indent(|l| {
-                    l.line();
-                    l.inline("toStartOfHour(event_time) AS hour");
-                    l.t(",");
-                    l.line();
-                    l.t("site");
-                    l.comment();
-                    // The comma after the comment starts the line, and the
-                    // item stays on it.
-                    l.t(",");
-                    l.sp();
-                    l.inline("count() AS views");
-                });
+    golden(proposal::PINNED_COMMA, |l| {
+        l.forced(|l| {
+            l.t("SELECT");
+            l.indent(|l| {
+                l.line();
+                l.inline("toStartOfHour(event_time) AS hour");
+                l.t(",");
+                l.line();
+                l.t("site");
+                l.comment();
+                // The comma after the comment starts the line, and the
+                // item stays on it.
+                l.t(",");
+                l.sp();
+                l.inline("count() AS views");
             });
-            l.clause("FROM", "raw.events");
-            l.list_clause("GROUP BY", &["hour", "site"]);
-        },
-    );
+        });
+        l.clause("FROM", "raw.events");
+        l.list_clause("GROUP BY", &["hour", "site"]);
+    });
 }
 
 #[test]
 fn comments_in_conditions() {
-    golden(
-        "
-SELECT count()
-FROM raw.events
-WHERE event_date >= today() - 7
-    -- Bots inflate page views by about a third.
-    AND NOT is_bot
-    AND site != ''  -- empty for events from the test harness
-",
-        |l| {
-            l.select(&["count()"]);
-            l.clause("FROM", "raw.events");
-            l.conditions(
-                "WHERE",
-                "event_date >= today() - 7",
-                &["AND NOT is_bot", "AND site != ''"],
-            );
-        },
-    );
+    golden(proposal::CONDITION_COMMENTS, |l| {
+        l.select(&["count()"]);
+        l.clause("FROM", "raw.events");
+        l.conditions(
+            "WHERE",
+            "event_date >= today() - 7",
+            &["AND NOT is_bot", "AND site != ''"],
+        );
+    });
 }
 
 #[test]
 fn a_semicolon_after_a_trailing_comment_stands_alone() {
-    golden(
-        "
-SELECT 1  -- one
-;
-",
-        |l| {
-            l.select(&["1"]);
-            l.comment();
-            l.t(";");
-        },
-    );
+    golden(proposal::SEMICOLON_ALONE, |l| {
+        l.select(&["1"]);
+        l.comment();
+        l.t(";");
+    });
 }
 
 // Section 2g: Jinja.
 
 #[test]
 fn block_tags_stay_at_the_indentation_of_the_sql_they_wrap() {
-    golden_at(
-        "
-SELECT count()
-FROM raw.events
-WHERE true
-    AND event_type = 'page_view'
-    {% if this.cutoff is defined -%}
-    AND event_time >= {{ this.cutoff | sql_datetime }}
-    {% endif -%}
-",
-        Mode::Jinja,
-        100,
-        |l| {
-            l.select(&["count()"]);
-            l.clause("FROM", "raw.events");
-            l.hard();
-            l.t("WHERE");
-            l.sp();
-            let mut opener = None;
-            l.group(|l| {
-                l.t("true");
-                l.indent(|l| {
-                    l.line();
-                    l.inline("AND event_type = 'page_view'");
-                    opener = Some(l.tag());
-                    l.inline("AND event_time >= {{ this.cutoff | sql_datetime }}");
-                });
+    golden_at(proposal::BLOCK_TAGS, Mode::Jinja, 100, |l| {
+        l.select(&["count()"]);
+        l.clause("FROM", "raw.events");
+        l.hard();
+        l.t("WHERE");
+        l.sp();
+        let mut opener = None;
+        l.group(|l| {
+            l.t("true");
+            l.indent(|l| {
+                l.line();
+                l.inline("AND event_type = 'page_view'");
+                opener = Some(l.tag());
+                l.inline("AND event_time >= {{ this.cutoff | sql_datetime }}");
             });
-            // The closer is after the conditions in the tree, at the level of
-            // the clauses, and still lines up with its opener.
-            l.closer(opener.expect("an opener"));
-        },
-    );
+        });
+        // The closer is after the conditions in the tree, at the level of
+        // the clauses, and still lines up with its opener.
+        l.closer(opener.expect("an opener"));
+    });
 }
 
 #[test]
 fn a_for_loop_stays_at_the_indentation_of_the_list() {
-    golden_at(
-        "
-SELECT
-    site,
-    {% for e in this.event_types %}
-    countIf(event_type = '{{ e }}') AS {{ e }}_count,
-    {% endfor %}
-    count() AS total
-FROM raw.events
-GROUP BY site
-",
-        Mode::Jinja,
-        100,
-        |l| {
-            l.forced(|l| {
-                l.t("SELECT");
-                l.indent(|l| {
-                    l.line();
-                    l.t("site");
-                    l.t(",");
-                    let opener = l.tag();
-                    l.inline("countIf(event_type = '{{ e }}') AS {{ e }}_count");
-                    l.t(",");
-                    l.closer(opener);
-                    l.inline("count() AS total");
-                });
+    golden_at(proposal::FOR_LOOP, Mode::Jinja, 100, |l| {
+        l.forced(|l| {
+            l.t("SELECT");
+            l.indent(|l| {
+                l.line();
+                l.t("site");
+                l.t(",");
+                let opener = l.tag();
+                l.inline("countIf(event_type = '{{ e }}') AS {{ e }}_count");
+                l.t(",");
+                l.closer(opener);
+                l.inline("count() AS total");
             });
-            l.clause("FROM", "raw.events");
-            l.list_clause("GROUP BY", &["site"]);
-        },
-    );
+        });
+        l.clause("FROM", "raw.events");
+        l.list_clause("GROUP BY", &["site"]);
+    });
 }
 
 // Section 2h: nesting.
 
 #[test]
 fn a_subquery_hugs_its_brackets() {
-    golden(
-        "
-SELECT
-    site,
-    avg(views) AS avg_daily_views
-FROM (
-    SELECT
-        site,
-        toDate(event_time) AS day,
-        count() AS views
-    FROM raw.events
-    GROUP BY site, day
-) AS daily
-GROUP BY site
-",
-        |l| {
-            l.select(&["site", "avg(views) AS avg_daily_views"]);
-            l.hard();
-            l.t("FROM");
-            l.sp();
-            l.hugged(|l| {
-                l.select(&["site", "toDate(event_time) AS day", "count() AS views"]);
-                l.clause("FROM", "raw.events");
-                l.list_clause("GROUP BY", &["site", "day"]);
-            });
-            l.sp();
-            l.kw("AS daily");
-            l.list_clause("GROUP BY", &["site"]);
-        },
-    );
+    golden(proposal::SUBQUERY_HUGS, |l| {
+        l.select(&["site", "avg(views) AS avg_daily_views"]);
+        l.hard();
+        l.t("FROM");
+        l.sp();
+        l.hugged(|l| {
+            l.select(&["site", "toDate(event_time) AS day", "count() AS views"]);
+            l.clause("FROM", "raw.events");
+            l.list_clause("GROUP BY", &["site", "day"]);
+        });
+        l.sp();
+        l.kw("AS daily");
+        l.list_clause("GROUP BY", &["site"]);
+    });
 }
 
 #[test]
 fn an_in_subquery_hugs_its_brackets() {
-    golden(
-        "
-SELECT count()
-FROM raw.events
-WHERE visitor_id IN (
-    SELECT visitor_id
-    FROM raw.subscriptions
-    WHERE status = 'active'
-)
-",
-        |l| {
-            l.select(&["count()"]);
-            l.clause("FROM", "raw.events");
-            l.hard();
-            l.t("WHERE");
-            l.sp();
-            l.inline("visitor_id IN");
-            l.sp();
-            l.hugged(|l| {
-                l.select(&["visitor_id"]);
-                l.clause("FROM", "raw.subscriptions");
-                l.clause("WHERE", "status = 'active'");
-            });
-        },
-    );
+    golden(proposal::IN_SUBQUERY_HUGS, |l| {
+        l.select(&["count()"]);
+        l.clause("FROM", "raw.events");
+        l.hard();
+        l.t("WHERE");
+        l.sp();
+        l.inline("visitor_id IN");
+        l.sp();
+        l.hugged(|l| {
+            l.select(&["visitor_id"]);
+            l.clause("FROM", "raw.subscriptions");
+            l.clause("WHERE", "status = 'active'");
+        });
+    });
 }
 
 #[test]
 fn a_single_cte_hugs_with() {
-    golden(
-        "
-WITH daily AS (
-    SELECT
-        site,
-        toDate(event_time) AS day
-    FROM raw.events
-)
-SELECT
-    site,
-    count() AS days
-FROM daily
-GROUP BY site
-",
-        |l| {
-            l.kw("WITH daily AS");
-            l.sp();
-            l.hugged(|l| {
-                l.select(&["site", "toDate(event_time) AS day"]);
-                l.clause("FROM", "raw.events");
-            });
-            l.hard();
-            l.select(&["site", "count() AS days"]);
-            l.clause("FROM", "daily");
-            l.list_clause("GROUP BY", &["site"]);
-        },
-    );
+    golden(proposal::SINGLE_CTE_HUGS, |l| {
+        l.kw("WITH daily AS");
+        l.sp();
+        l.hugged(|l| {
+            l.select(&["site", "toDate(event_time) AS day"]);
+            l.clause("FROM", "raw.events");
+        });
+        l.hard();
+        l.select(&["site", "count() AS days"]);
+        l.clause("FROM", "daily");
+        l.list_clause("GROUP BY", &["site"]);
+    });
 }
 
 #[test]
 fn a_materialized_view_ends_its_header_with_as() {
-    golden(
-        "
-CREATE MATERIALIZED VIEW analytics.events_daily_mv TO analytics.events_daily AS
-SELECT
-    toDate(event_time) AS day,
-    event_name,
-    count() AS cnt
-FROM raw.events
-GROUP BY day, event_name
-",
-        |l| {
-            l.group(|l| {
-                l.kw("CREATE MATERIALIZED VIEW");
+    golden(proposal::MATERIALIZED_VIEW, |l| {
+        l.group(|l| {
+            l.kw("CREATE MATERIALIZED VIEW");
+            l.sp();
+            l.inline("analytics.events_daily_mv");
+            l.indent(|l| {
+                l.line();
+                l.t("TO");
                 l.sp();
-                l.inline("analytics.events_daily_mv");
-                l.indent(|l| {
-                    l.line();
-                    l.t("TO");
-                    l.sp();
-                    l.inline("analytics.events_daily");
-                });
-                l.sp();
-                l.t("AS");
+                l.inline("analytics.events_daily");
             });
-            l.hard();
-            l.select(&["toDate(event_time) AS day", "event_name", "count() AS cnt"]);
-            l.clause("FROM", "raw.events");
-            l.list_clause("GROUP BY", &["day", "event_name"]);
-        },
-    );
+            l.sp();
+            l.t("AS");
+        });
+        l.hard();
+        l.select(&["toDate(event_time) AS day", "event_name", "count() AS cnt"]);
+        l.clause("FROM", "raw.events");
+        l.list_clause("GROUP BY", &["day", "event_name"]);
+    });
 }
 
 #[test]
 fn case_expands_with_when_and_else_one_level_in() {
-    golden(
-        "
-SELECT
-    CASE
-        WHEN duration_ms < 10000 THEN 'bounce'
-        WHEN duration_ms < 60000 THEN 'skim'
-        WHEN duration_ms < 300000 THEN 'read'
-        ELSE 'deep read'
-    END AS engagement,
-    count() AS sessions
-FROM analytics.sessions
-GROUP BY engagement
-",
-        |l| {
-            l.forced(|l| {
-                l.t("SELECT");
-                l.indent(|l| {
-                    l.line();
-                    l.group(|l| {
-                        l.t("CASE");
-                        l.indent(|l| {
-                            for (bound, label) in [
-                                ("10000", "'bounce'"),
-                                ("60000", "'skim'"),
-                                ("300000", "'read'"),
-                            ] {
-                                l.line();
-                                l.inline(&format!("WHEN duration_ms < {bound} THEN {label}"));
-                            }
+    golden(proposal::CASE_EXPANDS, |l| {
+        l.forced(|l| {
+            l.t("SELECT");
+            l.indent(|l| {
+                l.line();
+                l.group(|l| {
+                    l.t("CASE");
+                    l.indent(|l| {
+                        for (bound, label) in [
+                            ("10000", "'bounce'"),
+                            ("60000", "'skim'"),
+                            ("300000", "'read'"),
+                        ] {
                             l.line();
-                            l.inline("ELSE 'deep read'");
-                        });
+                            l.inline(&format!("WHEN duration_ms < {bound} THEN {label}"));
+                        }
                         l.line();
-                        l.t("END");
+                        l.inline("ELSE 'deep read'");
                     });
-                    l.sp();
-                    l.inline("AS engagement");
-                    l.t(",");
                     l.line();
-                    l.inline("count() AS sessions");
+                    l.t("END");
                 });
+                l.sp();
+                l.inline("AS engagement");
+                l.t(",");
+                l.line();
+                l.inline("count() AS sessions");
             });
-            l.clause("FROM", "analytics.sessions");
-            l.list_clause("GROUP BY", &["engagement"]);
-        },
-    );
+        });
+        l.clause("FROM", "analytics.sessions");
+        l.list_clause("GROUP BY", &["engagement"]);
+    });
 }
 
 /// `arrayFilter((url, ts) -> …, urls, timestamps)`: the lambda is one
@@ -1270,97 +975,48 @@ fn lambda(l: &mut L<'_>) {
 
 #[test]
 fn a_lambda_stays_whole_when_it_fits() {
-    golden(
-        "
-SELECT
-    arrayFilter(
-        (url, ts) -> ts >= session_start AND NOT startsWith(url, 'https://internal.example.com/'),
-        urls,
-        timestamps
-    ) AS external_urls
-FROM analytics.sessions
-",
-        lambda,
-    );
+    golden(proposal::LAMBDA_WHOLE, lambda);
 }
 
 /// Not an example of the proposal: the same lambda at width 90, where the
 /// rule says its body breaks after `->`.
 #[test]
 fn a_lambda_breaks_after_the_arrow() {
-    golden_at(
-        "
-SELECT
-    arrayFilter(
-        (url, ts) ->
-            ts >= session_start AND NOT startsWith(url, 'https://internal.example.com/'),
-        urls,
-        timestamps
-    ) AS external_urls
-FROM analytics.sessions
-",
-        Mode::Sql,
-        90,
-        lambda,
-    );
+    golden_at(proposal::LAMBDA_BREAKS_90, Mode::Sql, 90, lambda);
 }
 
 #[test]
 fn a_join_condition_breaks_before_on_with_leading_and() {
-    golden(
-        "
-SELECT
-    o.order_id,
-    p.price
-FROM raw.orders AS o
-ASOF LEFT JOIN dim.prices AS p
-    ON p.sku = o.sku
-    AND p.currency = o.currency
-    AND o.ordered_at >= p.valid_from
-",
-        |l| {
-            l.select(&["o.order_id", "p.price"]);
-            l.clause("FROM", "raw.orders AS o");
-            l.hard();
-            l.group(|l| {
-                l.inline("ASOF LEFT JOIN dim.prices AS p");
-                l.indent(|l| {
-                    for condition in [
-                        "ON p.sku = o.sku",
-                        "AND p.currency = o.currency",
-                        "AND o.ordered_at >= p.valid_from",
-                    ] {
-                        l.line();
-                        l.inline(condition);
-                    }
-                });
+    golden(proposal::JOIN_ON, |l| {
+        l.select(&["o.order_id", "p.price"]);
+        l.clause("FROM", "raw.orders AS o");
+        l.hard();
+        l.group(|l| {
+            l.inline("ASOF LEFT JOIN dim.prices AS p");
+            l.indent(|l| {
+                for condition in [
+                    "ON p.sku = o.sku",
+                    "AND p.currency = o.currency",
+                    "AND o.ordered_at >= p.valid_from",
+                ] {
+                    l.line();
+                    l.inline(condition);
+                }
             });
-        },
-    );
+        });
+    });
 }
 
 #[test]
 fn insert_select_keeps_the_columns_on_the_insert_line() {
-    golden(
-        "
-INSERT INTO analytics.events_daily (day, event_name, cnt)
-SELECT
-    toDate(event_time) AS day,
-    event_name,
-    count() AS cnt
-FROM raw.events
-WHERE event_time < '2026-01-01 00:00:00'
-GROUP BY day, event_name
-",
-        |l| {
-            l.inline("INSERT INTO analytics.events_daily (day, event_name, cnt)");
-            l.hard();
-            l.select(&["toDate(event_time) AS day", "event_name", "count() AS cnt"]);
-            l.clause("FROM", "raw.events");
-            l.clause("WHERE", "event_time < '2026-01-01 00:00:00'");
-            l.list_clause("GROUP BY", &["day", "event_name"]);
-        },
-    );
+    golden(proposal::INSERT_SELECT, |l| {
+        l.inline("INSERT INTO analytics.events_daily (day, event_name, cnt)");
+        l.hard();
+        l.select(&["toDate(event_time) AS day", "event_name", "count() AS cnt"]);
+        l.clause("FROM", "raw.events");
+        l.clause("WHERE", "event_time < '2026-01-01 00:00:00'");
+        l.list_clause("GROUP BY", &["day", "event_name"]);
+    });
 }
 
 /// `HEAD item, item…;`: the items on the head's line if they fit, else
@@ -1388,75 +1044,56 @@ fn command_list(l: &mut L<'_>, head: &str, items: &[&str]) {
 
 #[test]
 fn alter_table_commands_are_a_list() {
-    golden(
-        "
-ALTER TABLE raw.events ADD COLUMN IF NOT EXISTS element String AFTER duration_ms;
-
-ALTER TABLE analytics.page_views_1h
-    ADD COLUMN referrer LowCardinality(String) DEFAULT '' AFTER site,
-    MODIFY TTL hour + INTERVAL 180 DAY;
-",
-        |l| {
-            l.statements(2, |l, k| {
-                if k == 0 {
-                    command_list(
-                        l,
-                        "ALTER TABLE raw.events",
-                        &["ADD COLUMN IF NOT EXISTS element String AFTER duration_ms"],
-                    );
-                } else {
-                    command_list(
-                        l,
-                        "ALTER TABLE analytics.page_views_1h",
-                        &[
-                            "ADD COLUMN referrer LowCardinality(String) DEFAULT '' AFTER site",
-                            "MODIFY TTL hour + INTERVAL 180 DAY",
-                        ],
-                    );
-                }
-            });
-        },
-    );
+    golden(proposal::ALTER_TABLE, |l| {
+        l.statements(2, |l, k| {
+            if k == 0 {
+                command_list(
+                    l,
+                    "ALTER TABLE raw.events",
+                    &["ADD COLUMN IF NOT EXISTS element String AFTER duration_ms"],
+                );
+            } else {
+                command_list(
+                    l,
+                    "ALTER TABLE analytics.page_views_1h",
+                    &[
+                        "ADD COLUMN referrer LowCardinality(String) DEFAULT '' AFTER site",
+                        "MODIFY TTL hour + INTERVAL 180 DAY",
+                    ],
+                );
+            }
+        });
+    });
 }
 
 #[test]
 fn grant_breaks_before_on_to_and_with_grant_option() {
-    golden(
-        "
-GRANT SELECT ON analytics.page_views_1h TO reader;
-
-GRANT SELECT, INSERT, ALTER UPDATE, ALTER DELETE
-    ON analytics.page_views_1h_with_a_long_name
-    TO analytics_writer, backfill_job, maintenance
-    WITH GRANT OPTION;
-",
-        |l| {
-            l.statements(2, |l, k| {
-                l.group(|l| {
-                    if k == 0 {
-                        l.kw("GRANT SELECT");
-                        l.indent(|l| {
-                            l.line();
-                            l.inline("ON analytics.page_views_1h");
-                            l.line();
-                            l.inline("TO reader");
-                        });
-                    } else {
-                        l.inline("GRANT SELECT, INSERT, ALTER UPDATE, ALTER DELETE");
-                        l.indent(|l| {
-                            l.line();
-                            l.inline("ON analytics.page_views_1h_with_a_long_name");
-                            l.line();
-                            l.inline("TO analytics_writer, backfill_job, maintenance");
-                            l.line();
-                            l.kw("WITH GRANT OPTION");
-                        });
-                    }
-                });
-                l.t(";");
+    golden(proposal::GRANT, |l| {
+        l.statements(2, |l, k| {
+            l.group(|l| {
+                if k == 0 {
+                    l.kw("GRANT SELECT");
+                    l.indent(|l| {
+                        l.line();
+                        l.inline("ON analytics.page_views_1h");
+                        l.line();
+                        l.inline("TO reader");
+                    });
+                } else {
+                    l.inline("GRANT SELECT, INSERT, ALTER UPDATE, ALTER DELETE");
+                    l.indent(|l| {
+                        l.line();
+                        l.inline("ON analytics.page_views_1h_with_a_long_name");
+                        l.line();
+                        l.inline("TO analytics_writer, backfill_job, maintenance");
+                        l.line();
+                        l.kw("WITH GRANT OPTION");
+                    });
+                }
             });
-        },
-    );
+            l.t(";");
+        });
+    });
 }
 
 // Section 2a: line width.
@@ -1507,213 +1144,102 @@ fn widths(l: &mut L<'_>) {
 
 #[test]
 fn one_document_at_three_widths() {
-    golden_at(
-        "
-SELECT
-    toStartOfHour(event_time) AS hour,
-    round(100 * countIf(event_type = 'subscribe') / nullIf(countIf(event_type = 'page_view'), 0), 2) AS conversion_pct,
-    arrayStringConcat(arraySlice(groupUniqArray(referrer_domain), 1, 5), ', ') AS top_referrer_domains
-FROM raw.events
-GROUP BY hour
-",
-        Mode::Sql,
-        120,
-        widths,
-    );
-    golden_at(
-        "
-SELECT
-    toStartOfHour(event_time) AS hour,
-    round(
-        100 * countIf(event_type = 'subscribe') / nullIf(countIf(event_type = 'page_view'), 0),
-        2
-    ) AS conversion_pct,
-    arrayStringConcat(
-        arraySlice(groupUniqArray(referrer_domain), 1, 5),
-        ', '
-    ) AS top_referrer_domains
-FROM raw.events
-GROUP BY hour
-",
-        Mode::Sql,
-        100,
-        widths,
-    );
-    golden_at(
-        "
-SELECT
-    toStartOfHour(event_time) AS hour,
-    round(
-        100 * countIf(event_type = 'subscribe')
-            / nullIf(countIf(event_type = 'page_view'), 0),
-        2
-    ) AS conversion_pct,
-    arrayStringConcat(
-        arraySlice(groupUniqArray(referrer_domain), 1, 5),
-        ', '
-    ) AS top_referrer_domains
-FROM raw.events
-GROUP BY hour
-",
-        Mode::Sql,
-        80,
-        widths,
-    );
+    golden_at(proposal::WIDTH_120, Mode::Sql, 120, widths);
+    golden_at(proposal::WIDTH_100, Mode::Sql, 100, widths);
+    golden_at(proposal::WIDTH_80, Mode::Sql, 80, widths);
 }
 
 // Section 3: ClickHouse-specific constructs.
 
 #[test]
 fn a_projection_hugs_and_an_index_stays_on_one_line() {
-    golden(
-        "
-CREATE TABLE analytics.page_views ON CLUSTER '{cluster}'
-(
-    event_time DateTime64(3, 'UTC') CODEC(Delta, ZSTD(1)),
-    visitor_id String COMMENT 'Anonymous, 16 hex digits',
-    INDEX visitor_bf visitor_id TYPE bloom_filter(0.01) GRANULARITY 4,
-    PROJECTION by_visitor (
-        SELECT *
-        ORDER BY visitor_id
-    )
-)
-ENGINE = ReplicatedMergeTree
-ORDER BY tuple()
-SETTINGS index_granularity = 8192
-COMMENT 'One row per page view'
-",
-        |l| {
-            l.kw("CREATE TABLE");
-            l.sp();
-            l.inline("analytics.page_views ON CLUSTER '{cluster}'");
-            l.hard();
-            l.t("(");
-            l.indent(|l| {
-                for column in [
-                    "event_time DateTime64(3, 'UTC') CODEC(Delta, ZSTD(1))",
-                    "visitor_id String COMMENT 'Anonymous, 16 hex digits'",
-                    "INDEX visitor_bf visitor_id TYPE bloom_filter(0.01) GRANULARITY 4",
-                ] {
-                    l.hard();
-                    l.inline(column);
-                    l.t(",");
-                }
+    golden(proposal::PROJECTION_AND_INDEX, |l| {
+        l.kw("CREATE TABLE");
+        l.sp();
+        l.inline("analytics.page_views ON CLUSTER '{cluster}'");
+        l.hard();
+        l.t("(");
+        l.indent(|l| {
+            for column in [
+                "event_time DateTime64(3, 'UTC') CODEC(Delta, ZSTD(1))",
+                "visitor_id String COMMENT 'Anonymous, 16 hex digits'",
+                "INDEX visitor_bf visitor_id TYPE bloom_filter(0.01) GRANULARITY 4",
+            ] {
                 l.hard();
-                l.inline("PROJECTION by_visitor");
-                l.sp();
-                l.hugged(|l| {
-                    l.select(&["*"]);
-                    l.clause("ORDER BY", "visitor_id");
-                });
-            });
+                l.inline(column);
+                l.t(",");
+            }
             l.hard();
-            l.t(")");
-            l.clause("ENGINE", "= ReplicatedMergeTree");
-            l.clause("ORDER BY", "tuple()");
-            l.list_clause("SETTINGS", &["index_granularity = 8192"]);
-            l.clause("COMMENT", "'One row per page view'");
-        },
-    );
+            l.inline("PROJECTION by_visitor");
+            l.sp();
+            l.hugged(|l| {
+                l.select(&["*"]);
+                l.clause("ORDER BY", "visitor_id");
+            });
+        });
+        l.hard();
+        l.t(")");
+        l.clause("ENGINE", "= ReplicatedMergeTree");
+        l.clause("ORDER BY", "tuple()");
+        l.list_clause("SETTINGS", &["index_granularity = 8192"]);
+        l.clause("COMMENT", "'One row per page view'");
+    });
 }
 
 #[test]
 fn storage_clauses_go_one_per_line_in_the_authors_order() {
-    golden(
-        "
-CREATE TABLE analytics.visits
-(
-    site LowCardinality(String),
-    event_time DateTime,
-    visitor_id String
-)
-ENGINE = MergeTree
-PRIMARY KEY (site, toStartOfHour(event_time))
-ORDER BY (site, toStartOfHour(event_time), cityHash64(visitor_id))
-SAMPLE BY cityHash64(visitor_id)
-TTL event_time + INTERVAL 13 MONTH DELETE
-SETTINGS ttl_only_drop_parts = 1
-",
-        |l| {
-            create_table(
-                l,
-                "analytics.visits",
-                &[
-                    "site LowCardinality(String)",
-                    "event_time DateTime",
-                    "visitor_id String",
-                ],
-            );
-            l.clause("ENGINE", "= MergeTree");
-            l.clause("PRIMARY KEY", "(site, toStartOfHour(event_time))");
-            l.clause(
-                "ORDER BY",
-                "(site, toStartOfHour(event_time), cityHash64(visitor_id))",
-            );
-            l.clause("SAMPLE BY", "cityHash64(visitor_id)");
-            l.clause("TTL", "event_time + INTERVAL 13 MONTH DELETE");
-            l.list_clause("SETTINGS", &["ttl_only_drop_parts = 1"]);
-        },
-    );
+    golden(proposal::STORAGE_CLAUSES, |l| {
+        create_table(
+            l,
+            "analytics.visits",
+            &[
+                "site LowCardinality(String)",
+                "event_time DateTime",
+                "visitor_id String",
+            ],
+        );
+        l.clause("ENGINE", "= MergeTree");
+        l.clause("PRIMARY KEY", "(site, toStartOfHour(event_time))");
+        l.clause(
+            "ORDER BY",
+            "(site, toStartOfHour(event_time), cityHash64(visitor_id))",
+        );
+        l.clause("SAMPLE BY", "cityHash64(visitor_id)");
+        l.clause("TTL", "event_time + INTERVAL 13 MONTH DELETE");
+        l.list_clause("SETTINGS", &["ttl_only_drop_parts = 1"]);
+    });
 }
 
 #[test]
 fn query_clauses_of_clickhouse() {
-    golden(
-        "
-SELECT
-    site,
-    tag,
-    count() AS views
-FROM raw.articles
-ARRAY JOIN tags AS tag
-PREWHERE event_date = today()
-WHERE event_type = 'page_view'
-GROUP BY site, tag WITH TOTALS
-ORDER BY views DESC
-LIMIT 3 BY site
-LIMIT 100
-SETTINGS max_threads = 8
-FORMAT JSONEachRow
-",
-        |l| {
-            l.select(&["site", "tag", "count() AS views"]);
-            l.clause("FROM", "raw.articles");
-            l.clause("ARRAY JOIN", "tags AS tag");
-            l.clause("PREWHERE", "event_date = today()");
-            l.clause("WHERE", "event_type = 'page_view'");
-            let keys = l.list_clause("GROUP BY", &["site", "tag"]);
-            l.b.if_break(keys, chairlift::doc::Gap::Line, chairlift::doc::Gap::Space);
-            l.kw("WITH TOTALS");
-            l.list_clause("ORDER BY", &["views DESC"]);
-            l.clause("LIMIT", "3 BY site");
-            l.clause("LIMIT", "100");
-            l.list_clause("SETTINGS", &["max_threads = 8"]);
-            l.clause("FORMAT", "JSONEachRow");
-        },
-    );
+    golden(proposal::QUERY_CLAUSES, |l| {
+        l.select(&["site", "tag", "count() AS views"]);
+        l.clause("FROM", "raw.articles");
+        l.clause("ARRAY JOIN", "tags AS tag");
+        l.clause("PREWHERE", "event_date = today()");
+        l.clause("WHERE", "event_type = 'page_view'");
+        let keys = l.list_clause("GROUP BY", &["site", "tag"]);
+        l.b.if_break(keys, chairlift::doc::Gap::Line, chairlift::doc::Gap::Space);
+        l.kw("WITH TOTALS");
+        l.list_clause("ORDER BY", &["views DESC"]);
+        l.clause("LIMIT", "3 BY site");
+        l.clause("LIMIT", "100");
+        l.list_clause("SETTINGS", &["max_threads = 8"]);
+        l.clause("FORMAT", "JSONEachRow");
+    });
 }
 
 #[test]
 fn casts_parameters_and_except_are_atoms() {
-    golden(
-        "
-SELECT
-    * EXCEPT (raw_payload),
-    status::UInt16 AS status_code,
-    {limit:UInt32} AS row_limit
-FROM raw.requests
-WHERE event_time >= {since:DateTime} - INTERVAL 1 DAY
-",
-        |l| {
-            l.select(&[
-                "* EXCEPT (raw_payload)",
-                "status::UInt16 AS status_code",
-                "{limit:UInt32} AS row_limit",
-            ]);
-            l.clause("FROM", "raw.requests");
-            l.clause("WHERE", "event_time >= {since:DateTime} - INTERVAL 1 DAY");
-        },
-    );
+    golden(proposal::ATOMS, |l| {
+        l.select(&[
+            "* EXCEPT (raw_payload)",
+            "status::UInt16 AS status_code",
+            "{limit:UInt32} AS row_limit",
+        ]);
+        l.clause("FROM", "raw.requests");
+        l.clause("WHERE", "event_time >= {since:DateTime} - INTERVAL 1 DAY");
+    });
 }
 
 // Verbatim text, which the proposal has no example of.

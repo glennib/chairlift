@@ -8,7 +8,7 @@ Files here are never reformatted by hand: a fixture is either an input as someon
 - `page_views_1h.sql.j2` is the example from `docs/DESIGN.md`, section "Layout: a starting point".
 - `page_views_1h.expected.sql.j2` is how chairlift should print it, from `docs/spikes/2026-11-10-layout-proposal.md`,
   section 4.
-  It is the golden expectation for the layout rules; no test asserts it yet.
+  It is the golden expectation for the layout rules (`tests/format_golden.rs`).
 
 Both contain Jinja tags, hence the `.sql.j2` extension.
 
