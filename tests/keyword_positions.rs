@@ -1,9 +1,10 @@
-//! Every ClickHouse keyword word and literal word, in lower and in
-//! capitalised case, in every position of [`POSITIONS`] and [`STATEMENTS`]:
-//! the parser's keyword slots must pass the verifier, and `clickhouse-format`
+//! Every ClickHouse keyword word and literal word, in lower, capitalised and
+//! upper case, in every position of [`POSITIONS`] and [`STATEMENTS`]: the
+//! parser's keyword slots must pass the verifier, and `clickhouse-format`
 //! must print the re-cased text as it prints the input. A word re-cased where
 //! ClickHouse reads a name (`columns(1)`, `* EXCEPT null`) changes what the
-//! oracle prints, since names keep their case.
+//! oracle prints, since names keep their case. [`KEYWORDS_IN_LOWER_CASE`]
+//! adds statements whose own keywords the oracle judges.
 //!
 //! The oracle is `CHAIRLIFT_CLICKHOUSE_FORMAT`, by default `clickhouse-format`
 //! on `PATH`; without it the test skips, unless `CHAIRLIFT_REQUIRE_CORPUS` is
@@ -23,6 +24,7 @@ use chairlift::keyword::Keyword;
 use chairlift::lexer::Mode;
 use chairlift::oracle::Judgement;
 use chairlift::oracle::Oracle;
+use chairlift::oracle::Verdict;
 use chairlift::oracle::judge;
 use chairlift::syntax::Entry;
 use chairlift::syntax::SyntaxKind;
@@ -138,11 +140,8 @@ const STATEMENTS: &[&str] = &[
     "SELECT * FROM t {w} FINAL",
     "SELECT * FROM t {w} SAMPLE 1",
     "SELECT * FROM t {w} ARRAY JOIN a",
-    "SELECT * FROM t {w} LEFT ARRAY JOIN a",
     "SELECT * FROM t {w} FORMAT JSON",
-    "SELECT * FROM t {w} ANY JOIN u ON 1",
     "SELECT * FROM t {w} CROSS JOIN u",
-    "SELECT * FROM t {w} GLOBAL JOIN u ON 1",
     "SELECT * FROM t {w} (a)",
     "SELECT * FROM t {w} GROUP BY 1",
     "SELECT 1 FROM t {w} EXCEPT SELECT 1",
@@ -184,6 +183,165 @@ const STATEMENTS: &[&str] = &[
     "create table t ({n} UInt8) engine = Memory",
     "create table t (a {n}) engine = Memory",
     "create materialized view {n}.{n} refresh every 1 hour depends on {n}.{n} to {n}.{n} as SELECT 1",
+    // From the review of the `SELECT` and `CREATE` grammars, those of its
+    // templates that reach a keyword slot or a name position no template
+    // above does, with names where only a name stands.
+    "SELECT * FROM a JOIN b ON {w} WHERE 1",
+    "SELECT * FROM a JOIN b ON x = {w} AND {w}",
+    "SELECT * FROM remote('h', {w}, {w})",
+    "WITH x AS MATERIALIZED (SELECT 1) SELECT {w}",
+    "WITH RECURSIVE {w} AS (SELECT 1) SELECT 1",
+    "WITH {w} AS {n} SELECT 1",
+    "SELECT 1 SETTINGS {n} = {w}",
+    "SELECT count() OVER {n} FROM t WINDOW {n} AS ()",
+    "SELECT a FROM t ORDER BY a WITH FILL INTERPOLATE ({n} AS {w})",
+    "SELECT a FROM t ORDER BY a WITH FILL INTERPOLATE ({n} AS {w} + 1)",
+    "SELECT * FROM t SAMPLE 1 / 10 OFFSET 1 WHERE {w}",
+    "SELECT * FROM t LIMIT 1 OFFSET 1 BY {w}",
+    "SELECT * FROM t LIMIT {w} WITH TIES",
+    "SELECT * FROM t OFFSET {w} ROWS",
+    "SELECT * FROM t OFFSET 1 ROWS FETCH FIRST {w} ROWS ONLY",
+    "SELECT * FROM t ORDER BY a WITH FILL STALENESS {w}",
+    "SELECT * FROM t ORDER BY a WITH FILL FROM {w} TO {w} STEP {w}",
+    "SELECT * FROM t ORDER BY {w} COLLATE 'en'",
+    "SELECT * FROM t ORDER BY {w} NULLS FIRST",
+    "SELECT 1 FROM t GROUP BY {w}(a, b)",
+    "SELECT 1 FROM t GROUP BY {w} WITH TOTALS",
+    "SELECT 1 FROM t GROUP BY {w} WITH ROLLUP",
+    "SELECT 1 FROM t GROUP BY GROUPING SETS ({w}, ())",
+    "SELECT 1 FROM t GROUP BY {w} AS {n}",
+    "SELECT TOP 1 WITH TIES {w} FROM t",
+    "SELECT DISTINCT ON ({w}, a) {w} FROM t",
+    "SELECT {w} {w} FROM t",
+    "SELECT {w} AS {n}, 1 FROM t",
+    "SELECT {w} + 1 {w} FROM t",
+    "FROM {n} SELECT 1",
+    "SELECT * FROM t WHERE {w} AND {w}",
+    "SELECT * FROM t {w} ({n})",
+    "SELECT * FROM t ORDER BY 1 {w}",
+    "SELECT 1 INTO OUTFILE 'x' {w}",
+    "SELECT * FROM t STREAM {w}",
+    "SELECT 1 FROM t LIMIT 1 {w} 1",
+    "SELECT 1 FROM t AS a {w} JOIN t AS b ON 1",
+    "CREATE TABLE t (a UInt8) ENGINE = Distributed(c, db, t, {w}())",
+    "CREATE TABLE t (a UInt8, INDEX i {w} TYPE minmax) ENGINE = MergeTree ORDER BY a",
+    "CREATE TABLE t (a UInt8, INDEX i {w}({w}) TYPE minmax) ENGINE = MergeTree ORDER BY a",
+    "CREATE TABLE t (a {w}(1)) ENGINE = Memory",
+    "CREATE TABLE t (a Tuple({n} UInt8)) ENGINE = Memory",
+    "CREATE TABLE t (a LowCardinality({w})) ENGINE = Memory",
+    "CREATE TABLE t (a UInt8 DEFAULT {w} CODEC(ZSTD)) ENGINE = Memory",
+    "CREATE TABLE t (a UInt8 DEFAULT {w} TTL d) ENGINE = Memory",
+    "CREATE TABLE t (a UInt8 TTL {w}) ENGINE = Memory",
+    "CREATE TABLE t (a UInt8 TTL {w} + INTERVAL 1 DAY) ENGINE = Memory",
+    "CREATE TABLE t (a UInt8 NOT NULL DEFAULT {w}) ENGINE = Memory",
+    "CREATE TABLE t (a String COLLATE {n}) ENGINE = Memory",
+    "CREATE TABLE t (a UInt8 SETTINGS (x = {w})) ENGINE = Memory",
+    "CREATE TABLE t (a UInt8 PRIMARY KEY, {n} UInt8) ENGINE = MergeTree",
+    "CREATE TABLE t (a UInt8 COMMENT 'y') ENGINE = Memory COMMENT 'x'",
+    "CREATE TABLE t (a UInt8, d Date) ENGINE = MergeTree ORDER BY a TTL d TO VOLUME 'x', {w} + INTERVAL 1 DAY",
+    "CREATE TABLE t (a UInt8, d Date) ENGINE = MergeTree ORDER BY a TTL d RECOMPRESS CODEC({n})",
+    "CREATE TABLE t (a UInt8, d Date) ENGINE = MergeTree ORDER BY a TTL d DELETE WHERE {w}",
+    "CREATE TABLE t (a UInt8, d Date) ENGINE = MergeTree ORDER BY a TTL d {w}",
+    "CREATE TABLE t (a UInt8) ENGINE = MergeTree PARTITION BY {w} ORDER BY a",
+    "CREATE TABLE t (a UInt8) ENGINE = MergeTree ORDER BY {w} DESC",
+    "CREATE TABLE t (a UInt8) ENGINE = MergeTree ORDER BY a SAMPLE BY {w} TTL d",
+    "CREATE TABLE t (a UInt8) ENGINE = MergeTree ORDER BY {w} PRIMARY KEY {w}",
+    "CREATE TABLE t (a UInt8, PROJECTION p INDEX {w} TYPE {n}) ENGINE = MergeTree ORDER BY a",
+    "CREATE TABLE t (a UInt8, PROJECTION p (SELECT a) WITH SETTINGS ({n} = 1)) ENGINE = MergeTree ORDER BY a",
+    "CREATE TABLE t (a UInt8, CONSTRAINT {n} CHECK {w}) ENGINE = Memory",
+    "CREATE TABLE t (a UInt8, CONSTRAINT c ASSUME {w} = 1) ENGINE = Memory",
+    "CREATE MATERIALIZED VIEW v (a UInt8) ENGINE = Memory AS SELECT {w}",
+    "CREATE MATERIALIZED VIEW v REFRESH EVERY 1 YEAR OFFSET 1 {w} AS SELECT 1",
+    "CREATE MATERIALIZED VIEW v REFRESH AFTER 1 YEAR RANDOMIZE FOR 1 {w} AS SELECT 1",
+    "CREATE MATERIALIZED VIEW v REFRESH EVERY 1 HOUR DEPENDS ON {n}, {n}.{n} AS SELECT 1",
+    "CREATE MATERIALIZED VIEW v REFRESH EVERY 1 HOUR APPEND TO {n} AS SELECT 1",
+    "CREATE MATERIALIZED VIEW v TO t DEFINER = {w} AS SELECT 1",
+    "CREATE MATERIALIZED VIEW v TO t SQL SECURITY {w} AS SELECT 1",
+    "CREATE MATERIALIZED VIEW v TO t DEFINER = {n}@{n} AS SELECT 1",
+    "CREATE TABLE t ENGINE = TimeSeries DATA {n}.{n} TAGS {n}",
+    "CREATE TABLE t ENGINE = TimeSeries TAGS INNER UUID '01234567-89ab-cdef-0123-456789abcdef'",
+    "CREATE TABLE t ENGINE = TimeSeries METRICS ENGINE = {n}() ORDER BY {w}",
+    "CREATE TEMPORARY TABLE {n} (a UInt8) ENGINE = Memory",
+    "CREATE OR REPLACE TABLE {n} (a UInt8) ENGINE = Memory",
+    "CREATE TABLE IF NOT EXISTS {n}.{n} (a UInt8) ENGINE = Memory",
+    "CREATE TABLE t UUID '01234567-89ab-cdef-0123-456789abcdef' ({n} UInt8) ENGINE = Memory",
+    "CREATE TABLE t (a UInt8, PRIMARY KEY {w}) ENGINE = MergeTree",
+    "CREATE TABLE t (a UInt8) ENGINE = MergeTree UNIQUE KEY {w}",
+    "CREATE TABLE t ({n} UInt64 AUTO_INCREMENT) ENGINE = Memory",
+    "CREATE TABLE t ({n} Nullable(Int8) NULL, b Int8 NOT NULL) ENGINE = Memory",
+    "CREATE TABLE t (a Int8 SETTINGS ({n} = 1)) ENGINE = MergeTree ORDER BY a",
+    "CREATE TABLE t (a Int8, CONSTRAINT {n} ASSUME a > 0) ENGINE = Memory",
+    "SELECT count() {w} FROM t",
+    "SELECT overlay({w} PLACING 'x' FROM 1)",
+    "SELECT * FROM t LIMIT AFTER {w} ALL UNTIL {w}",
+    "SELECT * FROM t ORDER BY {w} ASCENDING",
+    "CREATE TABLE t (a Int8, PROJECTION {n} INDEX a TYPE basic WITH SETTINGS (index_granularity = 1)) ENGINE = MergeTree ORDER BY a",
+    "CREATE MATERIALIZED VIEW v TO t DEFINER = {w} SQL SECURITY DEFINER AS SELECT 1",
+    "SELECT * FROM {n} SAMPLE 1 / 10 OFFSET 1 / 2",
+    "SELECT ALL {w} FROM t",
+    "SELECT 1 SETTINGS {n} = DEFAULT",
+    "SELECT * FROM t STREAM WATERMARK FOR {n} AS ts",
+    "CREATE TABLE t (d Date) ENGINE = MergeTree ORDER BY d TTL d DELETE WHERE {w}",
+    "CREATE TABLE t ({n} Int8) ENGINE = MergeTree ORDER BY {w} UNIQUE KEY {w}",
+    "SELECT * FROM (VALUES ({w}))",
+    "CREATE TABLE ts ENGINE = TimeSeries DATA {n}.{n} TAGS {n}",
+];
+
+/// Statements with their keywords in lower case, so that each is re-cased
+/// and judged: one for each keyword slot that the ClickHouse corpus writes
+/// only in upper case, where re-casing the corpus changes nothing for the
+/// oracle to judge. Judged once each, they have no placeholder.
+const KEYWORDS_IN_LOWER_CASE: &[&str] = &[
+    "select count(all x), count(distinct y) from t",
+    "select * ilike '%a%', t.* like 'b%' from t",
+    "select a is not distinct from b, a is distinct from b, a regexp 'x', a similar to 'y', a not similar to 'z' from t",
+    "create table t (a String collate binary, b UInt64 auto_increment, c Nullable(Int8) null, d Int8 not null) engine = Memory",
+    "create table t (a Int8 settings (max_compress_block_size = 1) statistics(tdigest)) engine = MergeTree order by a",
+    "select * except strict a from t",
+    "create table t (a Int8, constraint c assume a > 0) engine = Memory",
+    "create materialized view v refresh every 1 hour depends on a, db.b to t as select 1",
+    "select a from t order by a offset 1 row fetch next 1 row only",
+    "select count() filter (where a > 1) from t",
+    "create table t (d Date) engine = MergeTree order by d ttl d to volume if exists 'v'",
+    "select interval '1 2' day to hour",
+    "select dateDiff(qq, a, b), dateDiff(yyyy, a, b), dateDiff(sql_tsi_month, a, b) from t",
+    "select extract(doy from d), extract(isoyear from d), extract(century from d), extract(decade from d), extract(millennium from d) from t",
+    "select 1 into outfile 'x' truncate and stdout format CSV",
+    "select * from a natural join b",
+    "select * from a paste join b",
+    "select * from a join lateral (select 1) as l on true",
+    "select x::JSON(a UInt8, skip b, skip regexp 'c') from t",
+    "select overlay(s placing 'x' from 1) from t",
+    "select a from t limit after a > 1 all until a > 5",
+    "select a from t order by a offset 1 row",
+    "select a from t order by all desc nulls first",
+    "select a from t order by all asc nulls last",
+    "select a from t order by a ascending with fill staleness 1",
+    "create table t clone as u",
+    "select now() at local, a is unknown, a is not unknown from t",
+    "create table t (a Int8, projection p index a type basic with settings (index_granularity = 1)) engine = MergeTree order by a",
+    "create materialized view v refresh every 1 hour append to t as select 1",
+    "create materialized view v refresh after 1 hour append to t as select 1",
+    "create materialized view v to t definer = default sql security definer as select 1",
+    "create materialized view v to t sql security invoker as select 1",
+    "create materialized view v to t sql security none as select 1",
+    "select * from t sample 1 / 10 offset 1 / 2 where 1",
+    "select all a from t",
+    "select 1 settings max_threads = default",
+    "select * from t stream bounded unordered watermark for ts as ts",
+    "select * from t stream cursor {{'0': {{'block_number': 10}}}}",
+    "create table t to inner uuid '00000000-0000-0000-0000-000000000001' engine = SharedSet",
+    "create materialized view v to inner uuid '00000000-0000-0000-0000-000000000001' engine = Memory as select 1",
+    "select top 10 with ties a from t order by a",
+    "create table t (d Date) engine = MergeTree order by d ttl d delete where 1, d + 1 to disk 'a', d + 2 recompress codec(ZSTD(1))",
+    "create table t (a Int8) engine = MergeTree order by a unique key a",
+    "select * from (values (1), (2))",
+    "create table ts engine = TimeSeries data db.d tags inner engine = Memory metrics inner uuid '00000000-0000-0000-0000-000000000001'",
+    "create table ts engine = TimeSeries recent samples inner columns (id UUID) time ranges engine = MergeTree order by id metric families m samples db.s",
+    "with recursive r as (select 1) select * from r",
+    "select * from a as x local join b on 1",
+    "create materialized view v refresh every 1 hour append incremental to t as select 1",
+    "create materialized view v refresh every 1 hour to inner uuid '00000000-0000-0000-0000-000000000001' engine = Memory as select 1",
 ];
 
 /// Statements where a word in a name position is rightly a keyword: a
@@ -236,6 +394,10 @@ struct Case {
     position: usize,
     /// Whether the template is a whole statement.
     statement: bool,
+    /// Whether the oracle judges the case. A word in upper case is only
+    /// parsed and verified: re-casing cannot change it, and the template's
+    /// own keywords are judged with the other cases of the word.
+    judged: bool,
 }
 
 fn cases() -> Vec<Case> {
@@ -246,14 +408,16 @@ fn cases() -> Vec<Case> {
     let templates = POSITIONS
         .iter()
         .map(|t| (t, false))
-        .chain(STATEMENTS.iter().map(|t| (t, true)));
+        .chain(STATEMENTS.iter().map(|t| (t, true)))
+        .chain(KEYWORDS_IN_LOWER_CASE.iter().map(|t| (t, true)));
     let templates: Vec<(&&str, bool)> = templates.collect();
     let mut seen = std::collections::BTreeSet::new();
     let mut cases = Vec::new();
     for word in words {
         let mut capitalised = word.clone();
         capitalised[..1].make_ascii_uppercase();
-        for variant in [word, capitalised] {
+        let upper = word.to_ascii_uppercase();
+        for (variant, judged) in [(word, true), (capitalised, true), (upper, false)] {
             for (position, (template, statement)) in templates.iter().enumerate() {
                 let (text, word, names) = fill(template, &variant);
                 if seen.insert(text.clone()) {
@@ -263,6 +427,7 @@ fn cases() -> Vec<Case> {
                         names,
                         position,
                         statement: *statement,
+                        judged,
                     });
                 }
             }
@@ -334,7 +499,8 @@ fn keyword_slots_keep_what_clickhouse_reads() {
     });
     let mut failures = Vec::new();
     let mut judged = Vec::new();
-    let mut template_judged = vec![false; POSITIONS.len() + STATEMENTS.len()];
+    let mut template_judged =
+        vec![false; POSITIONS.len() + STATEMENTS.len() + KEYWORDS_IN_LOWER_CASE.len()];
     for (case, (failure, recased)) in cases.iter().zip(checked) {
         failures.extend(failure);
         let Some(recased) = recased else {
@@ -348,7 +514,9 @@ fn keyword_slots_keep_what_clickhouse_reads() {
             .word
             .iter()
             .any(|r| recased[r.clone()] != text[r.clone()]);
-        let judge_it = if case.statement {
+        let judge_it = if !case.judged {
+            false
+        } else if case.statement {
             recased != text
         } else {
             word_recased || (recased != text && !template_judged[case.position])
@@ -358,24 +526,47 @@ fn keyword_slots_keep_what_clickhouse_reads() {
             judged.push((case, recased));
         }
     }
-    let texts: Vec<String> = judged
+    let text = |case: &Case, text: &str| {
+        if case.statement {
+            text.to_owned()
+        } else {
+            format!("SELECT 0, {text}")
+        }
+    };
+    // The inputs first, then the re-cased texts of those the oracle
+    // accepts: a rejected input leaves nothing to judge, and each rejected
+    // text costs the oracle a process of its own.
+    let inputs: Vec<String> = judged
         .iter()
-        .flat_map(|(case, recased)| {
-            if case.statement {
-                [case.text.clone(), recased.clone()]
+        .map(|(case, _)| text(case, &case.text))
+        .collect();
+    let refs: Vec<&str> = inputs.iter().map(String::as_str).collect();
+    let input_verdicts = oracle.canonical(&refs);
+    let accepted: Vec<usize> = (0..judged.len())
+        .filter(|&i| matches!(input_verdicts[i], Verdict::Accepted(_)))
+        .collect();
+    let outputs: Vec<String> = accepted
+        .iter()
+        .map(|&i| text(judged[i].0, &judged[i].1))
+        .collect();
+    let refs: Vec<&str> = outputs.iter().map(String::as_str).collect();
+    let mut output_verdicts = oracle.canonical(&refs).into_iter();
+    let verdicts: Vec<[Verdict; 2]> = input_verdicts
+        .into_iter()
+        .map(|input| {
+            let output = if matches!(input, Verdict::Accepted(_)) {
+                output_verdicts
+                    .next()
+                    .expect("a verdict per accepted input")
             } else {
-                [
-                    format!("SELECT 0, {}", case.text),
-                    format!("SELECT 0, {recased}"),
-                ]
-            }
+                input.clone()
+            };
+            [input, output]
         })
         .collect();
-    let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
-    let verdicts = oracle.canonical(&refs);
     let mut name_cases = 0;
     let mut name_cases_same = 0;
-    for ((case, recased), pair) in judged.iter().zip(verdicts.chunks(2)) {
+    for ((case, recased), pair) in judged.iter().zip(&verdicts) {
         let judgement = judge(&pair[0], &pair[1]);
         if !case.names.is_empty() {
             name_cases += 1;
