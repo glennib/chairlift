@@ -45,6 +45,11 @@ description = "Run the tests that read the fetched corpus or run clickhouse-form
 env = { CHAIRLIFT_REQUIRE_CORPUS = "1" }
 run = "cargo nextest run --all-features --test corpus --test keywords --test lexer --test oracle --test keyword_positions"
 
+[tasks."test:templates"]
+description = "Run tests/template_properties.rs on many generated templates and queries (release build)"
+env = { CHAIRLIFT_TEMPLATE_CASES = "50000" }
+run = "cargo nextest run --release --all-features --test template_properties"
+
 [tasks."test:keyword-positions"]
 description = "Put every keyword and literal word in every position of tests/keyword_positions.rs, and check the re-cased keyword slots with verify and clickhouse-format; fails instead of skipping without clickhouse-format"
 env = { CHAIRLIFT_REQUIRE_CORPUS = "1" }
