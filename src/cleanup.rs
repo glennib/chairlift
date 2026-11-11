@@ -194,11 +194,20 @@ fn inside_rendered_tokens(
     // it, and the rendered SQL can have an `INSERT` the template's tokens do
     // not show (`{{ verb }} INTO t FORMAT CSV`). A statement with data, or
     // with a `FORMAT` and a head that can render as `INSERT`, stays as it
-    // is, with the whitespace after it.
+    // is, with the whitespace after it: unless the template's own tokens
+    // hold the same data, and no block or comment tag in the statement can
+    // make another render differ, so that the layout sees the data every
+    // render has.
     let rendered_tokens = rendered_split.tokens();
     let word = |t: &Token, w: &str| {
         t.kind() == TokenKind::BareWord && t.text(&text).eq_ignore_ascii_case(w)
     };
+    let template_data: std::collections::HashSet<(usize, usize)> = template
+        .statements()
+        .iter()
+        .filter_map(|s| s.data)
+        .map(|d| (tokens[d.token].start(), tokens[d.token].end()))
+        .collect();
     for statement in rendered_split.statements() {
         let range = statement.tokens.clone();
         let has_format = rendered_tokens[range.clone()]
@@ -218,6 +227,17 @@ fn inside_rendered_tokens(
             .map_or(range.end, |_| range.end + 1);
         let start = to_source(rendered_tokens[range.start].start());
         let end = to_source(rendered_tokens[after - 1].end() - 1) + 1;
+        let same_data = statement.data.is_some_and(|d| {
+            let data = rendered_tokens[d.token];
+            let from = to_source(data.start());
+            let to = to_source(data.end() - 1) + 1;
+            template_data.contains(&(from, to))
+        });
+        let tags = jinja::tags(&source[start..end])
+            .any(|t| matches!(t.kind, TagKind::Block | TagKind::Comment));
+        if same_data && !tags {
+            continue;
+        }
         let first = tokens.partition_point(|t| t.end() <= start);
         let last = tokens.partition_point(|t| t.start() < end);
         kept[first..last].fill(true);
