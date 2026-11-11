@@ -5,20 +5,32 @@
 //! in lower case) and from the text itself. `tests/doc_golden.rs` builds the
 //! same documents by hand.
 
+use std::collections::HashSet;
+
 use chairlift::Options;
 use chairlift::lexer::Mode;
 use chairlift::lexer::Token;
 use chairlift::lexer::TokenKind;
 use chairlift::lexer::tokenize;
+use chairlift::syntax::SyntaxKind;
 
 #[path = "support/proposal.rs"]
 mod proposal;
 
 /// The expected text with its line breaks made spaces, except where a
 /// blank line is and next to comments and block tags, and its upper-case
-/// keywords in lower case.
+/// keywords in lower case: the words in keyword slots, which the formatter
+/// re-cases, and not a type name such as `UUID` or the words of a statement
+/// it keeps as written.
 fn flatten(expected: &str, mode: Mode) -> String {
     let tokens = tokenize(expected, mode);
+    let slots: HashSet<usize> = chairlift::syntax::parse(expected, mode)
+        .syntax()
+        .descendants_with_tokens()
+        .filter_map(rowan::NodeOrToken::into_token)
+        .filter(|t| t.kind() == SyntaxKind::Keyword)
+        .map(|t| usize::from(t.text_range().start()))
+        .collect();
     let breaks = |t: Option<&Token>| {
         t.is_some_and(|t| t.kind().is_comment() || t.kind() == TokenKind::JinjaBlock)
     };
@@ -37,7 +49,8 @@ fn flatten(expected: &str, mode: Mode) -> String {
                 }
             }
             TokenKind::BareWord
-                if token.keyword().is_some() && text.bytes().all(|b| !b.is_ascii_lowercase()) =>
+                if slots.contains(&token.start())
+                    && text.bytes().all(|b| !b.is_ascii_lowercase()) =>
             {
                 out.push_str(&text.to_ascii_lowercase());
             }
