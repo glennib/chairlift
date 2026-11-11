@@ -87,6 +87,10 @@ pub(crate) mod flag {
     /// A token in or after `INSERT` data whose extent the rendering of the
     /// template can change (see [`Rendered::data`](crate::cleanup::Rendered)).
     pub(crate) const TEMPLATE_DATA: u16 = 1 << 5;
+    /// A [`HIDDEN_TAG`] in a string, quoted identifier, heredoc or comment,
+    /// or in a word with a `$`: a render can make whitespace outside the
+    /// token part of a literal (see [`Kept::HiddenTag`](super::super::Kept)).
+    pub(crate) const HIDDEN_IN_LITERAL: u16 = 1 << 6;
 }
 
 /// Facts about one node.
@@ -152,7 +156,7 @@ impl Tree {
                     let kind = ClickHouse::kind_from_raw(t.kind());
                     let mut flags = token_flags(source, tokens, i, kind, parent, joined, free);
                     if !jinja {
-                        flags &= !flag::HIDDEN_TAG;
+                        flags &= !(flag::HIDDEN_TAG | flag::HIDDEN_IN_LITERAL);
                     }
                     info[id as usize].flags |= flags;
                     if data.get(i).copied().unwrap_or(false) {
@@ -263,6 +267,9 @@ fn token_flags(
             let text = tokens[i].text(source);
             if has_hidden_tag(text) && !super::inner::contained(text, tokens[i].kind()) {
                 flags |= flag::HIDDEN_TAG;
+                if tokens[i].kind() != TokenKind::BareWord || text.contains('$') {
+                    flags |= flag::HIDDEN_IN_LITERAL;
+                }
             }
         }
     }

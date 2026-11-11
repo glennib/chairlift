@@ -236,6 +236,11 @@ impl<'s> Writer<'s> {
         self.tokens[index].text(self.source)
     }
 
+    /// How many tokens the text has.
+    pub(crate) fn token_count(&self) -> usize {
+        self.tokens.len()
+    }
+
     /// The lexer's kind of token `index`.
     pub(crate) fn token_kind(&self, index: usize) -> TokenKind {
         self.tokens[index].kind()

@@ -68,7 +68,8 @@ use crate::split::split;
 /// that runs to the end of the text gets no final newline, and such data that
 /// ends at a blank line keeps it. Text the parser finds ClickHouse reads as
 /// written, such as the left operand of `[1,2]::Array(UInt8)`, keeps its
-/// whitespace too.
+/// whitespace too. A template that a render can turn into a string, heredoc
+/// or comment around whitespace between its tokens is returned unchanged.
 ///
 /// The result is checked to hold every token of `source` once, in order,
 /// and [verified](verify) against `source` before it is returned.
@@ -123,7 +124,11 @@ pub fn format_with_statements(
     let parse = syntax::parse_split(source, &split, syntax::Entry::File);
     let layout = layout::layout(source, &split, &parse, mode);
     layout.doc.check_tokens()?;
-    let output = layout.doc.print(&doc::PrintOptions::from(options));
+    let output = if layout.unchanged {
+        source.to_owned()
+    } else {
+        layout.doc.print(&doc::PrintOptions::from(options))
+    };
     if too_large(output.len()) {
         return Err(Error::TooLarge { len: output.len() });
     }

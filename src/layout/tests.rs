@@ -739,6 +739,64 @@ fn jinja_shapes_the_layout_does_not_cover_are_kept_as_written() {
     );
 }
 
+/// Checks that each render of `source` and of `output`, its formatted text,
+/// holds the same SQL.
+#[cfg(feature = "template")]
+fn assert_renders_agree(source: &str, output: &str) {
+    let (before, after) = (
+        crate::template::render(source),
+        crate::template::render(output),
+    );
+    assert_eq!(before.variants.len(), after.variants.len(), "{source:?}");
+    for (a, b) in before.variants.iter().zip(&after.variants) {
+        if let (Ok(a), Ok(b)) = (&a.text, &b.text) {
+            assert_eq!(crate::template::compare_sql(a, b), Ok(()), "{source:?}");
+        }
+    }
+}
+
+/// A render that leaves out a branch can put whitespace between the
+/// template's tokens inside a string, so none of it may change.
+#[test]
+fn a_text_with_a_tag_hidden_in_a_token_is_kept_byte_for_byte() {
+    // With `x` false the string runs from `'a` to `c'`, over the spaces at
+    // the end of the first line and the blank lines.
+    let source =
+        "select 'a{% if x %}', 1 {% endif %}   ,   \n\n\n  b, {% if x %}'{% endif %}c' from t\n";
+    assert_eq!(jinja(source), source);
+    assert_eq!(decisions(source, true), [Decision::Kept(Kept::HiddenTag)]);
+    #[cfg(feature = "template")]
+    assert_renders_agree(source, &jinja(source));
+}
+
+/// A heredoc or comment that only a render other than the one with every
+/// branch taken opens holds whitespace between the template's tokens.
+#[test]
+fn a_delimiter_a_render_can_pair_keeps_the_text_byte_for_byte() {
+    for source in [
+        // Run twice, the loop renders `$h$` and `$h$` around a line break.
+        "select\n{% for i in xs %}\n  $h$\n{% endfor %}\nfrom t\n",
+        "select 1,\n{% for i in xs %}\n  $$\n{% endfor %}\n  2   \n  , 3\n",
+        // With `x` false, `/` meets `*`: a comment over the blank lines.
+        "select a /{%- if x %} b {% else -%}* c   \n\n\n  d */ from t {% endif %}\n",
+        "select a -{%- if x %} b {% else -%}- c   \n, d {% endif %}\n",
+    ] {
+        assert_eq!(jinja(source), source);
+    }
+    assert_eq!(
+        decisions(
+            "select\n{% for i in xs %}\n  $h$\n{% endfor %}\nfrom t\n",
+            true
+        ),
+        [Decision::Kept(Kept::RenderDelimiter)]
+    );
+    // Where the template's tokens pair it, a heredoc is one token.
+    assert_eq!(
+        jinja("select $h$ a\n  b $h$, {% if x %} c {% endif %}"),
+        "SELECT\n    $h$ a\n  b $h$,\n    {% if x %}\n    c\n    {% endif %}\n"
+    );
+}
+
 /// A line comment that the rendering can make run on into text the layout
 /// moves leaves the whole text as it is: what it swallows could change in
 /// renders the verifier does not check.

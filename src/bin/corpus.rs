@@ -1454,7 +1454,7 @@ fn parse_summary(corpora: &[Corpus], records: &[Record], transform: Transform) -
 
 /// The reasons a statement is kept as written, as the layout table's
 /// columns.
-const KEPT: [Kept; 7] = [
+const KEPT: [Kept; 8] = [
     Kept::NotParsed,
     Kept::NoRule,
     Kept::TagPlace,
@@ -1462,6 +1462,7 @@ const KEPT: [Kept; 7] = [
     Kept::RenderJoined,
     Kept::TemplateData,
     Kept::HiddenTag,
+    Kept::RenderDelimiter,
 ];
 
 /// What the layout did: statements laid out and kept as written, per kind,

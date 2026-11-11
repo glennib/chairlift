@@ -210,12 +210,11 @@ fn whitespace_after_a_tag_that_renders_nothing() {
 /// rendered SQL; the whitespace inside it is then the literal's text.
 #[test]
 fn whitespace_inside_a_rendered_literal() {
-    // Two words in the template, one heredoc once rendered.
+    // Two words in the template, one heredoc once rendered: a render that
+    // leaves out the branch can pair the second `$x$` with another, so the
+    // text stays as it is.
     let heredoc = "SELECT {% if a %}$x$ \n\n\n {% endif %}$x$  \n";
-    assert_eq!(
-        fmt_in(heredoc, true),
-        "SELECT {% if a %}$x$ \n\n\n {% endif %}$x$\n"
-    );
+    assert_eq!(fmt_in(heredoc, true), heredoc);
     // `/` and `*` in the template, a block comment once rendered.
     let comment = "SELECT 1 /{# c #}* x  \r\n\n\n *{# c #}/ + 2  \n";
     assert_eq!(

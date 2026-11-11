@@ -54,6 +54,7 @@ pub(crate) fn joinable(source: &str, tokens: &[Token]) -> Vec<bool> {
             tokens,
             blocks,
             word: i,
+            comment: false,
         };
         out[i] = after.is_some_and(|k| search.meets(k, Side::After))
             || before.is_some_and(|k| search.meets(k, Side::Before));
@@ -96,11 +97,93 @@ pub(crate) fn free_punctuation(source: &str, tokens: &[Token]) -> Vec<bool> {
             tokens,
             blocks,
             word: i,
+            comment: false,
         };
         out[i] = !(before.is_some_and(|k| search.meets(k, Side::Before))
             || after.is_some_and(|k| search.meets(k, Side::After)));
     }
     out
+}
+
+/// Whether a template with block tags has a `$` the lexer did not pair into a
+/// heredoc, which can open one: a `$` of its own that a render can put
+/// against a word or another `$`, or one that starts a bare word or follows
+/// a tag in a run of tags glued to text (`$tag$`, `{{ x }}$$`). A render
+/// that runs a loop twice, or leaves out a branch, can pair it with another,
+/// and the whitespace between them is then the heredoc's text.
+pub(crate) fn unpaired_heredoc(source: &str, tokens: &[Token]) -> bool {
+    if !source.contains("{%") {
+        return false;
+    }
+    tokens.iter().enumerate().any(|(i, t)| match t.kind() {
+        TokenKind::DollarSign => tokens.get(i + 1).is_none_or(|next| {
+            matches!(
+                next.kind(),
+                TokenKind::Whitespace | TokenKind::JinjaBlock | TokenKind::JinjaComment
+            ) || next.text(source).starts_with('$')
+        }),
+        TokenKind::BareWord | TokenKind::JinjaExpr => {
+            let text = t.text(source);
+            let mut from = 0;
+            for tag in jinja::tags(text) {
+                if text[from..tag.range.start].starts_with('$') {
+                    return true;
+                }
+                from = tag.range.end;
+            }
+            text[from..].starts_with('$')
+        }
+        _ => false,
+    })
+}
+
+/// Whether a render of a template can put a `-` or `/` directly against a
+/// token beyond a block tag that makes a comment of the two, `-` `-` or `/`
+/// `*`: a comment the template's tokens do not show, whose text can hold
+/// whitespace the layout changes.
+pub(crate) fn comment_formed(source: &str, tokens: &[Token]) -> bool {
+    if !(source.contains("{%") || source.contains("{#")) {
+        return false;
+    }
+    let mut blocks = None;
+    for (i, token) in tokens.iter().enumerate() {
+        if !matches!(token.kind(), TokenKind::Minus | TokenKind::Slash) {
+            continue;
+        }
+        // A Jinja comment renders nothing in every render, so what it joins
+        // the render with every branch taken shows.
+        let Some(after) = next_solid(tokens, i + 1).filter(|&k| {
+            tokens[k].kind() == TokenKind::JinjaBlock
+                && (k == i + 1 || strips_before(source, tokens[k]))
+        }) else {
+            continue;
+        };
+        let blocks = blocks.get_or_insert_with(|| Blocks::new(source, tokens));
+        let search = Search {
+            source,
+            tokens,
+            blocks,
+            word: i,
+            comment: true,
+        };
+        if search.meets(after, Side::After) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether `left` and `right`, touching, start a comment that reaches into
+/// `right`.
+fn opens_comment(left: &str, right: &str) -> bool {
+    let joined = format!("{left}{right}");
+    crate::lexer::tokenize(&joined, Mode::Sql)
+        .first()
+        .is_some_and(|t| {
+            t.end() > left.len()
+                && (matches!(t.kind(), TokenKind::LineComment | TokenKind::BlockComment)
+                    || t.kind().is_error())
+        })
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -117,6 +200,9 @@ struct Search<'a> {
     blocks: &'a Blocks,
     /// The token next to the tags searched from: a word, or punctuation.
     word: usize,
+    /// What counts as meeting: a token that opens a comment with the word,
+    /// rather than any the word does not stay apart from.
+    comment: bool,
 }
 
 impl Search<'_> {
@@ -158,6 +244,7 @@ impl Search<'_> {
                     (self.tokens[n].kind(), self.tokens[n].text(self.source)),
                 );
                 let apart = match side {
+                    Side::After if self.comment => !opens_comment(word.1, other.1),
                     Side::After => can_touch(Mode::Sql, None, word, other),
                     Side::Before => can_touch(Mode::Sql, None, other, word),
                 };

@@ -112,9 +112,18 @@
 //!   ([`Kept::TagTouching`]), text the render with every branch taken joins
 //!   into one token ([`Kept::RenderJoined`]), `INSERT … FORMAT` data whose
 //!   extent a branch can change and what follows it up to a blank line every
-//!   render keeps ([`Kept::TemplateData`]); a whole text for a block or
-//!   comment tag inside another token whose block reaches outside it
-//!   ([`Kept::HiddenTag`], see `inner`).
+//!   render keeps ([`Kept::TemplateData`]). A whole text is kept as written
+//!   for a block or comment tag inside another token whose block reaches
+//!   outside it ([`Kept::HiddenTag`], see `inner`). The text is left as it
+//!   is, byte for byte, where that token is a literal or comment (or a word
+//!   with a `$`), and for a `$`, `-` or `/` from which a
+//!   render can open a heredoc or comment the template's tokens do not show
+//!   ([`Kept::RenderDelimiter`], see `joins`): a render that leaves out a
+//!   branch or repeats a loop can then put any of its whitespace inside a
+//!   string, heredoc or comment. Those are the only ways a render forms a
+//!   token with whitespace inside across the template's tokens, other than
+//!   the joins the render with every branch taken shows, whose whitespace
+//!   stays as it is too.
 //! - A word that a render can join to a token beyond a block tag keeps its
 //!   case (see `joins`), and a text in which a render can make a line
 //!   comment run on is refused (see `comment_end`).
@@ -203,8 +212,16 @@ pub enum Kept {
     /// The text has a Jinja block or comment tag inside a comment, string
     /// or word, whose branches the layout cannot see: one whose block
     /// reaches outside that token, or whose render can change where the
-    /// token ends.
+    /// token ends. Where that token is a string, quoted identifier,
+    /// heredoc or comment, or a word with a `$`, the whole text is kept byte
+    /// for byte.
     HiddenTag,
+    /// The text has a `$` that the template's tokens leave unpaired, or a
+    /// `-` or `/` that a render can put against a `-` or `*` beyond a block
+    /// tag: a render that leaves out a branch or runs a loop more than once
+    /// can then open a heredoc or comment that the template's tokens do not
+    /// show. The whole text is kept byte for byte.
+    RenderDelimiter,
 }
 
 impl Decision {
@@ -231,6 +248,7 @@ impl Kept {
             Kept::RenderJoined => "render_joined",
             Kept::TemplateData => "template_data",
             Kept::HiddenTag => "hidden_tag",
+            Kept::RenderDelimiter => "render_delimiter",
         }
     }
 }
@@ -239,6 +257,10 @@ impl Kept {
 pub(crate) struct Layout<'s> {
     pub(crate) doc: Doc<'s>,
     pub(crate) statements: Vec<Statement>,
+    /// The text is to be left as it is, byte for byte, its ends included: a
+    /// render can put any of its whitespace inside a literal or comment, and
+    /// one that never closes runs to the end.
+    pub(crate) unchanged: bool,
 }
 
 /// The document [`format`](crate::format) prints for `source`, which
@@ -276,9 +298,19 @@ pub(crate) fn layout<'s>(
     let root = Tree::root(syntax.green());
     let mut w = Writer::new(source, tokens, mode, tree);
     let (parts, _) = w.parts_and_tail(&root);
-    let keep_all = w.has(&root, flag::HIDDEN_TAG).then_some(Kept::HiddenTag);
+    let delimiter = mode == Mode::Jinja
+        && (joins::unpaired_heredoc(source, tokens) || joins::comment_formed(source, tokens));
+    let (keep_all, keep) = if w.has(&root, flag::HIDDEN_IN_LITERAL) {
+        (Some(Kept::HiddenTag), Keep::Exact)
+    } else if delimiter {
+        (Some(Kept::RenderDelimiter), Keep::Exact)
+    } else if w.has(&root, flag::HIDDEN_TAG) {
+        (Some(Kept::HiddenTag), Keep::Cleanup)
+    } else {
+        (None, Keep::Statements)
+    };
     let plan = file::plan(&w, &parts, keep_all);
-    freeze(&mut w, &plan, &rendered, parse, keep_all.is_some(), &free);
+    freeze(&mut w, &plan, &rendered, parse, keep, &free);
     file::root(&mut w, &root, &plan);
     let ending = ending(source, split, rendered.open_data);
     w.b.set_ending(ending);
@@ -286,31 +318,44 @@ pub(crate) fn layout<'s>(
     Layout {
         doc: w.b.finish(),
         statements,
+        unchanged: keep == Keep::Exact,
     }
 }
 
-/// Freezes the whitespace that must stay as it is: in statements kept as
-/// written, and everywhere in a text all of whose statements are kept for
-/// what it holds (`keep_all`), what the safe cleanup keeps; everywhere,
-/// what the rendered template joins into other tokens, and a tag and the
-/// token it touches.
+/// What [`freeze`] keeps of a text's whitespace.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Keep {
+    /// What the safe cleanup keeps in the statements kept as written.
+    Statements,
+    /// What the safe cleanup keeps, everywhere: a text all of whose
+    /// statements are kept for a tag hidden in a word.
+    Cleanup,
+    /// All of it: a text whose renders can put any of its whitespace inside
+    /// a literal or comment ([`Kept::HiddenTag`] in a literal,
+    /// [`Kept::RenderDelimiter`]).
+    Exact,
+}
+
+/// Freezes the whitespace that must stay as it is: what `keep` says;
+/// everywhere, what the rendered template joins into other tokens, and a
+/// tag and the token it touches.
 fn freeze(
     w: &mut Writer<'_>,
     plan: &[file::Planned],
     rendered: &crate::cleanup::Rendered,
     parse: &Parse,
-    keep_all: bool,
+    keep: Keep,
     free: &[bool],
 ) {
-    let mut frozen: Vec<bool> = if keep_all {
-        rendered.kept.clone()
-    } else {
-        rendered
+    let mut frozen: Vec<bool> = match keep {
+        Keep::Exact => vec![true; w.token_count()],
+        Keep::Cleanup => rendered.kept.clone(),
+        Keep::Statements => rendered
             .inside
             .iter()
             .zip(&rendered.data)
             .map(|(a, b)| *a || *b)
-            .collect()
+            .collect(),
     };
     // The token ranges of the statements kept as written, in order.
     let kept: Vec<(usize, usize)> = plan
