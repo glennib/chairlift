@@ -37,41 +37,36 @@ fn candidate(p: &Parser<'_>) -> bool {
     {
         return false;
     }
-    let mut depth = 0usize;
+    // Outside brackets: each step crosses a bracket group whole.
     let mut n = 1;
     while let Some(kind) = p.nth(n) {
-        if fallback::is_opener(kind) {
-            depth += 1;
-        } else if fallback::is_closer(kind) {
-            depth = depth.saturating_sub(1);
-        } else if depth == 0
-            && (kind == T::PipeOperator
-                || matches!(
-                    p.nth_keyword(n),
-                    Some(
-                        K::From
-                            | K::Where
-                            | K::Prewhere
-                            | K::Group
-                            | K::Having
-                            | K::Order
-                            | K::Limit
-                            | K::Offset
-                            | K::Settings
-                            | K::Format
-                            | K::Union
-                            | K::Except
-                            | K::Intersect
-                            | K::Into
-                            | K::Window
-                            | K::Qualify
-                            | K::With
-                    )
-                ))
+        if kind == T::PipeOperator
+            || matches!(
+                p.nth_keyword(n),
+                Some(
+                    K::From
+                        | K::Where
+                        | K::Prewhere
+                        | K::Group
+                        | K::Having
+                        | K::Order
+                        | K::Limit
+                        | K::Offset
+                        | K::Settings
+                        | K::Format
+                        | K::Union
+                        | K::Except
+                        | K::Intersect
+                        | K::Into
+                        | K::Window
+                        | K::Qualify
+                        | K::With
+                )
+            )
         {
             return false;
         }
-        n += 1;
+        n += p.step_len(n);
     }
     true
 }

@@ -153,29 +153,13 @@ fn is_direction(p: &Parser<'_>, n: usize) -> bool {
 /// direction there follows an operand and precedes `,` or `)`, which a
 /// column called `desc` does not.
 fn at_order_by_tuple(p: &Parser<'_>) -> bool {
-    let mut n = usize::from(p.nth_text(0) == "tuple" && p.nth_at(1, T::OpeningRoundBracket));
-    if !p.nth_at(n, T::OpeningRoundBracket) {
-        return false;
-    }
-    let mut depth = 0usize;
-    while let Some(kind) = p.nth(n) {
-        if fallback::is_opener(kind) {
-            depth += 1;
-        } else if fallback::is_closer(kind) {
-            depth = depth.saturating_sub(1);
-            if depth == 0 {
-                return false;
-            }
-        } else if depth == 1
-            && is_direction(p, n)
-            && !matches!(p.nth(n - 1), Some(T::OpeningRoundBracket | T::Comma))
-            && matches!(p.nth(n + 1), Some(T::Comma | T::ClosingRoundBracket))
-        {
-            return true;
-        }
-        n += 1;
-    }
-    false
+    let open = usize::from(p.nth_text(0) == "tuple" && p.nth_at(1, T::OpeningRoundBracket));
+    p.nth_at(open, T::OpeningRoundBracket)
+        && p.group_items(open).any(|n| {
+            is_direction(p, n)
+                && !matches!(p.nth(n - 1), Some(T::OpeningRoundBracket | T::Comma))
+                && matches!(p.nth(n + 1), Some(T::Comma | T::ClosingRoundBracket))
+        })
 }
 
 /// `(a DESC, b)` or `tuple(a DESC, b)`. ClickHouse takes `tuple` here only

@@ -12,6 +12,21 @@
 //! [`Parser::rollback`] truncates the list back to it, which also drops every
 //! keyword slot recorded after it, since keyword slots are token kinds in the
 //! events.
+//!
+//! # Work
+//!
+//! The parser bounds its own work. Every look at a token costs a unit of the
+//! statement's fuel, [`FUEL_PER_TOKEN`] units per significant token; when it
+//! runs out, the parser sees the end of the statement wherever it looks, so
+//! the grammar winds down, and [`fallback::statement`] keeps the statement
+//! verbatim. Whatever the grammar does, a statement then costs
+//! `O(FUEL_PER_TOKEN × tokens)` looks and the work between them, which the
+//! depth limit bounds. The grammar is written so that real statements, and
+//! the malformed ones tests know of, stay far below that: verbatim regions
+//! cross a bracket group in one step, using the bracket pairs found when the
+//! statement starts, and a bracket that is never closed fails at once.
+//!
+//! [`fallback::statement`]: super::grammar::fallback::statement
 
 use crate::keyword::Keyword;
 use crate::lexer::Token;
@@ -34,6 +49,9 @@ pub(crate) enum Event {
     Finish,
     /// The significant token at `index` in the text's tokens, as `kind`.
     Token { kind: SyntaxKind, index: u32 },
+    /// The tokens up to and including the significant token at `last` in the
+    /// text's tokens, as the lexer classified them: a verbatim run.
+    Tokens { last: u32 },
 }
 
 /// Why a region became verbatim, recorded by a fallback.
@@ -63,6 +81,7 @@ pub(crate) struct Checkpoint {
     fallbacks: usize,
     preceded: usize,
     no_in: bool,
+    fuel: usize,
 }
 
 /// How deep grammar functions may nest, counting each expression, data type
@@ -70,6 +89,21 @@ pub(crate) struct Checkpoint {
 /// It bounds the parser's stack use and the depth of the tree; deeper input
 /// fails, which a fallback turns into a verbatim region.
 pub(crate) const MAX_DEPTH: u32 = 200;
+
+/// The fuel a statement gets per significant token; see [Work](self#work).
+pub(crate) const FUEL_PER_TOKEN: usize = 64;
+
+/// The fuel every statement gets on top, so that a short statement can look
+/// ahead as far as the grammar likes, and the speculation budget likewise.
+pub(crate) const FUEL_BASE: usize = 4096;
+
+/// The part of a statement's fuel, per token, that speculative parses may
+/// spend on attempts that fail and the attempt in progress; see
+/// [`Parser::speculate`].
+const SPECULATION_PER_TOKEN: usize = 32;
+
+/// A bracket's entry in the table of pairs when it has no match.
+const UNMATCHED: u32 = u32::MAX;
 
 pub(crate) struct Parser<'t> {
     source: &'t str,
@@ -87,12 +121,26 @@ pub(crate) struct Parser<'t> {
     preceded: Vec<u32>,
     expected: Option<Expected>,
     depth: u32,
-    /// Tokens that may still be re-read after rollbacks of speculative
-    /// parses; see [`Parser::speculate`].
-    budget: usize,
+    /// The fuel that speculative parses may still spend; see
+    /// [`Parser::speculate`].
+    budget: std::cell::Cell<usize>,
+    /// How many speculative parses are in progress, one inside another.
+    speculating: u32,
     /// Whether `IN` is not an operator here, as in the first argument of
     /// `POSITION(a IN b)`; see [`Parser::with_no_in`].
     no_in: bool,
+    /// For each significant token of the statement that opens a bracket, the
+    /// index of the one that closes it, or [`UNMATCHED`]; indexed from the
+    /// statement's first token. Brackets pair by nesting alone, whatever
+    /// their shape, as the verbatim scans count them.
+    pairs: Vec<u32>,
+    /// The looks at tokens the statement may still take; see
+    /// [Work](self#work).
+    fuel: std::cell::Cell<usize>,
+    /// The fuel the statement started with.
+    fuel_given: usize,
+    /// The fuel spent by the statements before this one.
+    steps: u64,
 }
 
 impl<'t> Parser<'t> {
@@ -108,32 +156,82 @@ impl<'t> Parser<'t> {
             preceded: Vec::new(),
             expected: None,
             depth: 0,
-            budget: 0,
+            budget: std::cell::Cell::new(0),
+            speculating: 0,
             no_in: false,
+            pairs: Vec::new(),
+            fuel: std::cell::Cell::new(0),
+            fuel_given: 0,
+            steps: 0,
         }
     }
 
     /// Starts a statement: the parser reads the significant tokens
     /// `range` (indices into the text's significant tokens).
     pub(crate) fn set_range(&mut self, range: std::ops::Range<usize>) {
+        self.steps += self.spent();
+        let tokens = range.end - range.start;
         self.pos = range.start;
         self.end = range.end;
         self.expected = None;
         self.depth = 0;
         self.no_in = false;
-        self.budget = (range.end - range.start) * 4 + 4096;
+        self.budget
+            .set(tokens.saturating_mul(SPECULATION_PER_TOKEN) + FUEL_BASE);
+        self.fuel_given = tokens.saturating_mul(FUEL_PER_TOKEN) + FUEL_BASE;
+        self.fuel.set(self.fuel_given);
+        self.pair_brackets(range);
     }
 
-    pub(crate) fn finish(self) -> (Vec<Event>, Vec<Fallback>) {
-        (self.events, self.fallbacks)
+    /// Fills [`Parser::pairs`] for the statement `range`.
+    fn pair_brackets(&mut self, range: std::ops::Range<usize>) {
+        self.pairs.clear();
+        self.pairs.resize(range.len(), UNMATCHED);
+        let mut open = Vec::new();
+        for i in range.clone() {
+            let kind = self.tokens[self.significant[i] as usize].kind();
+            if is_opener(kind) {
+                open.push(i - range.start);
+            } else if is_closer(kind)
+                && let Some(opener) = open.pop()
+            {
+                self.pairs[opener] = event_offset(i);
+            }
+        }
+    }
+
+    /// The events and fallbacks, and how much work the parse took: the
+    /// looks at tokens of every statement.
+    pub(crate) fn finish(mut self) -> (Vec<Event>, Vec<Fallback>, u64) {
+        self.steps += self.spent();
+        (self.events, self.fallbacks, self.steps)
+    }
+
+    /// The fuel the current statement has spent.
+    fn spent(&self) -> u64 {
+        (self.fuel_given - self.fuel.get()) as u64
+    }
+
+    /// Whether the statement has run out of fuel; see [Work](self#work).
+    #[must_use]
+    pub(crate) fn out_of_fuel(&self) -> bool {
+        self.fuel.get() == 0
     }
 
     // ---- Looking ahead ----------------------------------------------------
 
     /// The `n`th significant token from the current one, within the
-    /// statement.
+    /// statement. Every call costs a unit of fuel, and of the speculation
+    /// budget while a speculative parse is in progress; with either spent,
+    /// there is no token.
     #[must_use]
     pub(crate) fn nth_token(&self, n: usize) -> Option<Token> {
+        let fuel = self.fuel.get().checked_sub(1)?;
+        self.fuel.set(fuel);
+        if self.speculating > 0 {
+            let budget = self.budget.get().checked_sub(1)?;
+            self.budget.set(budget);
+        }
         let i = self.pos + n;
         (i < self.end).then(|| self.tokens[self.significant[i] as usize])
     }
@@ -189,23 +287,77 @@ impl<'t> Parser<'t> {
         self.nth_token(n).map_or("", |t| t.text(self.source))
     }
 
-    /// Whether the statement has no more tokens.
+    /// Whether the statement has no more tokens, or the parser can look at
+    /// none, out of fuel or of speculation budget.
     #[must_use]
     pub(crate) fn at_end(&self) -> bool {
         self.pos >= self.end
+            || self.out_of_fuel()
+            || (self.speculating > 0 && self.budget.get() == 0)
+    }
+
+    /// How many of the statement's tokens are left, fuel or not.
+    #[must_use]
+    pub(crate) fn tokens_left(&self) -> usize {
+        self.end.saturating_sub(self.pos)
+    }
+
+    /// The offset from the current token of the bracket that closes the one
+    /// the `n`th token opens, if it opens one that is closed.
+    #[must_use]
+    pub(crate) fn closer(&self, n: usize) -> Option<usize> {
+        let i = self.pos + n;
+        if i >= self.end || !self.nth(n).is_some_and(is_opener) {
+            return None;
+        }
+        let first = self.end - self.pairs.len();
+        match self.pairs[i - first] {
+            UNMATCHED => None,
+            close => Some(close as usize - self.pos),
+        }
+    }
+
+    /// Whether the `n`th token opens a bracket that is never closed in the
+    /// statement, which no parse can then succeed in.
+    #[must_use]
+    pub(crate) fn unclosed(&self, n: usize) -> bool {
+        self.nth(n).is_some_and(is_opener) && self.closer(n).is_none()
+    }
+
+    /// How many tokens one step of a verbatim scan crosses at the `n`th
+    /// token: a bracket group whole, through its closer or to the end of the
+    /// statement if it has none; any other token alone.
+    #[must_use]
+    pub(crate) fn step_len(&self, n: usize) -> usize {
+        match self.closer(n) {
+            Some(close) => close - n + 1,
+            None if self.unclosed(n) => self.end.saturating_sub(self.pos + n),
+            None => 1,
+        }
+    }
+
+    /// The offsets of the tokens directly inside the bracket group that
+    /// opens at the `n`th token, one per nested group: up to its closer, or
+    /// to the end of the statement if it has none.
+    pub(crate) fn group_items(&self, n: usize) -> impl Iterator<Item = usize> + '_ {
+        let end = self
+            .closer(n)
+            .unwrap_or_else(|| self.end.saturating_sub(self.pos));
+        let mut i = n + 1;
+        std::iter::from_fn(move || {
+            if i >= end || self.out_of_fuel() {
+                return None;
+            }
+            let at = i;
+            i += self.step_len(at).max(1);
+            Some(at)
+        })
     }
 
     /// Whether the current token closes a bracket: `)`, `]` or `}`.
     #[must_use]
     pub(crate) fn at_closer(&self) -> bool {
-        matches!(
-            self.nth(0),
-            Some(
-                TokenKind::ClosingRoundBracket
-                    | TokenKind::ClosingSquareBracket
-                    | TokenKind::ClosingCurlyBrace
-            )
-        )
+        self.nth(0).is_some_and(is_closer)
     }
 
     /// The position, for comparing how far two attempts got.
@@ -279,13 +431,52 @@ impl<'t> Parser<'t> {
         at
     }
 
-    /// Consumes a token of `kind`, or records that it was expected.
+    /// Consumes a token of `kind`, or records that it was expected. An
+    /// opening bracket that is never closed is not consumed, since nothing
+    /// that starts with it can parse.
     pub(crate) fn expect(&mut self, kind: TokenKind) -> Option<()> {
+        if is_opener(kind) && self.at(kind) && self.closer(0).is_none() {
+            return self.expected("a bracket that is closed");
+        }
         if self.eat(kind) {
             Some(())
         } else {
             self.expected(token_description(kind))
         }
+    }
+
+    /// Consumes the current token and those up to `stop` outside brackets,
+    /// an unmatched closing bracket, or the end of the statement, as one
+    /// verbatim run, crossing each bracket group in one step. Returns whether
+    /// it consumed any.
+    pub(crate) fn skip_verbatim(&mut self, stop: &dyn Fn(&Parser<'_>) -> bool) -> bool {
+        let start = self.pos;
+        while let Some(kind) = self.nth(0) {
+            if is_closer(kind) || stop(self) {
+                break;
+            }
+            self.pos += self.step_len(0);
+        }
+        self.run_since(start)
+    }
+
+    /// Consumes `n` tokens as one verbatim run.
+    pub(crate) fn bump_run(&mut self, n: usize) {
+        let start = self.pos;
+        self.pos = (self.pos + n).min(self.end);
+        self.run_since(start);
+    }
+
+    /// Records the tokens from `start` to the current position as one
+    /// verbatim run; returns whether there were any.
+    fn run_since(&mut self, start: usize) -> bool {
+        if self.pos <= start {
+            return false;
+        }
+        self.events.push(Event::Tokens {
+            last: self.significant[self.pos - 1],
+        });
+        true
     }
 
     /// Consumes the keyword `keyword`, or records that it was expected.
@@ -345,6 +536,9 @@ impl<'t> Parser<'t> {
                         out.push(kind);
                     }
                 }
+                // A verbatim run lies only in a verbatim node, which stands
+                // for it.
+                Event::Tokens { .. } => {}
             }
         }
         out
@@ -372,7 +566,7 @@ impl<'t> Parser<'t> {
             .filter_map(|event| match *event {
                 Event::Start { kind, .. } => kind,
                 Event::Token { kind, .. } => Some(kind),
-                Event::Finish => None,
+                Event::Tokens { .. } | Event::Finish => None,
             })
     }
 
@@ -385,12 +579,13 @@ impl<'t> Parser<'t> {
             fallbacks: self.fallbacks.len(),
             preceded: self.preceded.len(),
             no_in: self.no_in,
+            fuel: self.fuel.get(),
         }
     }
 
     /// Returns to `checkpoint`: events, fallbacks and keyword slots recorded
-    /// since are dropped, the parser's modes are as they were, and the tokens
-    /// read since are charged to the speculation budget.
+    /// since are dropped, and the parser's modes are as they were. The fuel
+    /// spent stays spent.
     pub(crate) fn rollback(&mut self, checkpoint: Checkpoint) {
         for &start in &self.preceded[checkpoint.preceded.min(self.preceded.len())..] {
             if let Some(Event::Start { forward_parent, .. }) = self.events.get_mut(start as usize) {
@@ -401,25 +596,34 @@ impl<'t> Parser<'t> {
         self.events.truncate(checkpoint.events);
         self.fallbacks.truncate(checkpoint.fallbacks);
         self.no_in = checkpoint.no_in;
-        self.budget = self
-            .budget
-            .saturating_sub(self.pos.saturating_sub(checkpoint.pos) + 1);
         self.pos = checkpoint.pos;
     }
 
     /// Tries `parse`; if it fails, returns to where it started.
     ///
-    /// Returns `None` without trying once the statement's speculation budget,
-    /// a few times its length, has gone on rollbacks: alternatives that are
-    /// tried and given up on can then not add up to more than linear work,
-    /// whatever the input.
+    /// Attempts spend the statement's speculation budget, half its fuel, as
+    /// they look at tokens; an attempt that succeeds, and no other attempt
+    /// encloses, gets back what it spent. Once the budget is gone, an
+    /// attempt in progress sees no more tokens and fails, and `speculate`
+    /// no longer tries. Attempts that fail inside attempts that fail
+    /// multiply, each level redoing the one below; the budget stops that
+    /// before the statement runs out of fuel (see [Work](self#work)), and the
+    /// parse goes on without trying alternatives.
     pub(crate) fn speculate<T>(&mut self, parse: impl FnOnce(&mut Self) -> Option<T>) -> Option<T> {
-        if self.budget == 0 {
+        if self.budget.get() == 0 {
             return None;
         }
         let checkpoint = self.checkpoint();
         let expected = self.expected;
+        self.speculating += 1;
         let result = parse(self);
+        self.speculating -= 1;
+        // An attempt that the budget cut short fails, whatever it returned.
+        let result = result.filter(|_| self.budget.get() > 0);
+        if result.is_some() && self.speculating == 0 {
+            self.budget
+                .set(self.budget.get() + (checkpoint.fuel - self.fuel.get()));
+        }
         if result.is_none() {
             self.rollback(checkpoint);
             // An alternative given up on is not why a later parse fails.
@@ -445,6 +649,14 @@ impl<'t> Parser<'t> {
         let result = parse(self);
         self.no_in = outer;
         result
+    }
+
+    /// How many more nesting levels [`Parser::nested`] allows here: how far
+    /// a lookahead into nested syntax need look, since anything deeper fails
+    /// whatever it holds.
+    #[must_use]
+    pub(crate) fn depth_left(&self) -> usize {
+        MAX_DEPTH.saturating_sub(self.depth) as usize
     }
 
     /// Runs `parse` one nesting level deeper, or fails if that is deeper
@@ -477,6 +689,7 @@ impl<'t> Parser<'t> {
         let range = self.byte_range(checkpoint.pos, self.pos);
         let expected = self.expected.take().filter(|e| e.pos >= checkpoint.pos);
         let message = match expected {
+            _ if self.out_of_fuel() => "the statement takes too much work to parse".to_owned(),
             Some(e) => format!("expected {}, found {}", e.what, self.describe(e.pos)),
             None => format!("unexpected {}", self.describe(checkpoint.pos)),
         };
@@ -521,6 +734,26 @@ impl<'t> Parser<'t> {
             (kind, _) => token_description(kind).to_owned(),
         }
     }
+}
+
+/// Whether `kind` opens a bracket: `(`, `[` or `{`.
+pub(crate) fn is_opener(kind: TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::OpeningRoundBracket
+            | TokenKind::OpeningSquareBracket
+            | TokenKind::OpeningCurlyBrace
+    )
+}
+
+/// Whether `kind` closes a bracket: `)`, `]` or `}`.
+pub(crate) fn is_closer(kind: TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::ClosingRoundBracket
+            | TokenKind::ClosingSquareBracket
+            | TokenKind::ClosingCurlyBrace
+    )
 }
 
 /// How a message names a token kind: its text for punctuation.

@@ -78,6 +78,7 @@ pub(crate) fn build(source: &str, tokens: &[Token], mut events: Vec<Event>) -> (
             }
             Event::Finish => builder.finish(),
             Event::Token { kind, index } => builder.token(kind, index as usize),
+            Event::Tokens { last } => builder.run(last as usize),
         }
     }
     while !builder.open.is_empty() {
@@ -130,6 +131,14 @@ impl Builder<'_> {
             if kind == SyntaxKind::LiteralAsText && self.next > first {
                 self.facts.keep_verbatim(first, self.next - 1);
             }
+        }
+    }
+
+    /// Emits everything through the token at `last` as the lexer classified
+    /// it.
+    fn run(&mut self, last: usize) {
+        while self.next <= last.min(self.tokens.len().saturating_sub(1)) {
+            self.emit(self.tokens[self.next].kind().into());
         }
     }
 

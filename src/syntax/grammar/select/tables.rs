@@ -81,10 +81,12 @@ fn table(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 
 /// Whether the `(` at the current token holds a query: a subquery, or a set
 /// operation between queries in parentheses, `((SELECT 1) UNION ALL
-/// (SELECT 2))`. Otherwise it holds joins. Only the first few brackets of a
-/// run are looked at, so that nested brackets cost linear time.
+/// (SELECT 2))`. Otherwise it holds joins. A run of brackets is looked at
+/// only as deep as the parse can still nest, since a deeper query fails
+/// either way; each level of the run looks again, so a longer bound would
+/// cost the square of the run.
 fn at_parenthesized_query(p: &Parser<'_>) -> bool {
-    (0..32)
+    (0..p.depth_left())
         .take_while(|&n| p.nth_at(n, T::OpeningRoundBracket))
         .any(|n| select::at_subquery(p, n))
 }

@@ -10,8 +10,13 @@
 //!
 //! The verbatim scans count brackets (`(`, `[`, `{` against `)`, `]`, `}`)
 //! and never consume a closer that would leave the region unbalanced, which
-//! belongs to whatever encloses it. Trivia is not looked at: comments and
-//! Jinja block tags are never tokens the parser sees.
+//! belongs to whatever encloses it; they cross a bracket group in one step
+//! and record what they consume as one run, so that a scan costs as much as
+//! the tokens it passes outside brackets. Trivia is not looked at: comments
+//! and Jinja block tags are never tokens the parser sees.
+
+pub(crate) use crate::syntax::parser::is_closer;
+pub(crate) use crate::syntax::parser::is_opener;
 
 use crate::lexer::TokenKind;
 use crate::syntax::FallbackLevel;
@@ -29,12 +34,12 @@ pub(crate) fn never(_: &Parser<'_>) -> bool {
     false
 }
 
-/// Parses a statement with `body`. If it fails, or leaves tokens unparsed,
-/// the statement is rolled back and kept verbatim as a whole, and the reason
-/// is recorded.
+/// Parses a statement with `body`. If it fails, leaves tokens unparsed, or
+/// runs out of fuel (see [Work](crate::syntax::parser#work)), the statement
+/// is rolled back and kept verbatim as a whole, and the reason is recorded.
 pub(crate) fn statement(p: &mut Parser<'_>, body: impl FnOnce(&mut Parser<'_>) -> Option<()>) {
     let checkpoint = p.checkpoint();
-    if body(p).is_some() {
+    if body(p).is_some() && !p.out_of_fuel() {
         if p.at_end() {
             return;
         }
@@ -48,13 +53,12 @@ pub(crate) fn statement(p: &mut Parser<'_>, body: impl FnOnce(&mut Parser<'_>) -
 /// The rest of the statement, verbatim. This is how statements of kinds the
 /// parser does not know are kept, and records no fallback.
 pub(crate) fn verbatim_statement(p: &mut Parser<'_>) {
-    if p.at_end() {
+    let rest = p.tokens_left();
+    if rest == 0 {
         return;
     }
     let m = p.start();
-    while !p.at_end() {
-        p.bump();
-    }
+    p.bump_run(rest);
     m.complete(p, SyntaxKind::VerbatimStatement);
 }
 
@@ -189,30 +193,15 @@ pub(crate) fn delimited(
 /// if the current token is not an opening bracket or the group is not
 /// closed in the statement.
 pub(crate) fn opaque_group(p: &mut Parser<'_>) -> Option<CompletedMarker> {
-    if !matches!(
-        p.nth(0),
-        Some(
-            TokenKind::OpeningRoundBracket
-                | TokenKind::OpeningSquareBracket
-                | TokenKind::OpeningCurlyBrace
-        )
-    ) {
+    if !p.nth(0).is_some_and(is_opener) {
         return p.expected("`(`");
     }
+    let Some(close) = p.closer(0) else {
+        return p.expected("a bracket that is closed");
+    };
     let m = p.start();
-    let mut depth = 0usize;
-    while let Some(kind) = p.nth(0) {
-        if is_opener(kind) {
-            depth += 1;
-        } else if is_closer(kind) {
-            depth -= 1;
-        }
-        p.bump();
-        if depth == 0 {
-            return Some(m.complete(p, SyntaxKind::Opaque));
-        }
-    }
-    p.expected("a closing bracket")
+    p.bump_run(close + 1);
+    Some(m.complete(p, SyntaxKind::Opaque))
 }
 
 /// Tokens up to `stop` outside brackets, an unmatched closing bracket, or
@@ -232,39 +221,7 @@ pub(crate) fn opaque_until(p: &mut Parser<'_>, stop: Stop<'_>) -> Option<Complet
 /// closing bracket, or the end of the statement. Returns whether it consumed
 /// any.
 pub(crate) fn skip(p: &mut Parser<'_>, stop: Stop<'_>) -> bool {
-    let mut depth = 0usize;
-    let mut consumed = false;
-    while let Some(kind) = p.nth(0) {
-        if depth == 0 && (is_closer(kind) || stop(p)) {
-            break;
-        }
-        if is_opener(kind) {
-            depth += 1;
-        } else if is_closer(kind) {
-            depth -= 1;
-        }
-        p.bump();
-        consumed = true;
-    }
-    consumed
-}
-
-pub(crate) fn is_opener(kind: TokenKind) -> bool {
-    matches!(
-        kind,
-        TokenKind::OpeningRoundBracket
-            | TokenKind::OpeningSquareBracket
-            | TokenKind::OpeningCurlyBrace
-    )
-}
-
-pub(crate) fn is_closer(kind: TokenKind) -> bool {
-    matches!(
-        kind,
-        TokenKind::ClosingRoundBracket
-            | TokenKind::ClosingSquareBracket
-            | TokenKind::ClosingCurlyBrace
-    )
+    p.skip_verbatim(stop)
 }
 
 #[cfg(test)]

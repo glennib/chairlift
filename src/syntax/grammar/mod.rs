@@ -56,10 +56,21 @@
 //! to an earlier point, dropping the events, keyword slots and fallbacks
 //! recorded since. Prefer lookahead; where an alternative must be tried, use
 //! [`Parser::speculate`], which stops trying once the statement's budget of
-//! re-read tokens is spent, so that alternatives can never cost more than
-//! linear time. Recursion goes through [`Parser::nested`] (expressions, data
-//! types and subqueries already do), which fails beyond a fixed depth; the
-//! failure then becomes a verbatim region.
+//! re-read tokens is spent. Recursion goes through [`Parser::nested`]
+//! (expressions, data types and subqueries already do), which fails beyond a
+//! fixed depth; the failure then becomes a verbatim region.
+//!
+//! **Work.** Neither of those bounds the work: nested alternatives, each
+//! within the depth limit and the budget, can still re-parse the same tokens
+//! many times over. What bounds it is the statement's fuel, a fixed amount
+//! per token that every look at a token spends; a statement that runs out
+//! is kept verbatim (see [Work](crate::syntax::parser#work)). So the
+//! grammar must spend little per token on real input: look ahead over a
+//! bracket group with [`Parser::closer`] and [`Parser::group_items`] rather
+//! than by counting brackets, consume openers with [`Parser::expect`], which
+//! fails at once on a bracket that is never closed, and keep the
+//! `steps_stay_linear` tests in `fallback/tests.rs` passing for the shapes
+//! that tempt a grammar into re-parsing.
 //!
 //! **Verbatim.** Text that is kept as written by design, such as `OVER
 //! (…)` or `INTO OUTFILE …`, is [`fallback::opaque_group`] or

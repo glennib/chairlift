@@ -276,7 +276,12 @@ const fn plain(bp: u8, tokens: u8) -> Op {
 
 /// The operator at the current token, in operator position.
 fn infix(p: &Parser<'_>) -> Option<Op> {
-    Some(match p.nth(0)? {
+    infix_at(p, 0)
+}
+
+/// The operator at the `n`th token, in operator position.
+fn infix_at(p: &Parser<'_>, n: usize) -> Option<Op> {
+    Some(match p.nth(n)? {
         T::Arrow => op(OpKind::Lambda, 2, 1),
         T::QuestionMark => op(OpKind::Ternary, 4, 1),
         T::PipeMark => plain(16, 1),
@@ -296,18 +301,18 @@ fn infix(p: &Parser<'_>) -> Option<Op> {
         T::Dot => op(OpKind::Dot, 28, 1),
         T::OpeningSquareBracket => op(OpKind::Index, 28, 1),
         T::DoubleColon => op(OpKind::Cast, 28, 1),
-        T::BareWord => return keyword_infix(p),
+        T::BareWord => return keyword_infix(p, n),
         _ => return None,
     })
 }
 
-fn keyword_infix(p: &Parser<'_>) -> Option<Op> {
-    Some(match p.nth_keyword(0)? {
+fn keyword_infix(p: &Parser<'_>, n: usize) -> Option<Op> {
+    Some(match p.nth_keyword(n)? {
         K::Or => op(OpKind::Or, 6, 1),
         K::And => op(OpKind::And, 8, 1),
         K::Is => {
-            let not = u8::from(p.nth_at_kw(1, K::Not));
-            let next = usize::from(1 + not);
+            let not = u8::from(p.nth_at_kw(n + 1, K::Not));
+            let next = n + usize::from(1 + not);
             match p.nth_keyword(next) {
                 Some(K::Null | K::True | K::False | K::Unknown) => op(OpKind::Postfix, 12, 2 + not),
                 Some(K::Distinct) if p.nth_at_kw(next + 1, K::From) => {
@@ -317,26 +322,26 @@ fn keyword_infix(p: &Parser<'_>) -> Option<Op> {
             }
         }
         K::Between => op(OpKind::Between, 14, 1),
-        K::Not => match p.nth_keyword(1)? {
+        K::Not => match p.nth_keyword(n + 1)? {
             K::Between => op(OpKind::Between, 14, 2),
             K::Like | K::Ilike => binary(18, 2, Quantified::Array, true),
             K::In => plain(18, 2),
-            K::Similar if p.nth_at_kw(2, K::To) => binary(18, 3, Quantified::Array, true),
+            K::Similar if p.nth_at_kw(n + 2, K::To) => binary(18, 3, Quantified::Array, true),
             _ => return None,
         },
         K::Like | K::Ilike => binary(18, 1, Quantified::Array, true),
         K::Regexp => binary(18, 1, Quantified::Array, false),
-        K::Similar if p.nth_at_kw(1, K::To) => binary(18, 2, Quantified::Array, true),
+        K::Similar if p.nth_at_kw(n + 1, K::To) => binary(18, 2, Quantified::Array, true),
         // `IN PARTITION` belongs to `ALTER … IN PARTITION p`.
-        K::In if !p.no_in() && !p.nth_at_kw(1, K::Partition) => plain(18, 1),
-        K::Global => match (p.nth_keyword(1), p.nth_keyword(2)) {
+        K::In if !p.no_in() && !p.nth_at_kw(n + 1, K::Partition) => plain(18, 1),
+        K::Global => match (p.nth_keyword(n + 1), p.nth_keyword(n + 2)) {
             (Some(K::In), _) => plain(18, 2),
             (Some(K::Not), Some(K::In)) => plain(18, 3),
             _ => return None,
         },
         K::Mod | K::Div => plain(24, 1),
-        K::At => match p.nth_keyword(1) {
-            Some(K::Time) if p.nth_at_kw(2, K::Zone) => plain(26, 3),
+        K::At => match p.nth_keyword(n + 1) {
+            Some(K::Time) if p.nth_at_kw(n + 2, K::Zone) => plain(26, 3),
             Some(K::Local) => op(OpKind::Postfix, 26, 2),
             _ => return None,
         },
@@ -413,7 +418,7 @@ fn apply(p: &mut Parser<'_>, lhs: CompletedMarker, op: Op) -> Option<CompletedMa
         }
         OpKind::Index => {
             let m = lhs.precede(p);
-            p.bump();
+            p.expect(T::OpeningSquareBracket)?;
             // `json.a[]` reads an `Array(JSON)` subcolumn.
             if !p.at(T::ClosingSquareBracket) {
                 p.with_no_in(false, expr)?;
@@ -534,7 +539,7 @@ fn quantifier(p: &mut Parser<'_>, quantified: Quantified) -> Option<bool> {
             let m = p.start();
             p.bump_keyword();
             let paren = p.start();
-            p.bump();
+            p.expect(T::OpeningRoundBracket)?;
             p.with_no_in(false, expr)?;
             p.expect(T::ClosingRoundBracket)?;
             paren.complete(p, SyntaxKind::ParenExpr);
@@ -544,30 +549,11 @@ fn quantifier(p: &mut Parser<'_>, quantified: Quantified) -> Option<bool> {
     )
 }
 
-/// Whether the brackets that open at the `n`th token hold something and no
-/// comma outside further brackets.
+/// Whether the brackets that open at the `n`th token are closed and hold
+/// something and no comma outside further brackets.
 fn one_bracketed_item(p: &Parser<'_>, n: usize) -> bool {
-    if p.nth_at(n + 1, T::ClosingRoundBracket) {
-        return false;
-    }
-    let mut depth = 0usize;
-    // The bound keeps nested brackets from scanning quadratically.
-    for i in n + 1..n + 10_000 {
-        let Some(kind) = p.nth(i) else {
-            return false;
-        };
-        if fallback::is_opener(kind) {
-            depth += 1;
-        } else if fallback::is_closer(kind) {
-            if depth == 0 {
-                return true;
-            }
-            depth -= 1;
-        } else if kind == T::Comma && depth == 0 {
-            return false;
-        }
-    }
-    false
+    p.closer(n).is_some_and(|close| close > n + 1)
+        && !p.group_items(n).any(|i| p.nth_at(i, T::Comma))
 }
 
 // ---- Operands -------------------------------------------------------------
@@ -620,12 +606,14 @@ fn atom(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 fn word(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     match p.nth_keyword(0) {
         Some(K::Null | K::True | K::False) => return literal(p),
-        Some(K::Interval) => {
+        Some(K::Interval) if may_continue_after_group(p, at_interval_unit) => {
             if let Some(interval) = p.speculate(interval) {
                 return Some(interval);
             }
         }
-        Some(K::Case) => {
+        // `case WHEN` is no name, so `CASE WHEN` can only be a `CASE`.
+        Some(K::Case) if p.nth_at_kw(1, K::When) => return case(p),
+        Some(K::Case) if may_continue_after_group(p, |p, n| p.nth_at_kw(n, K::When)) => {
             if let Some(case) = p.speculate(case) {
                 return Some(case);
             }
@@ -648,6 +636,19 @@ fn word(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         return literal(p);
     }
     name_or_call(p)
+}
+
+/// Whether `INTERVAL` or `CASE` here can start what it names when a bracket
+/// group follows it: only if the group is followed by `next` (a unit, or
+/// `WHEN`), `AS`, or an operator that continues the operand. Otherwise the
+/// word is a name, as in `case (x) y`, and trying it costs a re-parse of the
+/// group for nothing, which nested groups would multiply.
+fn may_continue_after_group(p: &Parser<'_>, next: impl Fn(&Parser<'_>, usize) -> bool) -> bool {
+    let Some(close) = p.closer(1) else {
+        return true;
+    };
+    let after = close + 1;
+    next(p, after) || p.nth_at_kw(after, K::As) || infix_at(p, after).is_some()
 }
 
 /// Whether the `n`th token is `inf`, `infinity` or `nan`, which ClickHouse
@@ -784,7 +785,7 @@ fn function_call(
     if p.at_kw(K::Filter) && p.nth_at(1, T::OpeningRoundBracket) && p.nth_at_kw(2, K::Where) {
         let f = p.start();
         p.bump_keyword();
-        p.bump();
+        p.expect(T::OpeningRoundBracket)?;
         p.bump_keyword();
         expr(p)?;
         p.expect(T::ClosingRoundBracket)?;
@@ -955,24 +956,9 @@ fn overlay_args(p: &mut Parser<'_>) -> Option<()> {
 /// Whether `PLACING` follows the first argument outside brackets, before
 /// the first comma.
 fn overlay_keyword_form(p: &Parser<'_>) -> bool {
-    let mut depth = 0usize;
-    let mut n = 1;
-    while let Some(kind) = p.nth(n) {
-        if fallback::is_opener(kind) {
-            depth += 1;
-        } else if fallback::is_closer(kind) {
-            if depth == 0 {
-                return false;
-            }
-            depth -= 1;
-        } else if depth == 0 && (kind == T::Comma || n > 10_000) {
-            return false;
-        } else if depth == 0 && p.nth_at_kw(n, K::Placing) {
-            return true;
-        }
-        n += 1;
-    }
-    false
+    p.group_items(0)
+        .take_while(|&i| !p.nth_at(i, T::Comma))
+        .any(|i| p.nth_at_kw(i, K::Placing))
 }
 
 /// `POSITION(needle IN haystack)` or `position(haystack, needle)`.
@@ -1198,28 +1184,7 @@ fn array(p: &mut Parser<'_>, keyword: bool) -> Option<CompletedMarker> {
 /// or has a comma outside brackets. `ARRAY[x]` with one element subscripts a
 /// column named `array`, as ClickHouse reads it.
 fn array_constructor(p: &Parser<'_>) -> bool {
-    if p.nth_at(2, T::ClosingSquareBracket) {
-        return true;
-    }
-    let mut depth = 0usize;
-    // The bound keeps nested `ARRAY[` from scanning quadratically; an array
-    // that long before its first comma is read as a subscript.
-    for n in 2..10_000 {
-        let Some(kind) = p.nth(n) else {
-            return false;
-        };
-        if fallback::is_opener(kind) {
-            depth += 1;
-        } else if fallback::is_closer(kind) {
-            if depth == 0 {
-                return false;
-            }
-            depth -= 1;
-        } else if kind == T::Comma && depth == 0 {
-            return true;
-        }
-    }
-    false
+    p.nth_at(2, T::ClosingSquareBracket) || p.group_items(1).any(|i| p.nth_at(i, T::Comma))
 }
 
 /// `{ 'key': value, … }`, with each value as `value` parses it. ClickHouse
@@ -1419,11 +1384,13 @@ fn at_lambda(p: &Parser<'_>) -> bool {
 /// What `EXCEPT` removes: a name or a pattern, or several names or a
 /// pattern in a [`ColumnList`](SyntaxKind::ColumnList).
 fn except_operand(p: &mut Parser<'_>) -> Option<()> {
-    let list = p.at(T::OpeningRoundBracket).then(|| {
+    let list = if p.at(T::OpeningRoundBracket) {
         let m = p.start();
-        p.bump();
-        m
-    });
+        p.expect(T::OpeningRoundBracket)?;
+        Some(m)
+    } else {
+        None
+    };
     if p.at(T::StringLiteral) {
         literal(p)?;
     } else {
@@ -1446,7 +1413,7 @@ fn replace_operand(p: &mut Parser<'_>) -> Option<()> {
         return expr_with_alias(p, AliasMode::As).map(drop);
     }
     let list = p.start();
-    p.bump();
+    p.expect(T::OpeningRoundBracket)?;
     p.with_no_in(false, |p| {
         expr_with_alias(p, AliasMode::As)?;
         while p.eat(T::Comma) {

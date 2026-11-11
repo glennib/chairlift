@@ -124,6 +124,7 @@ pub struct Parse {
     green: GreenNode,
     fallbacks: Vec<Fallback>,
     facts: Facts,
+    steps: u64,
 }
 
 /// Parses `source`; see the [module documentation](self).
@@ -183,12 +184,13 @@ pub(crate) fn parse_with(
         }
         m.complete(&mut p, SyntaxKind::Statement);
     }
-    let (events, fallbacks) = p.finish();
+    let (events, fallbacks, steps) = p.finish();
     let (green, facts) = build::build(source, tokens, events);
     Parse {
         green,
         fallbacks,
         facts,
+        steps,
     }
 }
 
@@ -197,6 +199,16 @@ impl Parse {
     #[must_use]
     pub fn syntax(&self) -> SyntaxNode {
         SyntaxNode::new_root(self.green.clone())
+    }
+
+    /// How much work the parse took: how many times the parser looked at a
+    /// token. It is at most a fixed multiple of the number of tokens, plus a
+    /// constant per statement; a statement that would need more is kept
+    /// verbatim. For tests and statistics that bound the parser's work.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn steps(&self) -> u64 {
+        self.steps
     }
 
     /// The regions kept verbatim because they did not parse, in the order
