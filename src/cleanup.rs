@@ -75,11 +75,8 @@ pub(crate) fn cleanup(source: &str, split: &Split, mode: Mode, facts: &Facts) ->
     let Rendered {
         mut kept,
         open_data: rendered_open_data,
-    } = if mode == Mode::Jinja && render_joins_text(source) {
-        inside_rendered_tokens(source, split, removable)
-    } else {
-        Rendered::default()
-    };
+        ..
+    } = rendered_facts(source, split, mode);
     for &(first, last) in facts.verbatim_regions() {
         if kept.len() < tokens.len() {
             kept.resize(tokens.len(), false);
@@ -216,13 +213,31 @@ pub(crate) fn cleanup(source: &str, split: &Split, mode: Mode, facts: &Facts) ->
 
 /// What a template's rendered text means for the cleanup.
 #[derive(Default)]
-struct Rendered {
-    /// For each token of the template, whether it must stay as it is.
-    kept: Vec<bool>,
+pub(crate) struct Rendered {
+    /// For each token of the template, whether the cleanup leaves it as it
+    /// is; empty for a text whose rendering joins nothing.
+    pub(crate) kept: Vec<bool>,
+    /// For each token, whether it lies inside a token of the rendered text
+    /// together with other tokens, or in or after `INSERT` data that the
+    /// rendered text holds: the part of [`kept`](Self::kept) that does not
+    /// depend on the whitespace next to block and comment tags, which the
+    /// layout handles itself.
+    pub(crate) inside: Vec<bool>,
     /// The end of the text stays as it is: the rendered text ends in
     /// `INSERT` data in a format other than `Values`, with nothing but
     /// whitespace after it, or a branch can move where such data ends.
-    open_data: bool,
+    pub(crate) open_data: bool,
+}
+
+/// What the cleanup leaves as it is in a template; nothing for a text
+/// whose rendering joins nothing.
+pub(crate) fn rendered_facts(source: &str, split: &Split, mode: Mode) -> Rendered {
+    if mode == Mode::Jinja && render_joins_text(source) {
+        let removable = |c: char| is_whitespace(c) && c.is_whitespace();
+        inside_rendered_tokens(source, split, removable)
+    } else {
+        Rendered::default()
+    }
 }
 
 /// Which tokens of a template the cleanup leaves as they are, because
@@ -305,6 +320,7 @@ fn inside_rendered_tokens(
             kept[first..last].fill(true);
         }
     }
+    let mut neighbour = vec![false; tokens.len()];
     for (i, token) in tokens.iter().enumerate() {
         let start = match token.kind() {
             TokenKind::Whitespace => token.start(),
@@ -324,7 +340,7 @@ fn inside_rendered_tokens(
             || (text[..at].ends_with(is_whitespace)
                 && jinja::tags(&source[before + 1..start]).all(|t| t.kind == TagKind::Comment));
         if !same_neighbour {
-            kept[i] = true;
+            neighbour[i] = true;
         }
     }
     // Where inline data starts and ends depends on the line breaks around
@@ -370,7 +386,15 @@ fn inside_rendered_tokens(
             open_data = true;
         }
     }
-    Rendered { kept, open_data }
+    let inside = kept.clone();
+    for (kept, neighbour) in kept.iter_mut().zip(neighbour) {
+        *kept |= neighbour;
+    }
+    Rendered {
+        kept,
+        inside,
+        open_data,
+    }
 }
 
 /// The indentation part of a whitespace token: what follows its last `\n`.
