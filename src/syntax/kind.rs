@@ -421,9 +421,10 @@ syntax_kinds! {
         JsonSkip: Node,
 
         // ---- Shared clause parts ---------------------------------------
-        /// An `ORDER BY` item: an expression, then any of `ASC`/`DESC`,
-        /// `NULLS FIRST|LAST`, `COLLATE '…'`, `WITH FILL [FROM …] [TO …]
-        /// [STEP …] [STALENESS …]`.
+        /// An `ORDER BY` item: an expression with any `AS` alias, then any of
+        /// `ASC`/`DESC`, `NULLS FIRST|LAST`, `COLLATE '…'`, `WITH FILL [FROM
+        /// …] [TO …] [STEP …] [STALENESS …]`; in a table's `ORDER BY`, only a
+        /// direction.
         OrderByItem: Node,
         /// The items of `ORDER BY`.
         OrderByList: List,
@@ -509,7 +510,7 @@ syntax_kinds! {
         /// `WITH [RECURSIVE]` and a [`WithList`](Self::WithList).
         WithClause: Clause,
         /// The items of `WITH`: [`CommonTableExpr`](Self::CommonTableExpr)s,
-        /// and expressions with an `AS` alias
+        /// and expressions, each with any `AS` alias
         /// ([`AliasedExpr`](Self::AliasedExpr)).
         WithList: List,
         /// `name [(columns)] AS [MATERIALIZED] (query)` in `WITH`: a
@@ -541,13 +542,20 @@ syntax_kinds! {
         /// [`Literal`](Self::Literal), or a [`ParenJoin`](Self::ParenJoin),
         /// in an [`AliasedExpr`](Self::AliasedExpr) if it has an alias; then
         /// any [`ParenList`](Self::ParenList) of column aliases, `FINAL`,
-        /// [`SampleClause`](Self::SampleClause) and
-        /// [`StreamClause`](Self::StreamClause). A query as the argument of
-        /// `view(…)` is the only item of the call's
-        /// [`ArgList`](Self::ArgList).
+        /// [`SampleClause`](Self::SampleClause),
+        /// [`StreamClause`](Self::StreamClause), and a `ParenList` of the
+        /// query's column aliases (`FROM t FINAL (a, b)`). A query as the
+        /// argument of `view(…)`, `eval(…)` or `obfuscate(…)` is the only
+        /// child node of the call's [`ArgList`](Self::ArgList); that of
+        /// `viewIfPermitted(…)` holds the query, `ELSE` and the
+        /// `FunctionCall` that follows it, with no comma; `exists(…)` has a
+        /// [`Subquery`](Self::Subquery) in place of the `ArgList`, as in an
+        /// expression.
         TableExpr: Node,
         /// `( tables )`: a [`TableList`](Self::TableList) and joins in
-        /// parentheses, standing for one table.
+        /// parentheses ([`JoinClause`](Self::JoinClause)s and
+        /// [`ArrayJoinClause`](Self::ArrayJoinClause)s), standing for one
+        /// table. Its tables have no alias without `AS`.
         ParenJoin: Node,
         /// `SAMPLE k [OFFSET m]` after a table; `k` and `m` are expressions
         /// (`1 / 10`).
@@ -573,13 +581,14 @@ syntax_kinds! {
         PrewhereClause: Clause,
         /// `WHERE` and an expression.
         WhereClause: Clause,
-        /// `GROUP BY` and one of `ALL`, `ROLLUP` or `CUBE` with a
-        /// [`ParenList`](Self::ParenList),
+        /// `GROUP BY` and `ALL`, `ROLLUP` or `CUBE` and a
+        /// [`ParenList`](Self::ParenList), a
         /// [`GroupingSets`](Self::GroupingSets), or an
         /// [`ExprList`](Self::ExprList); then any
         /// [`GroupByModifier`](Self::GroupByModifier)s. ClickHouse allows the
         /// modifiers without `GROUP BY` (`SELECT count() FROM t WITH
-        /// TOTALS`), and the clause is then only those.
+        /// TOTALS`), and the clause is then only those. In a projection it
+        /// is `GROUP BY` and an `ExprList`.
         GroupByClause: Clause,
         /// `WITH ROLLUP`, `WITH CUBE` or `WITH TOTALS`.
         GroupByModifier: Node,
@@ -597,9 +606,15 @@ syntax_kinds! {
         WindowDefinition: Node,
         /// `QUALIFY` and an expression.
         QualifyClause: Clause,
-        /// `ORDER BY …`, in a query or a table definition: an
-        /// [`OrderByList`](Self::OrderByList), or `ALL` with any direction
-        /// and `NULLS FIRST|LAST` as tokens.
+        /// `ORDER BY …`. In a query, an [`OrderByList`](Self::OrderByList),
+        /// or `ALL` with any direction and `NULLS FIRST|LAST` as tokens; in a
+        /// projection, an `OrderByList`. In a table definition
+        /// (`ParserStorageOrderByClause`), one expression (a
+        /// [`TupleExpr`](Self::TupleExpr) for `(a, b)`, a
+        /// [`FunctionCall`](Self::FunctionCall) for `tuple()`), an
+        /// [`OrderByItem`](Self::OrderByItem) of an expression and a
+        /// direction, or an [`OrderByTuple`](Self::OrderByTuple) when the
+        /// keys in brackets have directions.
         OrderByClause: Clause,
         /// `INTERPOLATE`, after `ORDER BY … WITH FILL`, with any
         /// [`ParenList`](Self::ParenList) of
@@ -618,7 +633,8 @@ syntax_kinds! {
         OffsetClause: Clause,
         /// `FETCH FIRST|NEXT n ROW|ROWS ONLY|WITH TIES`.
         FetchClause: Clause,
-        /// `FORMAT name`.
+        /// `FORMAT` and a [`Name`](Self::Name): an output clause of a query
+        /// statement or of `CREATE` (see above).
         FormatClause: Clause,
         /// `INTO OUTFILE`, the file name as a string
         /// [`Literal`](Self::Literal), then any of `APPEND`, `TRUNCATE` and
@@ -628,8 +644,8 @@ syntax_kinds! {
         IntoOutfileClause: Clause,
         /// `( a, b )`: a list in parentheses that is not an expression, after
         /// `DISTINCT ON`, `USING`, `ROLLUP`, `CUBE` and `INTERPOLATE`, in
-        /// `GROUPING SETS`, and the column names after a CTE's name or a
-        /// table's alias.
+        /// `GROUPING SETS`, the column names after a CTE's name, and a
+        /// table's column aliases.
         ParenList: List,
 
         // ---- CREATE ----------------------------------------------------
@@ -709,8 +725,10 @@ syntax_kinds! {
         /// [`Name`](Self::Name) or a [`FunctionCall`](Self::FunctionCall) of a
         /// `Name` and an [`ArgList`](Self::ArgList).
         IndexDef: Node,
-        /// `PROJECTION name`, then a [`Subquery`](Self::Subquery) or `INDEX
-        /// exprs TYPE type`, then any [`ProjectionSettings`](Self::ProjectionSettings).
+        /// `PROJECTION name`, then a [`Subquery`](Self::Subquery) or `INDEX`,
+        /// an [`ExprList`](Self::ExprList), `TYPE` and a type (as for
+        /// [`IndexDef`](Self::IndexDef)), then any
+        /// [`ProjectionSettings`](Self::ProjectionSettings).
         ProjectionDef: Node,
         /// `WITH SETTINGS (` a [`SettingsList`](Self::SettingsList) `)` of a
         /// projection.
@@ -746,9 +764,11 @@ syntax_kinds! {
         /// separated by commas.
         TtlList: List,
         /// One rule of a table's `TTL`: an expression, then its action as
-        /// keywords and nodes: `[DELETE] [WHERE expr]`, `TO DISK|VOLUME [IF
-        /// EXISTS] '…'`, `RECOMPRESS` and a [`ColumnCodec`](Self::ColumnCodec),
-        /// or `GROUP BY` an [`ExprList`](Self::ExprList) with `SET` and an
+        /// keywords and nodes: `[DELETE] [WHERE expr]`, `TO DISK|VOLUME`, any
+        /// [`IfExists`](Self::IfExists) and a string
+        /// [`Literal`](Self::Literal), `RECOMPRESS` and a
+        /// [`ColumnCodec`](Self::ColumnCodec), or `GROUP BY` an
+        /// [`ExprList`](Self::ExprList) with any `SET` and an
         /// [`AssignmentList`](Self::AssignmentList).
         TtlElement: Node,
         /// [`Assignment`](Self::Assignment)s separated by commas.
@@ -763,7 +783,9 @@ syntax_kinds! {
         /// table's name (a [`Name`](Self::Name) or
         /// [`QualifiedName`](Self::QualifiedName)).
         AsClause: Clause,
-        /// `TO [db.]table` of a materialized view.
+        /// `TO` and a [`Name`](Self::Name) or
+        /// [`QualifiedName`](Self::QualifiedName) of a materialized view's
+        /// target, or `TO INNER UUID` and a string [`Literal`](Self::Literal).
         ToClause: Clause,
         /// `POPULATE`, `EMPTY` or `CLONE`: whether a materialized view starts
         /// with the data its query selects, or a table created `AS …` with
@@ -773,14 +795,17 @@ syntax_kinds! {
         /// both.
         SqlSecurityClause: Clause,
         /// `REFRESH EVERY|AFTER interval [OFFSET interval] [RANDOMIZE FOR
-        /// interval]`, then any of a [`DependsOn`](Self::DependsOn), a
+        /// interval]`, each interval a [`TimeInterval`](Self::TimeInterval),
+        /// then any of a [`DependsOn`](Self::DependsOn), a
         /// [`SettingsClause`](Self::SettingsClause) and `APPEND
-        /// [INCREMENTAL]`, of a materialized view.
+        /// [INCREMENTAL]`, of a materialized view; `REFRESH DEPENDS ON …`
+        /// may leave out the schedule.
         RefreshClause: Clause,
         /// `n UNIT [n UNIT …]` in a [`RefreshClause`](Self::RefreshClause):
         /// numbers and [`IntervalUnit`](Self::IntervalUnit)s.
         TimeInterval: Node,
-        /// `DEPENDS ON` and table names separated by commas.
+        /// `DEPENDS ON` and table names ([`Name`](Self::Name)s or
+        /// [`QualifiedName`](Self::QualifiedName)s) separated by commas.
         DependsOn: List,
         /// A target table of a `TimeSeries` table: `SAMPLES`, `DATA`,
         /// `RECENT SAMPLES`, `TAGS`, `TIME RANGES`, `METRIC FAMILIES` or
