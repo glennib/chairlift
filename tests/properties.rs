@@ -265,7 +265,7 @@ proptest! {
                 let twice = chairlift::format(&once, &options);
                 prop_assert_eq!(twice.as_ref(), Ok(&once), "formatted to {:?}", once);
             }
-            Err(chairlift::Error::Lex(_)) => {}
+            Err(chairlift::Error::Lex(_) | chairlift::Error::Template(_)) => {}
             Err(e) => prop_assert!(false, "{:?}: {}", source, e),
         }
     }

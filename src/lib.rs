@@ -35,8 +35,10 @@ pub mod verify;
 
 use std::fmt;
 
+pub use error::CommentEnd;
 pub use error::Error;
 pub use error::LexError;
+pub use error::TemplateError;
 pub use options::Options;
 
 use crate::split::split;
@@ -74,6 +76,9 @@ use crate::split::split;
 /// - [`Error::Verify`] if the result failed verification, and
 ///   [`Error::Layout`] if the layout lost or repeated a token: bugs, for
 ///   which no output is returned.
+/// - [`Error::Template`] if `source` is a template in which a line comment
+///   can run on past its line break in a render formatting could change:
+///   such a text is left as it is.
 /// - [`Error::TooLarge`] if `source` is 4 GiB or longer.
 pub fn format(source: &str, options: &Options) -> Result<String, Error> {
     format_with_statements(source, options).map(|(output, _)| output)
@@ -99,6 +104,15 @@ pub fn format_with_statements(
         return Err(LexError {
             position: Position::new(source, token.start()),
             kind: token.kind(),
+        }
+        .into());
+    }
+    if mode == lexer::Mode::Jinja
+        && let Some((comment, reason)) = layout::comment_ended_by_rendering(source, split.tokens())
+    {
+        return Err(TemplateError {
+            position: Position::new(source, comment.start()),
+            reason,
         }
         .into());
     }

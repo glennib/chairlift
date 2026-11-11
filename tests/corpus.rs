@@ -179,12 +179,13 @@ fn every_corpus_file_round_trips() {
 }
 
 /// Every file formats without a verification failure, or is left alone for a
-/// lexer error, and formatting is idempotent.
+/// lexer error or a line comment the rendering can make run on, and
+/// formatting is idempotent.
 #[test]
 fn every_corpus_file_formats_idempotently() {
     let mut failures = Vec::new();
     for corpus in corpora() {
-        let (mut formatted, mut changed, mut lex_errors) = (0, 0, 0);
+        let (mut formatted, mut changed, mut lex_errors, mut refused) = (0, 0, 0, 0);
         for path in &corpus.files {
             let Some(source) = read(path) else {
                 continue;
@@ -201,12 +202,14 @@ fn every_corpus_file_formats_idempotently() {
                     }
                 }
                 Err(Error::Lex(_)) => lex_errors += 1,
+                Err(Error::Template(_)) => refused += 1,
                 Err(e) => failures.push(format!("{}: {e}", path.display())),
             }
         }
         eprintln!(
             "{}: {formatted} files verify and are idempotent, {changed} of them changed; \
-             {lex_errors} left alone for a lexer error",
+             {lex_errors} left alone for a lexer error, {refused} for a line comment the \
+             rendering can make run on",
             corpus.name
         );
     }

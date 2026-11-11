@@ -162,6 +162,8 @@ enum Outcome {
     Formatted,
     NotUtf8,
     LexError,
+    /// A template whose line comment ends where the rendering decides.
+    TemplateComment,
     VerifyError,
     TooLarge,
     ReadError,
@@ -174,6 +176,7 @@ impl Outcome {
             Outcome::Formatted => "formatted",
             Outcome::NotUtf8 => "not_utf8",
             Outcome::LexError => "lex_error",
+            Outcome::TemplateComment => "template_comment",
             Outcome::VerifyError => "verify_error",
             Outcome::TooLarge => "too_large",
             Outcome::ReadError => "read_error",
@@ -676,6 +679,7 @@ fn format_file(index: usize, corpus: &Corpus, path: &Path, transform: Transform)
             record.outcome = match e {
                 Error::Lex(_) => Outcome::LexError,
                 Error::Verify(_) | Error::Layout(_) => Outcome::VerifyError,
+                Error::Template(_) => Outcome::TemplateComment,
                 _ => Outcome::TooLarge,
             };
             record.detail = e.to_string();
@@ -997,6 +1001,7 @@ fn summary(corpora: &[Corpus], records: &[Record], with_oracle: bool) -> String 
         "formatted".to_owned(),
         "changed".to_owned(),
         "lexer errors".to_owned(),
+        "templates refused".to_owned(),
         "not UTF-8".to_owned(),
         "verify failures".to_owned(),
         "not idempotent".to_owned(),
@@ -1048,6 +1053,7 @@ fn summary(corpora: &[Corpus], records: &[Record], with_oracle: bool) -> String 
             count(&|r| r.outcome == Outcome::Formatted),
             count(&|r| r.changed == Some(true)),
             count(&|r| r.outcome == Outcome::LexError),
+            count(&|r| r.outcome == Outcome::TemplateComment),
             count(&|r| r.outcome == Outcome::NotUtf8),
             count(&|r| r.outcome == Outcome::VerifyError),
             count(&|r| r.idempotent == Some(false)),

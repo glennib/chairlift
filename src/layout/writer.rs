@@ -466,7 +466,7 @@ impl<'s> Writer<'s> {
 
 /// What a block tag does to the blocks around it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TagRole {
+pub(crate) enum TagRole {
     /// `{% if %}`, `{% for %}` and the like.
     Open,
     /// `{% elif %}`, `{% else %}`.
@@ -477,8 +477,9 @@ enum TagRole {
     Other,
 }
 
-/// What the block tag `text` does, by its name.
-fn tag_role(text: &str) -> TagRole {
+/// The name of the block tag `text`, `if` for `{%- if x %}`, and what
+/// follows it.
+pub(crate) fn tag_name(text: &str) -> (&str, &str) {
     let inner = text
         .strip_prefix("{%")
         .unwrap_or(text)
@@ -487,14 +488,19 @@ fn tag_role(text: &str) -> TagRole {
     let name_len = inner
         .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
         .unwrap_or(inner.len());
-    let name = &inner[..name_len];
+    inner.split_at(name_len)
+}
+
+/// What the block tag `text` does, by its name.
+pub(crate) fn tag_role(text: &str) -> TagRole {
+    let (name, rest) = tag_name(text);
     match name {
         "if" | "for" | "macro" | "call" | "filter" | "block" | "with" | "autoescape" | "trans" => {
             TagRole::Open
         }
         // `{% set x %}…{% endset %}` captures a block; `{% set x = 1 %}`
         // does not.
-        "set" if !inner.contains('=') => TagRole::Open,
+        "set" if !rest.contains('=') => TagRole::Open,
         "elif" | "else" | "pluralize" => TagRole::Middle,
         _ if name.starts_with("end") => TagRole::Close,
         _ => TagRole::Other,

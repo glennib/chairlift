@@ -128,9 +128,12 @@ fn line_comments() {
     // In a template, U+FEFF is not whitespace to the renderer and keeps the
     // `-%}` from stripping the line break, so it stays.
     // At the end of the file nothing follows that could be stripped.
-    let template = "-- {%- x -%}\u{feff}\nEXPLAIN 1\u{feff}\n";
-    assert_eq!(fmt_in(template, true), "-- {%- x -%}\u{feff}\nEXPLAIN 1\n");
-    assert_eq!(fmt(template), "-- {%- x -%}\nEXPLAIN 1\n");
+    let template = "EXPLAIN 0 {%- x -%}\u{feff}\nEXPLAIN 1\u{feff}\n";
+    assert_eq!(
+        fmt_in(template, true),
+        "EXPLAIN 0 {%- x -%}\u{feff}\nEXPLAIN 1\n"
+    );
+    assert_eq!(fmt(template), "EXPLAIN 0 {%- x -%}\nEXPLAIN 1\n");
 }
 
 #[test]
@@ -170,13 +173,11 @@ fn jinja_tags_keep_their_bytes() {
 
 #[test]
 fn whitespace_next_to_a_strip_marker() {
-    // The renderer strips the comment's trailing spaces and the blank lines
-    // before `{%-` anyway. What follows the tag meets the comment once
-    // rendered, not the tag, so it stays as it is.
-    let source = "EXPLAIN 1\nWHERE true -- c  \n\n\n  {%- if a %}  \n\n\n  AND a\n  {%- endif %}\n";
+    // The renderer strips the blank lines before `{%-` anyway.
+    let source = "EXPLAIN 1\nWHERE true  \n\n\n  {%- if a %}  \n\n\n  AND a\n  {%- endif %}\n";
     assert_eq!(
         fmt_in(source, true),
-        "EXPLAIN 1\nWHERE true -- c\n\n  {%- if a %}  \n\n\n  AND a\n{%- endif %}\n"
+        "EXPLAIN 1\nWHERE true\n\n  {%- if a %}  \n\n\n  AND a\n{%- endif %}\n"
     );
 }
 
@@ -184,12 +185,6 @@ fn whitespace_next_to_a_strip_marker() {
 /// whatever comes before the tag; there it can decide a token.
 #[test]
 fn whitespace_after_a_tag_that_renders_nothing() {
-    // `{%- y %}` strips the space after `#`; the space after the tag makes
-    // `#` a comment once rendered, inside the template's comment `# {%- y %} `.
-    let comment = "{% x %}# {%- y %} \n1\n";
-    assert_eq!(fmt_in(comment, true), comment);
-    let comment = "{% x %}# {#- y #} \n1\n";
-    assert_eq!(fmt_in(comment, true), comment);
     let whitespace = "EXPLAIN 1{% x %}  \n\n\n2\n";
     assert_eq!(fmt_in(whitespace, true), whitespace);
     // Where only whitespace renders before the tag, no render puts anything

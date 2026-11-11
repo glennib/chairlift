@@ -197,6 +197,22 @@ fn stdin_errors() {
         stderr(&output),
         "error: <stdin>:2:8: Single quoted string is not closed; the file is left unchanged\n"
     );
+    // A template whose line comment the rendering can make run on is left as
+    // it is, as one with a lexer error is.
+    let output = run(
+        &["--jinja", "on", "-"],
+        Some(b"select a -- c\n{%- if x %}\n, b\n{% endif %} from t\n"),
+        None,
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(stdout(&output), "");
+    assert_eq!(
+        stderr(&output),
+        "error: <stdin>:1:10: where this line comment ends depends on the rendering: the `-` \
+         marker of the tag after it strips the line break after it, and the comment can run on \
+         into text that follows a tag on its line; remove the marker, or end the lines of the \
+         tags there; the file is left unchanged\n"
+    );
     let output = run(&["-"], Some(b"SELECT '\xff'"), None);
     assert_eq!(output.status.code(), Some(2));
     assert!(

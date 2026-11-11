@@ -19,7 +19,7 @@ fuzz_target!(|data: &[u8]| {
                 let twice = chairlift::format(&once, &options);
                 assert_eq!(twice.as_ref(), Ok(&once), "not idempotent (jinja: {jinja})");
             }
-            Err(Error::Lex(_)) => {}
+            Err(Error::Lex(_) | Error::Template(_)) => {}
             Err(e) => panic!("jinja: {jinja}: {e}"),
         }
     }

@@ -82,6 +82,7 @@
 //! is kept as written. Extend it with the node kinds whose rule puts a line
 //! break between children.
 
+mod comment_end;
 mod create;
 mod expr;
 mod file;
@@ -100,6 +101,7 @@ use crate::split::DataFormat;
 use crate::split::Split;
 use crate::syntax::Parse;
 use crate::syntax::SyntaxKind;
+pub(crate) use comment_end::comment_ended_by_rendering;
 use tree::Node;
 use tree::Tree;
 use tree::flag;

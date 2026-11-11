@@ -247,8 +247,8 @@ fn jinja_shapes_the_layout_does_not_cover_are_kept_as_written() {
     // A tag touching a word.
     let source = "select a,{% if x %} b {% endif %} from t";
     assert_eq!(decisions(source, true), [Decision::Kept(Kept::TagTouching)]);
-    // A tag inside a comment: every statement is kept.
-    let source = "-- {% if x %}\nselect 1;\n{% endif %}\nselect 2;";
+    // A tag inside a string: every statement is kept.
+    let source = "select '{% if x %}';\n{% endif %}\nselect 2;";
     assert_eq!(
         decisions(source, true),
         [
@@ -262,6 +262,77 @@ fn jinja_shapes_the_layout_does_not_cover_are_kept_as_written() {
         decisions(source, true),
         [Decision::Kept(Kept::RenderJoined)]
     );
+}
+
+/// A line comment that the rendering can make run on into text the layout
+/// moves leaves the whole text as it is: what it swallows could change in
+/// renders the verifier does not check.
+#[test]
+fn a_line_comment_the_rendering_runs_on_leaves_the_text_alone() {
+    use crate::CommentEnd;
+    let options = Options::default().with_jinja(true);
+    for (source, reason) in [
+        // With `x` false, the input renders `select a -- c from t`.
+        (
+            "select a -- c\n{%- if x %}\n, b\n{% endif %} from t\n",
+            CommentEnd::MarkerAfter,
+        ),
+        (
+            "select\n    a\n    {%- for i in xs -%}\n    ,\n    c{{ i }} -- c\n    {%- endfor %}\nfrom t\n",
+            CommentEnd::MarkerAfter,
+        ),
+        (
+            "select 1; -- c\n{#- note #};select 2",
+            CommentEnd::MarkerAfter,
+        ),
+        // A tag inside a comment can remove the line break after it.
+        (
+            "-- {% if x %}\nselect 1;\n{% endif %}\nselect 2;",
+            CommentEnd::TagInside,
+        ),
+        ("{% x %}# {%- y %} \n1\n", CommentEnd::TagInside),
+        // With `x` false, the input's comment swallows `c UInt8,`, which the
+        // layout puts on a line of its own.
+        (
+            "create table t (\n    a UInt8,  -- note {{ v -}}\n    {% if x %}\n    b UInt8,\n    \
+             {% else %} c UInt8,\n    {% endif %}\n    d UInt8\n)\nengine = MergeTree\norder by a",
+            CommentEnd::MarkerInside,
+        ),
+        ("select 1 -- c {{ v -}}\n, 2", CommentEnd::MarkerInside),
+        // Where the macro is called, the comment runs on into what follows.
+        (
+            "{% macro m() %}\nselect 1 -- c\n{%- endmacro %}\n{{ m() }} union all select 2",
+            CommentEnd::MacroBody,
+        ),
+    ] {
+        match crate::format(source, &options) {
+            Err(crate::Error::Template(e)) => assert_eq!(e.reason, reason, "{source:?}"),
+            other => panic!("{source:?}: {other:?}"),
+        }
+    }
+    let Err(crate::Error::Template(e)) =
+        crate::format("select a -- c\n{%- if x %} b\n{% endif %}\n", &options)
+    else {
+        panic!("formatted");
+    };
+    assert_eq!((e.position.line, e.position.column), (1, 10));
+    // A line break the rendering keeps ends a comment as in SQL.
+    assert_eq!(
+        jinja("select a -- c\n{% if x %}\n, b\n{% endif %} from t\n"),
+        "SELECT\n    a  -- c\n    {% if x %}\n    , b\n    {% endif %}\nFROM t\n"
+    );
+    // Where the render can only go on after block tags and Jinja comments
+    // that end their line, the comment runs on into nothing but their line
+    // break, before and after formatting.
+    for source in [
+        "select\n    a,\n    -- the b column\n    {%- if x %}\n    b,\n    {%- endif %}\n    c\nfrom t",
+        "-- header\n{%- set d = 7 %}\nselect {{ d }}",
+        "-- header\n\n{#- about m -#}\n{% macro m() -%}\nselect 1\n{%- endmacro %}\n\n{{ m() }}",
+        "select 1 -- c {{ v -}}\n{% if x %}\n, 2\n{% endif %}\n",
+        "select a -- c\n{%- if x %}\n",
+    ] {
+        jinja(source);
+    }
 }
 
 #[test]

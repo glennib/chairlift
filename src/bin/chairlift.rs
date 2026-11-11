@@ -139,6 +139,9 @@ impl FileError {
             }
             FileError::Format(chairlift::Error::Verify(e)) => bug_report(&name, e),
             FileError::Format(chairlift::Error::Layout(e)) => bug_report(&name, e),
+            FileError::Format(chairlift::Error::Template(e)) => {
+                format!("{name}:{e}; the file is left unchanged")
+            }
             FileError::Format(e) => format!("{name}: {e}; the file is left unchanged"),
             FileError::Write(e) => {
                 format!("{name}: cannot be written: {e}; the file is left as it was")
