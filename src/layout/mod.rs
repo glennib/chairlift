@@ -314,6 +314,7 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         S::TableElementList => create::element_list(w, node),
         S::ColumnDef => create::column(w, node),
         S::IndexDef => create::index(w, node),
+        S::ProjectionDef => create::projection(w, node),
         S::ColumnCodec | S::ColumnStatistics => create::codec(w, node),
         S::OrderByClause if create::is_table_order_by(w, node) => w.generic(node),
         S::OrderByTuple => create::order_by_tuple(w, node),

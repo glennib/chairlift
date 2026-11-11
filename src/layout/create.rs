@@ -159,6 +159,22 @@ pub(crate) fn index(w: &mut Writer<'_>, node: &Node) {
     breaking(w, node, |w, el| keyword_is(w, el, &["TYPE", "GRANULARITY"]));
 }
 
+/// `PROJECTION name (query)`, the query hugging its brackets; or
+/// `PROJECTION name INDEX exprs TYPE type` as an index is laid out, with a
+/// line break before `WITH SETTINGS` too.
+pub(crate) fn projection(w: &mut Writer<'_>, node: &Node) {
+    if w.parts(node)
+        .iter()
+        .any(|p| p.el.kind() == SyntaxKind::Subquery)
+    {
+        w.generic(node);
+    } else {
+        breaking(w, node, |w, el| {
+            el.kind() == SyntaxKind::ProjectionSettings || keyword_is(w, el, &["TYPE"])
+        });
+    }
+}
+
 /// `REFRESH EVERY interval …`: on one line if it fits; otherwise a line
 /// break, one level in, before `OFFSET`, `RANDOMIZE FOR`, `DEPENDS ON`,
 /// `SETTINGS` and `APPEND`.

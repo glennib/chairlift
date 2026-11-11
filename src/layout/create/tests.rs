@@ -113,7 +113,19 @@ CREATE TABLE t
 )
 ",
     );
-    // An index that does not fit breaks before `TYPE` and `GRANULARITY`.
+    // An index or a projection index that does not fit breaks before `TYPE`,
+    // `GRANULARITY` and `WITH SETTINGS`.
+    check(
+        "create table t (projection p_compact index region type basic with settings (min_bytes_for_wide_part = 1000000000))",
+        "
+CREATE TABLE t
+(
+    PROJECTION p_compact INDEX region
+        TYPE basic
+        WITH SETTINGS (min_bytes_for_wide_part = 1000000000)
+)
+",
+    );
     check(
         "create table t (index idx_with_a_long_name lower(some_long_column_name) type ngrambf_v1(3, 256, 2, 0) granularity 4)",
         "
