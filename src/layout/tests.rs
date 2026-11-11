@@ -824,6 +824,9 @@ fn a_line_comment_the_rendering_runs_on_leaves_the_text_alone() {
             CommentEnd::TagInside,
         ),
         ("{% x %}# {%- y %} \n1\n", CommentEnd::TagInside),
+        // The marker strips the space of `# `; the space after the tag
+        // makes it a comment again.
+        ("select 1 #   \n  {#- c #} \n, 2\n", CommentEnd::MarkerAfter),
         // With `x` false, the input's comment swallows `c UInt8,`, which the
         // layout puts on a line of its own.
         (

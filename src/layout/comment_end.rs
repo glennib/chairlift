@@ -65,6 +65,11 @@ pub(crate) fn comment_ended_by_rendering(
         if !stripped_inside && !stripped_after {
             continue;
         }
+        // Stripped of its space, `#` is a comment only if a space follows
+        // the tag in the render, and the layout decides what does.
+        if stripped_after && text.trim_end() == "#" {
+            return Some((token, CommentEnd::MarkerAfter));
+        }
         let blocks = blocks.get_or_insert_with(|| Blocks::new(source, tokens));
         if let Err(reason) = runs_on_safely(source, tokens, blocks, next) {
             let reason = if stripped_inside && reason == CommentEnd::MarkerAfter {
