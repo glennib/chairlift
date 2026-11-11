@@ -1,0 +1,215 @@
+---
+source: src/syntax/grammar/insert/tests.rs
+expression: "trees(&[\"INSERT INTO t VALUES (1)\",\n\"insert into table db.t (a, b.c, `d`,) values (1, 2, 3)\",\n\"INSERT INTO t (* EXCEPT (b), t.* EXCEPT c, COLUMNS('a') APPLY toString, t.COLUMNS(x, y)) VALUES\",\n\"INSERT INTO FUNCTION file('f.csv', 'CSV', 'a UInt8') PARTITION BY a % 2 SELECT 1\",\n\"INSERT INTO TABLE FUNCTION remote('h', db.t) (a) VALUES (1)\",\n\"INSERT INTO {{ schema }}.events_{{ suffix }} (a) VALUES (1)\",\n\"INSERT INTO {db:Identifier}.{t:Identifier} VALUES (1)\",])"
+---
+> INSERT INTO t VALUES (1)
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  InsertValues
+    Keyword "VALUES"
+    InsertData "(1)"
+
+> insert into table db.t (a, b.c, `d`,) values (1, 2, 3)
+InsertQuery
+  InsertInto
+    Keyword "insert"
+    Keyword "into"
+    Keyword "table"
+    QualifiedName
+      Name
+        BareWord "db"
+      Dot "."
+      Name
+        BareWord "t"
+    InsertColumns
+      OpeningRoundBracket "("
+      Name
+        BareWord "a"
+      Comma ","
+      QualifiedName
+        Name
+          BareWord "b"
+        Dot "."
+        Name
+          BareWord "c"
+      Comma ","
+      Name
+        QuotedIdentifier "`d`"
+      Comma ","
+      ClosingRoundBracket ")"
+  InsertValues
+    Keyword "values"
+    InsertData "(1, 2, 3)"
+
+> INSERT INTO t (* EXCEPT (b), t.* EXCEPT c, COLUMNS('a') APPLY toString, t.COLUMNS(x, y)) VALUES
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+    InsertColumns
+      OpeningRoundBracket "("
+      AsteriskExpr
+        Asterisk "*"
+        ColumnTransformer
+          Keyword "EXCEPT"
+          ColumnList
+            OpeningRoundBracket "("
+            Name
+              BareWord "b"
+            ClosingRoundBracket ")"
+      Comma ","
+      AsteriskExpr
+        Name
+          BareWord "t"
+        Dot "."
+        Asterisk "*"
+        ColumnTransformer
+          Keyword "EXCEPT"
+          Name
+            BareWord "c"
+      Comma ","
+      ColumnsMatcher
+        Keyword "COLUMNS"
+        ColumnList
+          OpeningRoundBracket "("
+          Literal
+            StringLiteral "'a'"
+          ClosingRoundBracket ")"
+        ColumnTransformer
+          Keyword "APPLY"
+          Name
+            BareWord "toString"
+      Comma ","
+      ColumnsMatcher
+        Name
+          BareWord "t"
+        Dot "."
+        Keyword "COLUMNS"
+        ColumnList
+          OpeningRoundBracket "("
+          Name
+            BareWord "x"
+          Comma ","
+          Name
+            BareWord "y"
+          ClosingRoundBracket ")"
+      ClosingRoundBracket ")"
+  InsertValues
+    Keyword "VALUES"
+
+> INSERT INTO FUNCTION file('f.csv', 'CSV', 'a UInt8') PARTITION BY a % 2 SELECT 1
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Keyword "FUNCTION"
+    FunctionCall
+      Name
+        BareWord "file"
+      ArgList
+        OpeningRoundBracket "("
+        Literal
+          StringLiteral "'f.csv'"
+        Comma ","
+        Literal
+          StringLiteral "'CSV'"
+        Comma ","
+        Literal
+          StringLiteral "'a UInt8'"
+        ClosingRoundBracket ")"
+    PartitionByClause
+      Keyword "PARTITION"
+      Keyword "BY"
+      BinaryExpr
+        Name
+          BareWord "a"
+        Percent "%"
+        Literal
+          Number "2"
+  <query>
+
+> INSERT INTO TABLE FUNCTION remote('h', db.t) (a) VALUES (1)
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Keyword "TABLE"
+    Keyword "FUNCTION"
+    FunctionCall
+      Name
+        BareWord "remote"
+      ArgList
+        OpeningRoundBracket "("
+        Literal
+          StringLiteral "'h'"
+        Comma ","
+        QualifiedName
+          Name
+            BareWord "db"
+          Dot "."
+          Name
+            BareWord "t"
+        ClosingRoundBracket ")"
+    InsertColumns
+      OpeningRoundBracket "("
+      Name
+        BareWord "a"
+      ClosingRoundBracket ")"
+  InsertValues
+    Keyword "VALUES"
+    InsertData "(1)"
+
+> INSERT INTO {{ schema }}.events_{{ suffix }} (a) VALUES (1)
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    QualifiedName
+      Name
+        JinjaExpr "{{ schema }}"
+      Dot "."
+      Name
+        BareWord "events_{{ suffix }}"
+    InsertColumns
+      OpeningRoundBracket "("
+      Name
+        BareWord "a"
+      ClosingRoundBracket ")"
+  InsertValues
+    Keyword "VALUES"
+    InsertData "(1)"
+
+> INSERT INTO {db:Identifier}.{t:Identifier} VALUES (1)
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    QualifiedName
+      QueryParameter
+        OpeningCurlyBrace "{"
+        Name
+          BareWord "db"
+        Colon ":"
+        DataType
+          Name
+            BareWord "Identifier"
+        ClosingCurlyBrace "}"
+      Dot "."
+      QueryParameter
+        OpeningCurlyBrace "{"
+        Name
+          BareWord "t"
+        Colon ":"
+        DataType
+          Name
+            BareWord "Identifier"
+        ClosingCurlyBrace "}"
+  InsertValues
+    Keyword "VALUES"
+    InsertData "(1)"

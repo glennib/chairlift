@@ -1,0 +1,47 @@
+---
+source: src/syntax/tests.rs
+expression: "file_tree(\"INSERT INTO t VALUES (1, 'a'),\\n(2, 'b');\\nINSERT INTO t FORMAT CSV\\n1,2\\n\\nSELECT 1\",\nMode::Sql, Entry::File)"
+---
+Root@0..79
+  Statement@0..40
+    InsertQuery@0..39
+      InsertInto@0..13
+        Keyword@0..6 "INSERT"
+        Whitespace@6..7 " "
+        Keyword@7..11 "INTO"
+        Whitespace@11..12 " "
+        Name@12..13
+          BareWord@12..13 "t"
+      Whitespace@13..14 " "
+      InsertValues@14..39
+        Keyword@14..20 "VALUES"
+        Whitespace@20..21 " "
+        InsertData@21..39 "(1, 'a'),\n(2, 'b')"
+    Semicolon@39..40 ";"
+  Whitespace@40..41 "\n"
+  Statement@41..69
+    InsertQuery@41..69
+      InsertInto@41..54
+        Keyword@41..47 "INSERT"
+        Whitespace@47..48 " "
+        Keyword@48..52 "INTO"
+        Whitespace@52..53 " "
+        Name@53..54
+          BareWord@53..54 "t"
+      Whitespace@54..55 " "
+      InsertFormat@55..69
+        Keyword@55..61 "FORMAT"
+        Whitespace@61..62 " "
+        Name@62..65
+          BareWord@62..65 "CSV"
+        Whitespace@65..66 "\n"
+        InsertData@66..69 "1,2"
+  Whitespace@69..71 "\n\n"
+  Statement@71..79
+    SelectQuery@71..79
+      SelectClause@71..79
+        Keyword@71..77 "SELECT"
+        Whitespace@77..78 " "
+        SelectList@78..79
+          Literal@78..79
+            Number@78..79 "1"

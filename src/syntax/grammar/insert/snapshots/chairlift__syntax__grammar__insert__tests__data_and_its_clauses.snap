@@ -1,0 +1,160 @@
+---
+source: src/syntax/grammar/insert/tests.rs
+expression: "trees(&[\"INSERT INTO t VALUES (1, 'a'),\\n(2, 'b');\", \"INSERT INTO t VALUES;\",\n\"INSERT INTO t FORMAT CSV\\n1,2\\n\\nSELECT 1\",\n\"INSERT INTO t FORMAT JSONEachRow\", \"INSERT INTO t FORMAT Values (1)\",\n\"INSERT INTO t SETTINGS async_insert = 1, wait_for_async_insert = 0 VALUES (1)\",\n\"INSERT INTO t SETTINGS input_format_skip_unknown_fields FORMAT JSONEachRow {\\\"a\\\": 1}\",\n\"INSERT INTO t FROM INFILE 'data.csv.gz' COMPRESSION 'gzip' SETTINGS max_threads = 1 FORMAT CSV\",\n\"INSERT INTO t FROM INFILE 'x'\",])"
+---
+> INSERT INTO t VALUES (1, 'a'),
+(2, 'b');
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  InsertValues
+    Keyword "VALUES"
+    InsertData "(1, 'a'),\n(2, 'b')"
+
+> INSERT INTO t VALUES;
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  InsertValues
+    Keyword "VALUES"
+
+> INSERT INTO t FORMAT CSV
+1,2
+
+SELECT 1
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  InsertFormat
+    Keyword "FORMAT"
+    Name
+      BareWord "CSV"
+    InsertData "1,2"
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Literal
+        Number "1"
+
+> INSERT INTO t FORMAT JSONEachRow
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  InsertFormat
+    Keyword "FORMAT"
+    Name
+      BareWord "JSONEachRow"
+
+> INSERT INTO t FORMAT Values (1)
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  InsertFormat
+    Keyword "FORMAT"
+    Name
+      BareWord "Values"
+    InsertData "(1)"
+
+> INSERT INTO t SETTINGS async_insert = 1, wait_for_async_insert = 0 VALUES (1)
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "async_insert"
+        Equals "="
+        Literal
+          Number "1"
+      Comma ","
+      SettingItem
+        Name
+          BareWord "wait_for_async_insert"
+        Equals "="
+        Literal
+          Number "0"
+  InsertValues
+    Keyword "VALUES"
+    InsertData "(1)"
+
+> INSERT INTO t SETTINGS input_format_skip_unknown_fields FORMAT JSONEachRow {"a": 1}
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "input_format_skip_unknown_fields"
+  InsertFormat
+    Keyword "FORMAT"
+    Name
+      BareWord "JSONEachRow"
+    InsertData "{\"a\": 1}"
+
+> INSERT INTO t FROM INFILE 'data.csv.gz' COMPRESSION 'gzip' SETTINGS max_threads = 1 FORMAT CSV
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  InfileClause
+    Keyword "FROM"
+    Keyword "INFILE"
+    Literal
+      StringLiteral "'data.csv.gz'"
+    Keyword "COMPRESSION"
+    Literal
+      StringLiteral "'gzip'"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "max_threads"
+        Equals "="
+        Literal
+          Number "1"
+  InsertFormat
+    Keyword "FORMAT"
+    Name
+      BareWord "CSV"
+
+> INSERT INTO t FROM INFILE 'x'
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  InfileClause
+    Keyword "FROM"
+    Keyword "INFILE"
+    Literal
+      StringLiteral "'x'"

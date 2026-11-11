@@ -1,0 +1,43 @@
+---
+source: src/syntax/grammar/insert/tests.rs
+expression: "trees(&[\"INSERT INTO t -- the target\\n(a, b) /* c */ SELECT a, b FROM u\",\n\"INSERT INTO t {% if x %} SETTINGS a = 1 {% endif %} SELECT 1\",])"
+---
+> INSERT INTO t -- the target
+(a, b) /* c */ SELECT a, b FROM u
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+    LineComment "-- the target"
+    InsertColumns
+      OpeningRoundBracket "("
+      Name
+        BareWord "a"
+      Comma ","
+      Name
+        BareWord "b"
+      ClosingRoundBracket ")"
+  BlockComment "/* c */"
+  <query>
+
+> INSERT INTO t {% if x %} SETTINGS a = 1 {% endif %} SELECT 1
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  JinjaBlock "{% if x %}"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "a"
+        Equals "="
+        Literal
+          Number "1"
+  JinjaBlock "{% endif %}"
+  <query>

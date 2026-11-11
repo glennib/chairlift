@@ -45,7 +45,7 @@ fn trivia_lies_between_siblings() {
 }
 
 #[test]
-fn insert_data_is_one_token_of_a_verbatim_statement() {
+fn insert_data_is_one_token() {
     insta::assert_snapshot!(file_tree(
         "INSERT INTO t VALUES (1, 'a'),\n(2, 'b');\nINSERT INTO t FORMAT CSV\n1,2\n\nSELECT 1",
         Mode::Sql,
@@ -55,10 +55,7 @@ fn insert_data_is_one_token_of_a_verbatim_statement() {
 
 #[test]
 fn every_statement_is_verbatim_until_its_grammar_exists() {
-    for source in [
-        "INSERT INTO t VALUES (1)",
-        "ALTER TABLE t ADD COLUMN a Int8",
-    ] {
+    for source in ["SYSTEM FLUSH LOGS", "ALTER TABLE t ADD COLUMN a Int8"] {
         let parse = parse(source, Mode::Sql);
         let [statement] = &parse.statements()[..] else {
             panic!("{source}: one statement");

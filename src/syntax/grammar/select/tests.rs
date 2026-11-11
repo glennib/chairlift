@@ -218,12 +218,11 @@ fn clauses_in_any_order_and_repeated() {
 }
 
 /// Statements that start as a query does but are of other kinds are kept
-/// verbatim whole, without a fallback: an `INSERT` after `WITH`, and
-/// statements joined by `PARALLEL WITH`.
+/// verbatim whole, without a fallback: statements joined by `PARALLEL
+/// WITH`. An `INSERT` after `WITH` is the `INSERT` grammar's.
 #[test]
 fn statements_of_other_kinds_are_verbatim() {
     for source in [
-        "with x as (select 1) insert into t select * from x",
         "select * from t parallel with select 2",
         "create table t (a UInt8) engine = Memory parallel with create table u (a UInt8) engine = Memory",
     ] {

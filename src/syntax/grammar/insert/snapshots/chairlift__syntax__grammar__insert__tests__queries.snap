@@ -1,0 +1,141 @@
+---
+source: src/syntax/grammar/insert/tests.rs
+expression: "trees(&[\"INSERT INTO t (a, b) SELECT a, b FROM u\",\n\"INSERT INTO t SELECT 1 UNION ALL SELECT 2\", \"INSERT INTO t (SELECT 1)\",\n\"INSERT INTO t (a) (SELECT 1)\", \"INSERT INTO t FROM u\",\n\"INSERT INTO t WITH x AS (SELECT 1) SELECT * FROM x\",\n\"WITH x AS (SELECT 1), 2 AS y INSERT INTO t SELECT * FROM x\",\n\"INSERT INTO t SELECT * FROM input('a UInt8') FORMAT CSV\\n1\\n\",\n\"INSERT INTO t SELECT * FROM u SETTINGS max_threads = 1\",\n\"INSERT INTO t SELECT * FROM u FORMAT Null\",])"
+---
+> INSERT INTO t (a, b) SELECT a, b FROM u
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+    InsertColumns
+      OpeningRoundBracket "("
+      Name
+        BareWord "a"
+      Comma ","
+      Name
+        BareWord "b"
+      ClosingRoundBracket ")"
+  <query>
+
+> INSERT INTO t SELECT 1 UNION ALL SELECT 2
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  <query>
+
+> INSERT INTO t (SELECT 1)
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  <query>
+
+> INSERT INTO t (a) (SELECT 1)
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+    InsertColumns
+      OpeningRoundBracket "("
+      Name
+        BareWord "a"
+      ClosingRoundBracket ")"
+  <query>
+
+> INSERT INTO t FROM u
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  <query>
+
+> INSERT INTO t WITH x AS (SELECT 1) SELECT * FROM x
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  <query>
+
+> WITH x AS (SELECT 1), 2 AS y INSERT INTO t SELECT * FROM x
+InsertQuery
+  WithClause
+    Keyword "WITH"
+    WithList
+      CommonTableExpr
+        Name
+          BareWord "x"
+        Keyword "AS"
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                Literal
+                  Number "1"
+          ClosingRoundBracket ")"
+      Comma ","
+      AliasedExpr
+        Literal
+          Number "2"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "y"
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  <query>
+
+> INSERT INTO t SELECT * FROM input('a UInt8') FORMAT CSV
+1
+
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  <query>
+  InsertFormat
+    Keyword "FORMAT"
+    Name
+      BareWord "CSV"
+    InsertData "1\n"
+
+> INSERT INTO t SELECT * FROM u SETTINGS max_threads = 1
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  <query>
+
+> INSERT INTO t SELECT * FROM u FORMAT Null
+InsertQuery
+  InsertInto
+    Keyword "INSERT"
+    Keyword "INTO"
+    Name
+      BareWord "t"
+  <query>
+  InsertFormat
+    Keyword "FORMAT"
+    Name
+      BareWord "Null"

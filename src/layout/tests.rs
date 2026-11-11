@@ -91,7 +91,7 @@ fn template_data_is_kept_and_other_formats_are_not() {
         decisions(source, true),
         [
             Decision::Formatted,
-            Decision::Kept(Kept::NotParsed),
+            Decision::Kept(Kept::NoRule),
             Decision::Formatted,
             Decision::Formatted
         ]
@@ -101,7 +101,7 @@ fn template_data_is_kept_and_other_formats_are_not() {
         decisions(source, true),
         [
             Decision::Formatted,
-            Decision::Kept(Kept::NotParsed),
+            Decision::Kept(Kept::NoRule),
             Decision::Kept(Kept::TemplateData)
         ]
     );

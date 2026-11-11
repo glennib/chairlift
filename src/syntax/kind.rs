@@ -813,6 +813,45 @@ syntax_kinds! {
         /// [`TableElementList`](Self::TableElementList), `[INNER]` and the
         /// target's storage clauses, or the target's name.
         ViewTargetClause: Clause,
+
+        // ---- INSERT ----------------------------------------------------
+        // Grammar in `grammar/insert.rs`. The data after `VALUES` or
+        // `FORMAT name` is one `InsertData` token, kept byte for byte.
+        /// `[WITH …] INSERT INTO …`: any [`WithClause`](Self::WithClause),
+        /// an [`InsertInto`](Self::InsertInto), then in the order
+        /// ClickHouse reads them any [`InfileClause`](Self::InfileClause)
+        /// and [`SettingsClause`](Self::SettingsClause), and an
+        /// [`InsertValues`](Self::InsertValues), an
+        /// [`InsertFormat`](Self::InsertFormat), or a query (a
+        /// [`SelectQuery`](Self::SelectQuery) or
+        /// [`UnionQuery`](Self::UnionQuery), without output clauses) with
+        /// any `InsertFormat` after it. A `SETTINGS` at the end of the query
+        /// is the query's own clause.
+        InsertQuery: Statement,
+        /// `INSERT INTO [TABLE]` and the target, a table's
+        /// [`Name`](Self::Name) or [`QualifiedName`](Self::QualifiedName),
+        /// or `FUNCTION` and a table function's
+        /// [`FunctionCall`](Self::FunctionCall) with any
+        /// [`PartitionByClause`](Self::PartitionByClause); then any
+        /// [`InsertColumns`](Self::InsertColumns).
+        InsertInto: Node,
+        /// `( a, t.b, * EXCEPT (c), t.*, COLUMNS('x') )`: the columns an
+        /// `INSERT` fills, names ([`Name`](Self::Name),
+        /// [`QualifiedName`](Self::QualifiedName)),
+        /// [`AsteriskExpr`](Self::AsteriskExpr)s and
+        /// [`ColumnsMatcher`](Self::ColumnsMatcher)s, with any trailing
+        /// comma.
+        InsertColumns: List,
+        /// `FROM INFILE` and the file name as a string
+        /// [`Literal`](Self::Literal), then any `COMPRESSION` and a string
+        /// `Literal`.
+        InfileClause: Clause,
+        /// `VALUES` and the rows as one [`InsertData`](Self::InsertData)
+        /// token, which is missing when `;` or the end follows `VALUES`.
+        InsertValues: Clause,
+        /// `FORMAT` and the format's [`Name`](Self::Name), then the data as
+        /// one [`InsertData`](Self::InsertData) token if any follows.
+        InsertFormat: Clause,
     }
 }
 

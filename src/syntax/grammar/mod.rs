@@ -12,6 +12,7 @@
 //! | [`common`] | expression lists, `ORDER BY` items, `SETTINGS`, `ON CLUSTER`, `IF [NOT] EXISTS` |
 //! | [`select`] | `SELECT` queries and subqueries |
 //! | [`create`] | `CREATE TABLE`, `CREATE MATERIALIZED VIEW` |
+//! | [`insert`] | `INSERT`, with the `WITH` clause before it |
 //! | [`probe`] | the `SELECT <list>` expression probe |
 //!
 //! # Writing grammar
@@ -86,6 +87,8 @@
 //!   a quoted identifier, `{{ … }}`, `{x:Identifier}`) and
 //!   [`names::compound_name`] (`db.table`). An engine, codec, setting or type
 //!   name is a name, never a keyword: `ENGINE = Null` stays as written.
+//!   [`insert::table_name`] is `name` or `db.name`, where ClickHouse reads
+//!   a table as two identifiers (`parseDatabaseAndTableAsAST`).
 //! - Expressions: [`exprs::expr`], and [`exprs::expr_with_alias`] with an
 //!   [`AliasMode`]: `Implicit` for a `SELECT` list (an alias without `AS`
 //!   cannot be one of [`exprs::RESTRICTED_ALIASES`]), `As` where only
@@ -109,8 +112,8 @@
 //!    each clause [`Role::Clause`](crate::syntax::Role), each list
 //!    [`Role::List`](crate::syntax::Role).
 //! 2. Recognise it in an `at_statement` function by its leading keywords
-//!    and call it from [`statement`] (`select` and `create` are dispatched
-//!    already).
+//!    and call it from [`statement`] (`select`, `create` and `insert` are
+//!    dispatched already).
 //! 3. Parse its head, then its clauses in a loop: while the current token
 //!    starts a clause, parse it with [`fallback::clause`], passing a
 //!    predicate that recognises every clause keyword of the statement, so
@@ -139,6 +142,7 @@ pub(crate) mod common;
 pub(crate) mod create;
 pub(crate) mod exprs;
 pub(crate) mod fallback;
+pub(crate) mod insert;
 pub(crate) mod names;
 pub(crate) mod probe;
 pub(crate) mod select;
@@ -161,13 +165,16 @@ pub(crate) fn statement(p: &mut Parser<'_>, entry: Entry) {
     }
     match entry {
         Entry::File => {
-            let query = select::at_statement(p);
-            if !(query || create::at_statement(p)) || at_unparsed_statement(p) {
+            if at_parallel_with(p) {
                 fallback::verbatim_statement(p);
-            } else if query {
+            } else if insert::at_statement(p) || (p.at_kw(K::With) && at_insert_after_with(p)) {
+                fallback::statement(p, insert::statement);
+            } else if select::at_statement(p) {
                 fallback::statement(p, select::statement);
-            } else {
+            } else if create::at_statement(p) {
                 fallback::statement(p, create::statement);
+            } else {
+                fallback::verbatim_statement(p);
             }
         }
         Entry::SelectListProbe => probe::statement(p),
@@ -178,19 +185,15 @@ pub(crate) fn statement(p: &mut Parser<'_>, entry: Entry) {
     }
 }
 
-/// Whether the statement is of a kind the grammar does not parse, though it
-/// starts as a query or a `CREATE` does: statements joined by `PARALLEL
-/// WITH` (`ParserParallelWithQuery`), or an `INSERT` after a `WITH` clause
-/// (`WITH x AS (…) INSERT INTO t …`, which `ParserInsertQuery` reads). Such a
+/// Whether the statement is two or more joined by `PARALLEL WITH`
+/// (`ParserParallelWithQuery`), which the grammar does not parse. Such a
 /// statement is kept verbatim whole rather than parsed in part, which would
 /// record keyword slots that the grammar for the whole might not.
 ///
-/// The words count outside brackets only. `PARALLEL WITH` is not the
-/// combinator before `TOTALS`, `ROLLUP`, `CUBE`, `FILL` or `TIES`, where
-/// `parallel` is a column that the clause's `WITH` follows, nor is `INSERT
-/// INTO` before `OUTFILE` and a string, where `insert` is an alias.
-fn at_unparsed_statement(p: &Parser<'_>) -> bool {
-    let with = p.at_kw(K::With);
+/// The words count outside brackets only, and not before `TOTALS`,
+/// `ROLLUP`, `CUBE`, `FILL` or `TIES`, where `parallel` is a column that the
+/// clause's `WITH` follows.
+fn at_parallel_with(p: &Parser<'_>) -> bool {
     let mut n = 0;
     while p.nth(n).is_some() {
         if p.nth_at_kw(n, K::Parallel)
@@ -202,8 +205,19 @@ fn at_unparsed_statement(p: &Parser<'_>) -> bool {
         {
             return true;
         }
-        if with
-            && p.nth_at_kw(n, K::Insert)
+        n += p.step_len(n);
+    }
+    false
+}
+
+/// Whether a statement that starts with `WITH` is an `INSERT` after a `WITH`
+/// clause (`WITH x AS (…) INSERT INTO t …`, which `ParserInsertQuery`
+/// reads): `INSERT INTO` outside brackets, but not before `OUTFILE` and a
+/// string, where `insert` is an alias.
+fn at_insert_after_with(p: &Parser<'_>) -> bool {
+    let mut n = 0;
+    while p.nth(n).is_some() {
+        if p.nth_at_kw(n, K::Insert)
             && p.nth_at_kw(n + 1, K::Into)
             && !(p.nth_at_kw(n + 2, K::Outfile) && p.nth_at(n + 3, T::StringLiteral))
         {

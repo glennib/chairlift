@@ -351,6 +351,22 @@ const SHAPES: &[Shape] = &[
         "a = 1, ",
         "b",
     ),
+    // INSERT.
+    run("INSERT INTO t (", "a, ", "b) VALUES (1)"),
+    run("INSERT INTO t (", "a b, ", "b) SELECT 1"),
+    run("INSERT INTO t (", "t.* EXCEPT (a), ", "b) SELECT 1"),
+    run(
+        "WITH ",
+        "x AS (SELECT 1), ",
+        "y AS (SELECT 2) INSERT INTO t SELECT 1",
+    ),
+    run("INSERT INTO t SETTINGS ", "a = 1, ", "b SELECT 1"),
+    run("INSERT INTO t SELECT 1", " FORMAT CSV", ""),
+    statement("INSERT INTO t ", "(", "SELECT 1", ")", ""),
+    statement("INSERT INTO t (a) ", "(", "SELECT 1", ")", ""),
+    unclosed("INSERT INTO t ", "("),
+    unclosed("INSERT INTO t (a) ", "(SELECT "),
+    unclosed("WITH x AS (SELECT 1) INSERT INTO t ", "("),
 ];
 
 /// A statement of `head` and `open` repeated, never closed, at lengths
