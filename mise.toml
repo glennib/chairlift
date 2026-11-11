@@ -111,6 +111,11 @@ description = "Fuzz the parser: no panic, lossless tree, re-cased keyword slots 
 env = { RUSTUP_TOOLCHAIN = "nightly" }
 run = 'cargo fuzz run --target "$(rustc -vV | sed -n "s/^host: //p")" parser -- -dict=fuzz/parser.dict'
 
+[tasks."fuzz:doc"]
+description = "Fuzz the document printer on generated documents: no panic, every token once, verification holds, idempotent (nightly toolchain); pass libFuzzer options after --"
+env = { RUSTUP_TOOLCHAIN = "nightly" }
+run = 'cargo fuzz run --target "$(rustc -vV | sed -n "s/^host: //p")" doc --'
+
 [tasks."corpus:fetch"]
 description = "Fetch the ClickHouse and dbt corpora into $CHAIRLIFT_CORPUS_DIR (default corpus/)"
 run = "scripts/fetch-corpus.sh"
