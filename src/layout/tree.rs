@@ -110,12 +110,17 @@ pub(crate) struct Tree {
 impl Tree {
     /// Walks the tree under `root`, whose tokens are `tokens` of `source`;
     /// `joined` marks the tokens the rendered template joins with others.
+    /// Outside a template (`jinja` false), a tag inside a token is text.
+    /// `free` marks the brackets, `,` and `;` a tag may be moved away from
+    /// (see [`touches`]).
     pub(crate) fn new(
         root: &GreenNodeData,
         source: &str,
         tokens: &[Token],
         joined: &[bool],
         data: &[bool],
+        jinja: bool,
+        free: &[bool],
     ) -> Tree {
         let mut info: Vec<Info> = Vec::with_capacity(tokens.len());
         let mut token = 0u32;
@@ -145,7 +150,11 @@ impl Tree {
                     let i = token as usize;
                     token += 1;
                     let kind = ClickHouse::kind_from_raw(t.kind());
-                    info[id as usize].flags |= token_flags(source, tokens, i, kind, parent, joined);
+                    let mut flags = token_flags(source, tokens, i, kind, parent, joined, free);
+                    if !jinja {
+                        flags &= !flag::HIDDEN_TAG;
+                    }
+                    info[id as usize].flags |= flags;
                     if data.get(i).copied().unwrap_or(false) {
                         info[id as usize].flags |= flag::TEMPLATE_DATA;
                     }
@@ -226,6 +235,7 @@ fn token_flags(
     kind: SyntaxKind,
     parent: SyntaxKind,
     joined: &[bool],
+    free: &[bool],
 ) -> u16 {
     let mut flags = 0;
     if kind != SyntaxKind::Whitespace && tokens[i].text(source).contains('\n') {
@@ -237,7 +247,7 @@ fn token_flags(
     match kind {
         SyntaxKind::Whitespace | SyntaxKind::JinjaExpr | SyntaxKind::JinjaRaw => {}
         SyntaxKind::JinjaComment => {
-            if touching(source, tokens, i) {
+            if touching(source, tokens, i, free) {
                 flags |= flag::TAG_TOUCHING;
             }
         }
@@ -245,12 +255,13 @@ fn token_flags(
             if !tag_allowed_in(parent) {
                 flags |= flag::TAG_PLACE;
             }
-            if touching(source, tokens, i) {
+            if touching(source, tokens, i, free) {
                 flags |= flag::TAG_TOUCHING;
             }
         }
         _ => {
-            if has_hidden_tag(tokens[i].text(source)) {
+            let text = tokens[i].text(source);
+            if has_hidden_tag(text) && !super::inner::contained(text, tokens[i].kind()) {
                 flags |= flag::HIDDEN_TAG;
             }
         }
@@ -259,15 +270,19 @@ fn token_flags(
 }
 
 /// Whether a block tag may stand between two children of a node of `kind`:
-/// between statements, clauses, list items, and `AND`/`OR` operands, where
+/// between statements, clauses, list items, and `AND`/`OR` operands, between
+/// a clause's keywords and its body, and inside a subquery's brackets, where
 /// the layout puts it on a line of its own at the indentation of what
 /// follows.
 pub(crate) fn tag_allowed_in(kind: SyntaxKind) -> bool {
     kind.is_list()
+        || (kind.is_clause() && !kind.is_verbatim())
         || matches!(
             kind,
             SyntaxKind::Root
                 | SyntaxKind::Statement
+                | SyntaxKind::JinjaHeader
+                | SyntaxKind::Subquery
                 | SyntaxKind::SelectQuery
                 | SyntaxKind::UnionQuery
                 | SyntaxKind::AndExpr
@@ -295,22 +310,27 @@ fn has_hidden_tag(text: &str) -> bool {
 
 /// Whether tag token `i` touches the token before or after it on a side
 /// without a `-` marker, which strips the whitespace there anyway.
-fn touching(source: &str, tokens: &[Token], i: usize) -> bool {
-    let (before, after) = touches(source, tokens, i);
+fn touching(source: &str, tokens: &[Token], i: usize, free: &[bool]) -> bool {
+    let (before, after) = touches(source, tokens, i, free);
     before || after
 }
 
 /// Whether tag token `i` touches the token before it and the token after
-/// it, on a side without a `-` marker.
-pub(crate) fn touches(source: &str, tokens: &[Token], i: usize) -> (bool, bool) {
+/// it, on a side without a `-` marker. A bracket, `,` or `;` that `free`
+/// marks does not count: it is a token of its own next to whatever a render
+/// puts beside it, other than a `{{ }}` (see `super::joins::free_punctuation`),
+/// so whitespace between it and the tag changes no render's tokens.
+pub(crate) fn touches(source: &str, tokens: &[Token], i: usize, free: &[bool]) -> (bool, bool) {
     let text = tokens[i].text(source);
     let Some(tag) = jinja::tags(text).next() else {
         return (false, false);
     };
     let (before, after) = tag.whitespace_control(text);
     let solid = |j: Option<usize>| {
-        j.and_then(|j| tokens.get(j))
-            .is_some_and(|t| t.kind() != TokenKind::Whitespace)
+        j.and_then(|j| tokens.get(j).map(|t| (j, t)))
+            .is_some_and(|(j, t)| {
+                t.kind() != TokenKind::Whitespace && !free.get(j).copied().unwrap_or(false)
+            })
     };
     (
         before != WhitespaceControl::Strip && solid(i.checked_sub(1)),

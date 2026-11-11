@@ -61,6 +61,48 @@ pub(crate) fn joinable(source: &str, tokens: &[Token]) -> Vec<bool> {
     out
 }
 
+/// For each token of a template, whether it is a bracket, `,` or `;` that a
+/// block or comment tag touches and that no render puts directly against a
+/// `{{ }}` or raw block across that tag. Such a token stays a token of its
+/// own whatever a render puts beside it, so the layout may put whitespace
+/// between it and the tag; next to an expression, which can render as
+/// anything, the verifier keeps whitespace present or absent as written.
+pub(crate) fn free_punctuation(source: &str, tokens: &[Token]) -> Vec<bool> {
+    let mut out = vec![false; tokens.len()];
+    if !(source.contains("{%") || source.contains("{#")) {
+        return out;
+    }
+    let mut blocks = None;
+    for (i, token) in tokens.iter().enumerate() {
+        if !matches!(
+            token.kind(),
+            TokenKind::Comma
+                | TokenKind::Semicolon
+                | TokenKind::OpeningRoundBracket
+                | TokenKind::ClosingRoundBracket
+                | TokenKind::OpeningSquareBracket
+                | TokenKind::ClosingSquareBracket
+        ) {
+            continue;
+        }
+        let before = i.checked_sub(1).filter(|&k| is_tag(tokens[k]));
+        let after = Some(i + 1).filter(|&k| tokens.get(k).is_some_and(|t| is_tag(*t)));
+        if before.is_none() && after.is_none() {
+            continue;
+        }
+        let blocks = blocks.get_or_insert_with(|| Blocks::new(source, tokens));
+        let search = Search {
+            source,
+            tokens,
+            blocks,
+            word: i,
+        };
+        out[i] = !(before.is_some_and(|k| search.meets(k, Side::Before))
+            || after.is_some_and(|k| search.meets(k, Side::After)));
+    }
+    out
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Side {
     /// The tags follow the word.
@@ -73,6 +115,7 @@ struct Search<'a> {
     source: &'a str,
     tokens: &'a [Token],
     blocks: &'a Blocks,
+    /// The token next to the tags searched from: a word, or punctuation.
     word: usize,
 }
 
@@ -126,28 +169,45 @@ impl Search<'_> {
         false
     }
 
-    /// The tags past which a render that reaches tag `t` from `side` can go
-    /// on: the tag itself for a Jinja comment and a tag that opens no block,
-    /// every tag of its block for an `if` or a `for`; `None` where the render
-    /// can go elsewhere, such as from the end of a macro's body to wherever
-    /// it is called.
+    /// The tags of the block of tag `t` next to which a render can be when
+    /// it is just before `t` (`side` [`After`](Side::After): where it goes
+    /// on, after those tags) or just after it (`Before`: where it comes from,
+    /// before those tags). A Jinja comment or a tag that opens no block is
+    /// passed through. Before an `if`, a render goes on in any branch or past
+    /// the `endif`; before another tag of an `if`, past the `endif`; after
+    /// the `endif`, it comes from the end of any branch or from before the
+    /// `if`, and after another tag of it from before the `if`. A loop's body
+    /// can follow itself or be left out. `None` where the render can go
+    /// elsewhere, such as from the end of a macro's body to wherever it is
+    /// called.
     fn points(&self, t: usize, side: Side) -> Option<Vec<usize>> {
         let token = self.tokens[t];
         if token.kind() == TokenKind::JinjaComment {
             return Some(vec![t]);
         }
-        match tag_name(token.text(self.source)).0 {
-            "if" | "elif" | "else" | "endif" | "for" | "endfor" | "set" | "endset" => {
-                let members = self.blocks.members(t)?;
-                (members.len() <= MAX_MEMBERS).then_some(members)
-            }
-            "macro" if side == Side::After => {
-                let members = self.blocks.members(t)?;
-                (members.len() <= MAX_MEMBERS).then_some(members)
-            }
-            "do" => Some(vec![t]),
-            _ => None,
+        let name = tag_name(token.text(self.source)).0;
+        match name {
+            "if" | "elif" | "else" | "endif" | "for" | "endfor" | "set" | "endset" => {}
+            "macro" if side == Side::After => {}
+            "do" => return Some(vec![t]),
+            _ => return None,
         }
+        let members = self.blocks.members(t)?;
+        if members.len() > MAX_MEMBERS {
+            return None;
+        }
+        let j = members.iter().position(|&m| m == t)?;
+        let last = members.len() - 1;
+        let (first, end) = (members[0], members[last]);
+        Some(
+            match (tag_name(self.tokens[first].text(self.source)).0, side) {
+                ("if", Side::After) if j > 0 => vec![end],
+                ("if", Side::Before) if j < last => vec![first],
+                ("for", Side::After) if j > 0 => vec![first, end],
+                ("for", Side::Before) if j > 0 && j < last => vec![first],
+                _ => members,
+            },
+        )
     }
 
     fn strips_after(&self, i: usize) -> bool {

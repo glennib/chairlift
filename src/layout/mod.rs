@@ -35,6 +35,8 @@
 //! | `access` | `GRANT`, `REVOKE`, `CREATE` and `ALTER` of users, roles, quotas, row policies and settings profiles |
 //! | `tree` | preorder node numbers and the facts about each node, from one pass |
 //! | `comment_end` | the template line comments the rendering can make run on, which leave the text as it is |
+//! | `joins` | the template words a render can join to a token beyond a block tag, which keep their case |
+//! | `inner` | block tags inside a string or comment whose blocks stay inside it |
 //!
 //! `node` dispatches a node to its rule by kind. A kind without a rule
 //! of its own is laid out by the generic rule
@@ -86,7 +88,40 @@
 //! Jinja block tags are allowed only between the children of the node
 //! kinds in `tree::tag_allowed_in`; a statement with a tag anywhere else
 //! is kept as written. Extend it with the node kinds whose rule puts a line
-//! break between children.
+//! break between children, or passes the trivia before a body to
+//! `Writer::body_scope`.
+//!
+//! # Templates
+//!
+//! What the layout does with Jinja, by `docs/MILESTONES.md` ("Style",
+//! Jinja):
+//!
+//! - A block tag goes on a line of its own at the indentation of what
+//!   follows it, `{% else %}`, `{% elif %}` and closers at their opener's;
+//!   between statements, at column 0. A `{% for %}` that emits list items
+//!   is at the items' indentation, and the items are not indented further.
+//! - A statement's header, the `{{ … }}` lines before it (dbt's
+//!   `{{ config(…) }}`), goes at column 0 with the blank line after it kept;
+//!   one that follows the statement before on its line (a test hint after
+//!   `;`) stays there.
+//! - Whitespace next to a `{{ }}` stays present or absent; a tag touching a
+//!   token keeps its statement as written, unless the token is a bracket,
+//!   `,` or `;`, which a render never joins to anything.
+//! - A statement is kept as written for a tag where `tag_allowed_in` does
+//!   not allow it ([`Kept::TagPlace`]), a tag touching a word or literal
+//!   ([`Kept::TagTouching`]), text the render with every branch taken joins
+//!   into one token ([`Kept::RenderJoined`]), `INSERT … FORMAT` data whose
+//!   extent a branch can change and what follows it up to a blank line every
+//!   render keeps ([`Kept::TemplateData`]); a whole text for a block or
+//!   comment tag inside another token whose block reaches outside it
+//!   ([`Kept::HiddenTag`], see `inner`).
+//! - A word that a render can join to a token beyond a block tag keeps its
+//!   case (see `joins`), and a text in which a render can make a line
+//!   comment run on is refused (see `comment_end`).
+//!
+//! The verifier checks the render with every branch taken; `chairlift::template`
+//! (the `template` feature) renders every combination of branches, and the
+//! corpus tool and `tests/template_properties.rs` compare those renders.
 
 mod access;
 mod alter;
@@ -95,6 +130,7 @@ mod create;
 mod create_other;
 mod expr;
 mod file;
+mod inner;
 mod insert;
 mod joins;
 mod query;
@@ -117,7 +153,9 @@ pub(crate) use comment_end::comment_ended_by_rendering;
 use tree::Node;
 use tree::Tree;
 use tree::flag;
+pub(crate) use writer::TagRole;
 use writer::Writer;
+pub(crate) use writer::tag_role;
 
 /// What the layout did with one statement of a text.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -151,18 +189,21 @@ pub enum Kept {
     /// A Jinja block tag stands where the layout cannot put it on a line
     /// of its own, such as inside an expression.
     TagPlace,
-    /// A Jinja block or comment tag touches the token next to it, so that
-    /// moving it to a line of its own would change what the template
-    /// renders.
+    /// A Jinja block or comment tag touches the token next to it, other than
+    /// a bracket, `,` or `;`, so that moving it to a line of its own could
+    /// change what the template renders.
     TagTouching,
     /// Rendering the template joins its tokens into others: a string or
     /// heredoc around a tag.
     RenderJoined,
-    /// It is in or after `INSERT … FORMAT` data in a template whose rendering
-    /// can change where the data starts or ends.
+    /// It is in `INSERT … FORMAT` data in a template whose rendering can
+    /// change where the data starts or ends, or before the blank line that
+    /// ends the data in every render (after it, where there is none).
     TemplateData,
     /// The text has a Jinja block or comment tag inside a comment, string
-    /// or word, whose branches the layout cannot see.
+    /// or word, whose branches the layout cannot see: one whose block
+    /// reaches outside that token, or whose render can change where the
+    /// token ends.
     HiddenTag,
 }
 
@@ -218,19 +259,26 @@ pub(crate) fn layout<'s>(
     let tokens = split.tokens();
     let rendered = rendered_facts(source, split, mode);
     let syntax = parse.syntax();
+    let free = if mode == Mode::Jinja {
+        joins::free_punctuation(source, tokens)
+    } else {
+        Vec::new()
+    };
     let tree = Tree::new(
         syntax.green(),
         source,
         tokens,
         &rendered.inside,
         &rendered.data,
+        mode == Mode::Jinja,
+        &free,
     );
     let root = Tree::root(syntax.green());
     let mut w = Writer::new(source, tokens, mode, tree);
     let (parts, _) = w.parts_and_tail(&root);
     let keep_all = w.has(&root, flag::HIDDEN_TAG).then_some(Kept::HiddenTag);
     let plan = file::plan(&w, &parts, keep_all);
-    freeze(&mut w, &plan, &rendered, parse, keep_all.is_some());
+    freeze(&mut w, &plan, &rendered, parse, keep_all.is_some(), &free);
     file::root(&mut w, &root, &plan);
     let ending = ending(source, split, rendered.open_data);
     w.b.set_ending(ending);
@@ -252,6 +300,7 @@ fn freeze(
     rendered: &crate::cleanup::Rendered,
     parse: &Parse,
     keep_all: bool,
+    free: &[bool],
 ) {
     let mut frozen: Vec<bool> = if keep_all {
         rendered.kept.clone()
@@ -293,7 +342,7 @@ fn freeze(
         .enumerate()
         .filter_map(|(i, &f)| f.then_some(i))
         .collect();
-    indices.extend(w.touching_tags());
+    indices.extend(w.touching_tags(free));
     indices.sort_unstable();
     indices.dedup();
     for i in indices {

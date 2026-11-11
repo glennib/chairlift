@@ -549,7 +549,8 @@ impl<'s> Writer<'s> {
 
     /// The block and comment tags that touch a token on a side without a
     /// `-` marker, and the tokens they touch: what must keep touching.
-    pub(crate) fn touching_tags(&self) -> Vec<usize> {
+    /// `free` is as for [`super::tree::touches`].
+    pub(crate) fn touching_tags(&self, free: &[bool]) -> Vec<usize> {
         let mut out = Vec::new();
         for (i, token) in self.tokens.iter().enumerate() {
             if !matches!(
@@ -558,7 +559,7 @@ impl<'s> Writer<'s> {
             ) {
                 continue;
             }
-            let (before, after) = super::tree::touches(self.source, self.tokens, i);
+            let (before, after) = super::tree::touches(self.source, self.tokens, i, free);
             if before {
                 out.extend([i - 1, i]);
             }

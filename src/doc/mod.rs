@@ -179,6 +179,7 @@
 //! | A line comment breaks its group; `/* */` in a line is an atom | automatic; `token` |
 //! | A block of `--` lines keeps its relative indent | `comment_block` |
 //! | Block tags on their own line, closers aligned; at column 0 between statements | `block_tag`, `block_tag_aligned`; `at_root` |
+//! | A header (`{{ config() }}`) on lines of its own at column 0, a blank line kept | `token hard_line blank_lines(n)` before the statement's body |
 //! | `{{ }}` adjacency as written; text a rendered template joins kept | automatic; `frozen`, `freeze` |
 //! | Verbatim regions re-indented as a block; `::` operand and `INSERT` data untouched | `verbatim`; `verbatim_exact` |
 //!
@@ -208,6 +209,11 @@
 //!   comment that the stripped whitespace would end, whose end the render
 //!   then decides; [`format`](crate::format) leaves such a template as it
 //!   is (see [`Error::Template`](crate::Error::Template)).
+//! - In a template, print a word whose whitespace a `-` marker strips, or
+//!   which touches a block tag, as written where a render that leaves out a
+//!   branch or repeats a loop can join it to another token: its case is then
+//!   part of that token. The layout finds these words; the builder prints
+//!   whatever it is given.
 
 mod build;
 mod check;
