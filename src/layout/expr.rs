@@ -283,6 +283,32 @@ pub(crate) fn ternary(w: &mut Writer<'_>, node: &Node) {
     w.b.close(open);
 }
 
+/// `x [NOT] BETWEEN a AND b`: on one line if it fits, otherwise a line
+/// break before `[NOT] BETWEEN`, one level in. Its `AND` is never a place to
+/// break, so that it cannot read as one of a run of conditions.
+pub(crate) fn between(w: &mut Writer<'_>, node: &Node) {
+    let parts = w.parts(node);
+    let kind = node.kind();
+    let Some(at) = parts.iter().position(|p| matches!(p.el, El::Token { .. })) else {
+        w.generic(node);
+        return;
+    };
+    let open = w.b.open_group();
+    w.inline(kind, &parts[..at]);
+    let indent = w.b.open_indent();
+    for (k, part) in parts.iter().enumerate().skip(at) {
+        let sep = if k == at {
+            Sep::Line
+        } else {
+            w.join(kind, &parts[k - 1].el, &part.el)
+        };
+        w.gap(part.trivia.clone(), sep, 0);
+        w.el(&part.el);
+    }
+    w.b.close(indent);
+    w.b.close(open);
+}
+
 /// `x::Type`: the type on one line, never broken inside, as the proposal
 /// has casts.
 pub(crate) fn cast(w: &mut Writer<'_>, node: &Node) {

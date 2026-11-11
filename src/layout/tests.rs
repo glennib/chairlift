@@ -480,10 +480,24 @@ fn a_comment_before_a_closer_stays_with_the_items() {
 }
 
 #[test]
-fn between_never_breaks_at_its_and() {
+fn between_breaks_before_between_never_at_its_and() {
     assert_eq!(
         fmt_in("select 1 where a between 1 and 2 and b = 3", false, 20),
-        "SELECT 1\nWHERE a BETWEEN 1 AND 2\n    AND b = 3\n"
+        "SELECT 1\nWHERE a\n        BETWEEN 1 AND 2\n    AND b = 3\n"
+    );
+    assert_eq!(
+        fmt_in(
+            "select a from t where some_long_column_name_number_one between toDate('2020-01-01') \
+             and toDate('2021-01-01') and z = 1",
+            false,
+            80
+        ),
+        "SELECT a\nFROM t\nWHERE some_long_column_name_number_one\n        \
+         BETWEEN toDate('2020-01-01') AND toDate('2021-01-01')\n    AND z = 1\n"
+    );
+    assert_eq!(
+        fmt("select x not between 1 and 2"),
+        "SELECT x NOT BETWEEN 1 AND 2\n"
     );
 }
 
