@@ -1,0 +1,9 @@
+---
+source: tests/format.rs
+expression: once
+---
+SELECT throwIf({{ this.cutoff | sql_string }} = 'bad', 'cutoff rejected');
+
+CREATE TABLE {{ env.db | sql_ident }}.cutoffs (cutoff String) ENGINE = MergeTree ORDER BY cutoff;
+
+INSERT INTO {{ env.db | sql_ident }}.cutoffs VALUES ({{ this.cutoff | sql_string }});

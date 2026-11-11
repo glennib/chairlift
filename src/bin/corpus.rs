@@ -49,6 +49,8 @@ use std::time::Instant;
 
 use chairlift::Error;
 use chairlift::Options;
+use chairlift::layout::Decision;
+use chairlift::layout::Kept;
 use chairlift::lexer::Mode;
 use chairlift::oracle::Counts;
 use chairlift::oracle::Judgement;
@@ -232,6 +234,8 @@ struct Record {
     parse: Option<ParseReport>,
     /// The parse panicked, with this message.
     parse_panic: Option<String>,
+    /// What the layout did with each statement, when the file formatted.
+    layout: Vec<Decision>,
 }
 
 /// What the parse of one file says.
@@ -256,6 +260,8 @@ struct StatementRow {
     probe_items: Option<ProbeItems>,
     /// The reason for the statement's first fallback.
     fallback: Option<String>,
+    /// What the layout did with it, when the file formatted.
+    decision: Option<Decision>,
     /// The start of the statement's text, on one line.
     excerpt: String,
 }
@@ -597,6 +603,7 @@ fn format_file(index: usize, corpus: &Corpus, path: &Path, transform: Transform)
         texts: None,
         parse: None,
         parse_panic: None,
+        layout: Vec::new(),
     };
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
@@ -640,14 +647,20 @@ fn format_file(index: usize, corpus: &Corpus, path: &Path, transform: Transform)
         }
     };
     match result {
-        Ok(output) => {
+        Ok((output, layout)) => {
             record.changed = Some(output != source);
+            if let Some(parse) = &mut record.parse {
+                for (row, decision) in parse.statements.iter_mut().zip(&layout) {
+                    row.decision = Some(*decision);
+                }
+            }
+            record.layout = layout;
             match apply(&output, &options, transform) {
                 Err(panic) => {
                     record.idempotent = Some(false);
                     record.detail = format!("panicked on the output: {panic}");
                 }
-                Ok(Ok(again)) if again == output => record.idempotent = Some(true),
+                Ok(Ok((again, _))) if again == output => record.idempotent = Some(true),
                 Ok(Ok(_)) => {
                     record.idempotent = Some(false);
                     "formatting the output changes it again".clone_into(&mut record.detail);
@@ -662,7 +675,7 @@ fn format_file(index: usize, corpus: &Corpus, path: &Path, transform: Transform)
         Err(e) => {
             record.outcome = match e {
                 Error::Lex(_) => Outcome::LexError,
-                Error::Verify(_) => Outcome::VerifyError,
+                Error::Verify(_) | Error::Layout(_) => Outcome::VerifyError,
                 _ => Outcome::TooLarge,
             };
             record.detail = e.to_string();
@@ -693,16 +706,18 @@ fn variants<'a>(input: &'a str, output: &'a str, mode: Mode) -> Vec<Variant<'a>>
     }]
 }
 
-/// `transform` applied to `source`: formatted, or re-cased and verified.
-/// `Err` holds a panic's message.
+/// `transform` applied to `source`: formatted, with what the layout did
+/// with each statement, or re-cased and verified. `Err` holds a panic's
+/// message.
 fn apply(
     source: &str,
     options: &Options,
     transform: Transform,
-) -> Result<Result<String, Error>, String> {
+) -> Result<Result<(String, Vec<Decision>), Error>, String> {
     std::panic::catch_unwind(|| match transform {
-        Transform::Format => chairlift::format(source, options),
-        Transform::Recase(entry) => recase(source, options.mode(), entry),
+        Transform::Format => chairlift::format_with_statements(source, options)
+            .map(|(output, statements)| (output, statements.iter().map(|s| s.decision).collect())),
+        Transform::Recase(entry) => recase(source, options.mode(), entry).map(|o| (o, Vec::new())),
     })
     .map_err(|panic| panic_message(&*panic))
 }
@@ -758,6 +773,7 @@ fn report(parse: &syntax::Parse, source: &str) -> ParseReport {
                 opaque: stats.opaque,
                 probe_items: probe_items(&node),
                 fallback,
+                decision: None,
                 excerpt: excerpt(&source[stats.range.clone()]),
             }
         })
@@ -1229,6 +1245,10 @@ fn parse_summary(corpora: &[Corpus], records: &[Record], transform: Transform) -
     }
     let mut out = String::from("\n");
     out.push_str(&table(&rows));
+    if transform == Transform::Format {
+        out.push('\n');
+        out.push_str(&layout_summary(corpora, records));
+    }
     if transform == Transform::Recase(Entry::SelectListProbe) {
         out.push('\n');
         out.push_str(&table(&probe_rows));
@@ -1244,6 +1264,70 @@ fn parse_summary(corpora: &[Corpus], records: &[Record], transform: Transform) -
         out.push_str(&table(&rows));
     }
     out
+}
+
+/// The reasons a statement is kept as written, as the layout table's
+/// columns.
+const KEPT: [Kept; 6] = [
+    Kept::NotParsed,
+    Kept::NoRule,
+    Kept::TagPlace,
+    Kept::TagTouching,
+    Kept::RenderJoined,
+    Kept::HiddenTag,
+];
+
+/// What the layout did: statements laid out and kept as written, per kind,
+/// with the reasons for keeping them.
+fn layout_summary(corpora: &[Corpus], records: &[Record]) -> String {
+    let mut header = vec![
+        "corpus".to_owned(),
+        "statement kind".to_owned(),
+        "statements".to_owned(),
+        "formatted".to_owned(),
+        "formatted %".to_owned(),
+        "kept".to_owned(),
+    ];
+    header.extend(KEPT.map(|k| k.name().to_owned()));
+    let mut rows = vec![header];
+    for (i, corpus) in corpora.iter().enumerate() {
+        let statements: Vec<&StatementRow> = records
+            .iter()
+            .filter(|r| r.corpus == i)
+            .filter_map(|r| r.parse.as_ref())
+            .flat_map(|p| &p.statements)
+            .filter(|s| s.decision.is_some())
+            .collect();
+        let mut kinds: Vec<&str> = KINDS.to_vec();
+        kinds.extend(["other", "all"]);
+        for kind in kinds {
+            let of: Vec<&StatementRow> = statements
+                .iter()
+                .copied()
+                .filter(|s| match kind {
+                    "all" => true,
+                    "other" => !KINDS.contains(&s.kind.as_str()),
+                    kind => s.kind == kind,
+                })
+                .collect();
+            if of.is_empty() {
+                continue;
+            }
+            let count = |d: Decision| of.iter().filter(|s| s.decision == Some(d)).count();
+            let formatted = count(Decision::Formatted);
+            let mut row = vec![
+                corpus.name.clone(),
+                kind.to_owned(),
+                of.len().to_string(),
+                formatted.to_string(),
+                percent(formatted, of.len()),
+                (of.len() - formatted).to_string(),
+            ];
+            row.extend(KEPT.map(|k| count(Decision::Kept(k)).to_string()));
+            rows.push(row);
+        }
+    }
+    table(&rows)
 }
 
 /// Rows as an aligned text table, numbers right-aligned.
@@ -1283,7 +1367,8 @@ const CSV_COLUMNS: &str = "corpus,path,mode,bytes,tokens,statements,outcome,chan
                            oracle_rejected_other,oracle_rejected_failed,oracle_changed,\
                            oracle_changed_judged,round_trip,parsed_statements,\
                            opaque_statements,partial_statements,verbatim_statements,clauses,\
-                           verbatim_clauses,items,verbatim_items,detail";
+                           verbatim_clauses,items,verbatim_items,formatted_statements,\
+                           kept_statements,detail";
 
 fn csv(corpora: &[Corpus], records: &[Record]) -> String {
     let mut out = String::from(CSV_COLUMNS);
@@ -1347,6 +1432,16 @@ fn csv(corpora: &[Corpus], records: &[Record]) -> String {
             ]
             .map(|n| n.to_string()),
         );
+        if r.idempotent.is_none() {
+            fields.extend([String::new(), String::new()]);
+        } else {
+            let formatted = r
+                .layout
+                .iter()
+                .filter(|d| **d == Decision::Formatted)
+                .count();
+            fields.extend([formatted, r.layout.len() - formatted].map(|n| n.to_string()));
+        }
         fields.push(quote(r.detail.lines().next().unwrap_or("")));
         out.push_str(&fields.join(","));
         out.push('\n');
@@ -1357,8 +1452,9 @@ fn csv(corpora: &[Corpus], records: &[Record]) -> String {
 /// One row per statement.
 fn statements_csv(corpora: &[Corpus], records: &[Record]) -> String {
     let mut out = String::from(
-        "corpus,path,statement,kind,outcome,clauses,verbatim_clauses,items,verbatim_items,\
-         opaque,probe_items,probe_opaque_items,probe_fallback_items,fallback,text\n",
+        "corpus,path,statement,kind,outcome,layout,clauses,verbatim_clauses,items,\
+         verbatim_items,opaque,probe_items,probe_opaque_items,probe_fallback_items,fallback,\
+         text\n",
     );
     for r in records {
         let Some(parse) = &r.parse else {
@@ -1372,12 +1468,13 @@ fn statements_csv(corpora: &[Corpus], records: &[Record]) -> String {
                 });
             let _ = writeln!(
                 out,
-                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 quote(&corpora[r.corpus].name),
                 quote(&r.path),
                 n + 1,
                 quote(&s.kind),
                 s.outcome.name(),
+                s.decision.map_or("", Decision::name),
                 s.clauses,
                 s.verbatim_clauses,
                 s.items,

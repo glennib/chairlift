@@ -1,8 +1,8 @@
 # chairlift
 
-**Pre-release: chairlift does not format anything yet.**
-The repository holds the plan, the test corpora and the build and CI scaffolding;
-the milestones in [`docs/MILESTONES.md`](docs/MILESTONES.md) lead to a first release.
+**Pre-release: chairlift lays out `SELECT` queries so far;**
+other statements keep their lines as written, with trailing whitespace and extra blank lines removed.
+The milestones in [`docs/MILESTONES.md`](docs/MILESTONES.md) lead to a first release.
 
 chairlift is an opinionated formatter for ClickHouse SQL, including SQL files that contain Jinja templates,
 such as [chum](https://github.com/glennib/chum) migrations and dbt-clickhouse models.

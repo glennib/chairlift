@@ -5,15 +5,17 @@
 //! removes, reorders or rewrites tokens, and [`format`] checks every result
 //! against its input with the [verifier](verify) before returning it.
 //!
-//! The crate is pre-release: formatting is the safe cleanup of [`format`]
-//! only, the [parser](syntax) turns the text into a lossless syntax tree that
-//! the formatter will lay out, and `docs/MILESTONES.md` in the repository lays
-//! out what comes next.
+//! The crate is pre-release: [`format`](fn@format) lays out `SELECT` queries and keeps
+//! every other statement as written, with only the safe cleanup of its
+//! whitespace, and `docs/MILESTONES.md` in the repository lays out what comes
+//! next. The [parser](syntax) turns the text into a lossless syntax tree, the
+//! [layout] turns that into a [document](doc), and the document's printer
+//! chooses the line breaks.
 //!
 //! ```
 //! let options = chairlift::Options::default();
-//! let formatted = chairlift::format("select 1;  \r\n\n\n\nselect 2;", &options)?;
-//! assert_eq!(formatted, "select 1;\n\n\nselect 2;\n");
+//! let formatted = chairlift::format("select a, b from t where x = 1;  \r\n\n\n\ndrop table t;", &options)?;
+//! assert_eq!(formatted, "SELECT\n    a,\n    b\nFROM t\nWHERE x = 1;\n\n\ndrop table t;\n");
 //! assert!(chairlift::check(&formatted, &options)?);
 //! # Ok::<(), chairlift::Error>(())
 //! ```
@@ -41,32 +43,52 @@ use crate::split::split;
 
 /// Formats `source`.
 ///
-/// For now this is a safe cleanup that cannot change what any token is:
+/// Every statement is [parsed](syntax) and either [laid out](layout) by the
+/// style's rules (keywords upper case, clauses one per line, lists that fit
+/// on a line or go one item per line, at [`Options::line_width`]), or kept
+/// as written: a statement the layout has no rule for yet, or one holding a
+/// Jinja shape the rules do not cover. A statement kept as written gets the
+/// safe cleanup only:
 ///
 /// - whitespace at the end of lines goes, and CRLF line endings become LF;
-/// - blank lines collapse to at most two between statements and one inside
-///   a statement, with none right after `(` or before `)`;
-/// - the text starts without a blank line and ends with exactly one newline.
+/// - blank lines collapse to one at most, with none right after `(` or
+///   before `)`.
 ///
-/// Indentation and keyword case are left alone, and nothing inside a token
+/// Between statements, at most two blank lines are kept, and there is one
+/// before and after a statement that spans lines. The text starts without a
+/// blank line and ends with exactly one newline. Nothing inside a token
 /// changes: comments, strings, heredocs, Jinja tags and `INSERT` data keep
 /// every byte, line endings included. Data in a format other than `Values`
 /// that runs to the end of the text gets no final newline, and such data that
-/// ends at a blank line keeps it.
+/// ends at a blank line keeps it. Text the parser finds ClickHouse reads as
+/// written, such as the left operand of `[1,2]::Array(UInt8)`, keeps its
+/// whitespace too.
 ///
-/// Every statement is [parsed](syntax), and text the parser finds ClickHouse
-/// reads as written, such as the left operand of `[1,2]::Array(UInt8)`, keeps
-/// its whitespace too.
-///
-/// The result is [verified](verify) against `source` before it is returned.
+/// The result is checked to hold every token of `source` once, in order,
+/// and [verified](verify) against `source` before it is returned.
 ///
 /// # Errors
 ///
 /// - [`Error::Lex`] if `source` has a lexer error, such as an unclosed string
 ///   or comment: what its tokens are after that point cannot be relied on.
-/// - [`Error::Verify`] if the result failed verification, which is a bug.
+/// - [`Error::Verify`] if the result failed verification, and
+///   [`Error::Layout`] if the layout lost or repeated a token: bugs, for
+///   which no output is returned.
 /// - [`Error::TooLarge`] if `source` is 4 GiB or longer.
 pub fn format(source: &str, options: &Options) -> Result<String, Error> {
+    format_with_statements(source, options).map(|(output, _)| output)
+}
+
+/// [`format()`], and what the layout did with each statement of `source`:
+/// whether it laid it out, or kept it as written and why.
+///
+/// # Errors
+///
+/// As [`format()`].
+pub fn format_with_statements(
+    source: &str,
+    options: &Options,
+) -> Result<(String, Vec<layout::Statement>), Error> {
     let too_large = |len: usize| u32::try_from(len).is_err();
     if too_large(source.len()) {
         return Err(Error::TooLarge { len: source.len() });
@@ -80,14 +102,15 @@ pub fn format(source: &str, options: &Options) -> Result<String, Error> {
         }
         .into());
     }
-    // The tree says which text must stay as written.
     let parse = syntax::parse_split(source, &split, syntax::Entry::File);
-    let output = cleanup::cleanup(source, &split, mode, parse.facts());
+    let layout = layout::layout(source, &split, &parse, mode);
+    layout.doc.check_tokens()?;
+    let output = layout.doc.print(&doc::PrintOptions::from(options));
     if too_large(output.len()) {
         return Err(Error::TooLarge { len: output.len() });
     }
     verify::verify_split(source, &split, &output, mode, parse.facts())?;
-    Ok(output)
+    Ok((output, layout.statements))
 }
 
 /// Whether `source` is formatted already: whether [`format`] would return it
@@ -95,7 +118,7 @@ pub fn format(source: &str, options: &Options) -> Result<String, Error> {
 ///
 /// # Errors
 ///
-/// As [`format`].
+/// As [`format()`].
 pub fn check(source: &str, options: &Options) -> Result<bool, Error> {
     Ok(format(source, options)? == source)
 }

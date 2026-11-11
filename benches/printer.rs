@@ -116,13 +116,45 @@ fn bench(c: &mut Criterion) {
         });
     });
     // References on the same text, for timings taken on a busy machine:
-    // lexing and splitting, and the formatter as it stands (splitting,
-    // parsing, the safe cleanup and verifying).
+    // lexing and splitting, and the formatter (splitting, parsing, the
+    // layout, printing and verifying), with each of its stages.
     group.bench_function("reference_split", |b| {
         b.iter(|| chairlift::split::split(black_box(&source), Mode::Sql));
     });
     group.bench_function("reference_format", |b| {
         b.iter(|| chairlift::format(black_box(&source), &chairlift::Options::default()));
+    });
+    let parse = chairlift::syntax::parse_split(&source, &split, chairlift::syntax::Entry::File);
+    group.bench_function("format_parse", |b| {
+        b.iter(|| {
+            chairlift::syntax::parse_split(
+                black_box(&source),
+                &split,
+                chairlift::syntax::Entry::File,
+            )
+        });
+    });
+    group.bench_function("format_layout", |b| {
+        b.iter(|| chairlift::layout::document(black_box(&source), &split, &parse, Mode::Sql));
+    });
+    let laid_out = chairlift::layout::document(&source, &split, &parse, Mode::Sql);
+    group.bench_function("format_check_tokens", |b| {
+        b.iter(|| black_box(&laid_out).check_tokens());
+    });
+    group.bench_function("format_print", |b| {
+        b.iter(|| black_box(&laid_out).print(&options));
+    });
+    let formatted = laid_out.print(&options);
+    group.bench_function("format_verify", |b| {
+        b.iter(|| {
+            chairlift::verify::verify_split(
+                black_box(&source),
+                &split,
+                &formatted,
+                Mode::Sql,
+                parse.facts(),
+            )
+        });
     });
     group.finish();
 }

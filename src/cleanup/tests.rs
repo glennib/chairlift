@@ -1,3 +1,7 @@
+//! The safe cleanup, as statements kept as written get it: `EXPLAIN` is a
+//! statement the layout has no rule for. The file around them is laid out:
+//! each statement starts a line at column 0.
+
 use crate::Error;
 use crate::Options;
 use crate::format;
@@ -18,59 +22,69 @@ fn fmt(source: &str) -> String {
 
 #[test]
 fn trailing_whitespace_and_crlf() {
-    assert_eq!(fmt("SELECT 1, \t\r\n  2 \r\n"), "SELECT 1,\n  2\n");
-    assert_eq!(fmt("SELECT 1\u{a0}\u{3000}\n"), "SELECT 1\n");
+    assert_eq!(fmt("EXPLAIN 1, \t\r\n  2 \r\n"), "EXPLAIN 1,\n  2\n");
+    assert_eq!(fmt("EXPLAIN 1\u{a0}\u{3000}\n"), "EXPLAIN 1\n");
     // Whitespace inside a line is not trailing.
-    assert_eq!(fmt("SELECT  1 ,\t2\n"), "SELECT  1 ,\t2\n");
+    assert_eq!(fmt("EXPLAIN  1 ,\t2\n"), "EXPLAIN  1 ,\t2\n");
     // A lone `\r` is not a line ending.
-    assert_eq!(fmt("SELECT 1\r2\n"), "SELECT 1\r2\n");
+    assert_eq!(fmt("EXPLAIN 1\r2\n"), "EXPLAIN 1\r2\n");
 }
 
 #[test]
 fn indentation_is_kept() {
-    let source = "  SELECT\n        a,\n\tb\n  FROM t\n";
+    let source = "EXPLAIN\n        a,\n\tb\n  FROM t\n";
     assert_eq!(fmt(source), source);
+    // The statement starts at column 0, and its other lines keep theirs.
+    assert_eq!(fmt("  EXPLAIN\n    a\n"), "EXPLAIN\n    a\n");
 }
 
 #[test]
 fn blank_lines_between_statements() {
-    assert_eq!(fmt("SELECT 1;SELECT 2;"), "SELECT 1;SELECT 2;\n");
-    assert_eq!(fmt("SELECT 1;\nSELECT 2;"), "SELECT 1;\nSELECT 2;\n");
-    assert_eq!(fmt("SELECT 1;\n\nSELECT 2;"), "SELECT 1;\n\nSELECT 2;\n");
+    assert_eq!(fmt("EXPLAIN 1;EXPLAIN 2;"), "EXPLAIN 1;\nEXPLAIN 2;\n");
+    assert_eq!(fmt("EXPLAIN 1;\nEXPLAIN 2;"), "EXPLAIN 1;\nEXPLAIN 2;\n");
     assert_eq!(
-        fmt("SELECT 1;\n\n\nSELECT 2;"),
-        "SELECT 1;\n\n\nSELECT 2;\n"
+        fmt("EXPLAIN 1;\n\nEXPLAIN 2;"),
+        "EXPLAIN 1;\n\nEXPLAIN 2;\n"
     );
     assert_eq!(
-        fmt("SELECT 1;\n \n\t\n  \n\n-- c\n\n\n\n\nSELECT 2;"),
-        "SELECT 1;\n\n\n-- c\n\n\nSELECT 2;\n"
+        fmt("EXPLAIN 1;\n\n\nEXPLAIN 2;"),
+        "EXPLAIN 1;\n\n\nEXPLAIN 2;\n"
+    );
+    assert_eq!(
+        fmt("EXPLAIN 1;\n \n\t\n  \n\n-- c\n\n\n\n\nEXPLAIN 2;"),
+        "EXPLAIN 1;\n\n\n-- c\n\n\nEXPLAIN 2;\n"
+    );
+    // A statement on several lines gets a blank line on each side.
+    assert_eq!(
+        fmt("EXPLAIN 1;\nEXPLAIN\n  2;\nEXPLAIN 3;"),
+        "EXPLAIN 1;\n\nEXPLAIN\n  2;\n\nEXPLAIN 3;\n"
     );
 }
 
 #[test]
 fn blank_lines_inside_a_statement() {
     assert_eq!(
-        fmt("SELECT\n\n\n  1\n\n\nFROM t"),
-        "SELECT\n\n  1\n\nFROM t\n"
+        fmt("EXPLAIN\n\n\n  1\n\n\nFROM t"),
+        "EXPLAIN\n\n  1\n\nFROM t\n"
     );
     assert_eq!(
-        fmt("SELECT f(\n\n  1,\n\n  2\n\n)"),
-        "SELECT f(\n  1,\n\n  2\n)\n"
+        fmt("EXPLAIN f(\n\n  1,\n\n  2\n\n)"),
+        "EXPLAIN f(\n  1,\n\n  2\n)\n"
     );
     // Only round brackets.
-    assert_eq!(fmt("SELECT [\n\n1\n\n]"), "SELECT [\n\n1\n\n]\n");
+    assert_eq!(fmt("EXPLAIN [\n\n1\n\n]"), "EXPLAIN [\n\n1\n\n]\n");
     // A comment after `(` does not count as the bracket.
     assert_eq!(
-        fmt("SELECT (\n  -- c\n\n  1)"),
-        "SELECT (\n  -- c\n\n  1)\n"
+        fmt("EXPLAIN (\n  -- c\n\n  1)"),
+        "EXPLAIN (\n  -- c\n\n  1)\n"
     );
 }
 
 #[test]
 fn start_and_end_of_the_file() {
-    assert_eq!(fmt("\n\n  \n  SELECT 1"), "  SELECT 1\n");
-    assert_eq!(fmt("\u{feff}\n\nSELECT 1\n\n\n"), "\u{feff}SELECT 1\n");
-    assert_eq!(fmt("SELECT 1 -- c"), "SELECT 1 -- c\n");
+    assert_eq!(fmt("\n\n  \n  EXPLAIN 1"), "EXPLAIN 1\n");
+    assert_eq!(fmt("\u{feff}\n\nEXPLAIN 1\n\n\n"), "\u{feff}EXPLAIN 1\n");
+    assert_eq!(fmt("EXPLAIN 1 -- c"), "EXPLAIN 1 -- c\n");
     assert_eq!(fmt("-- only\n\n"), "-- only\n");
     assert_eq!(fmt(""), "");
     assert_eq!(fmt(" \n\t\r\n"), "");
@@ -82,76 +96,75 @@ fn start_and_end_of_the_file() {
 #[test]
 fn whitespace_that_decides_a_token_at_the_ends() {
     // `1e` at the very end is a bare word, elsewhere a number.
-    assert_eq!(fmt("SELECT 1e"), "SELECT 1e");
-    assert_eq!(fmt("SELECT 1e  "), "SELECT 1e\n");
+    assert_eq!(fmt("EXPLAIN 1e"), "EXPLAIN 1e");
+    assert_eq!(fmt("EXPLAIN 1e  "), "EXPLAIN 1e\n");
     // `1e+` at the very end is `1e` and `+`, elsewhere one number.
-    assert_eq!(fmt("SELECT 1e+"), "SELECT 1e+");
-    // `.` at the very start begins a number.
-    assert_eq!(fmt("\n\n.x"), "\n\n.x\n");
+    assert_eq!(fmt("EXPLAIN 1e+"), "EXPLAIN 1e+");
+    // `.` at the very start begins a number: a space keeps `.x` a `.`.
+    assert_eq!(fmt("\n\n.x"), " .x\n");
     assert_eq!(fmt("\n\n.5"), ".5\n");
     // Rendered, `.e` starts the text and is the number `.e` before a
-    // newline, `.` and `e` without one.
-    assert_eq!(fmt_in(" {%- i -%}.e", true), " {%- i -%}.e");
-    assert_eq!(
-        fmt_in("\n\n{% x %}{# y #}.e", true),
-        "\n\n{% x %}{# y #}.e\n"
-    );
-    // `-%}` strips the space, so once rendered `.e` follows only the line
-    // break at the start, which stays.
-    assert_eq!(fmt_in("\n{% x -%} .e\n", true), "\n{% x -%} .e\n");
+    // newline, `.` and `e` without one: where nothing renders before a `.`,
+    // nothing goes before it.
+    assert_eq!(fmt_in(" {%- i -%}.e", true), "{%- i -%}\n.e");
+    assert_eq!(fmt_in("{% x %}.r{%%-%}0", true), "{% x %}.r{%%-%}0\n");
+    // Where only tags come before a `.` and whitespace renders before it, a
+    // space at the start keeps it a `.`.
+    assert_eq!(fmt_in("\n\n{% x %}{# y #}.e", true), " {% x %}{# y #}.e\n");
+    assert_eq!(fmt_in("\n{% x -%} .e\n", true), " {% x -%}\n.e\n");
 }
 
 #[test]
 fn line_comments() {
-    assert_eq!(fmt("SELECT 1 -- c  \t\r\n"), "SELECT 1 -- c\n");
+    assert_eq!(fmt("EXPLAIN 1 -- c  \t\r\n"), "EXPLAIN 1 -- c\n");
     assert_eq!(fmt("-- c\r\n-- d \r\n"), "-- c\n-- d\n");
-    assert_eq!(fmt("SELECT 1 --\r\n"), "SELECT 1 --\n");
+    assert_eq!(fmt("EXPLAIN 1 --\r\n"), "EXPLAIN 1 --\n");
     // `#` must keep its space to stay a comment.
-    assert_eq!(fmt("SELECT 1 #   \n"), "SELECT 1 #   \n");
-    assert_eq!(fmt("SELECT 1 # c  \n"), "SELECT 1 # c\n");
-    assert_eq!(fmt("#!  \nSELECT 1"), "#!\nSELECT 1\n");
+    assert_eq!(fmt("EXPLAIN 1 #   \n"), "EXPLAIN 1 #   \n");
+    assert_eq!(fmt("EXPLAIN 1 # c  \n"), "EXPLAIN 1 # c\n");
+    assert_eq!(fmt("#!  \nEXPLAIN 1"), "#!\nEXPLAIN 1\n");
     // Unicode whitespace ends a comment's line as ASCII whitespace does.
     assert_eq!(fmt("-- c\u{a0}\u{2003}\n"), "-- c\n");
     // In a template, U+FEFF is not whitespace to the renderer and keeps the
     // `-%}` from stripping the line break, so it stays.
     // At the end of the file nothing follows that could be stripped.
-    let template = "-- {%- x -%}\u{feff}\nSELECT 1\u{feff}\n";
-    assert_eq!(fmt_in(template, true), "-- {%- x -%}\u{feff}\nSELECT 1\n");
-    assert_eq!(fmt(template), "-- {%- x -%}\nSELECT 1\n");
+    let template = "-- {%- x -%}\u{feff}\nEXPLAIN 1\u{feff}\n";
+    assert_eq!(fmt_in(template, true), "-- {%- x -%}\u{feff}\nEXPLAIN 1\n");
+    assert_eq!(fmt(template), "-- {%- x -%}\nEXPLAIN 1\n");
 }
 
 #[test]
 fn multi_line_tokens_keep_their_bytes() {
     assert_eq!(
-        fmt("SELECT /* a  \r\n b */ 1\r\n"),
-        "SELECT /* a  \r\n b */ 1\n"
+        fmt("EXPLAIN /* a  \r\n b */ 1\r\n"),
+        "EXPLAIN /* a  \r\n b */ 1\n"
     );
     assert_eq!(
-        fmt("SELECT 'a  \r\n\r\n\r\n\r\nb'  \r\n"),
-        "SELECT 'a  \r\n\r\n\r\n\r\nb'\n"
+        fmt("EXPLAIN 'a  \r\n\r\n\r\n\r\nb'  \r\n"),
+        "EXPLAIN 'a  \r\n\r\n\r\n\r\nb'\n"
     );
     assert_eq!(
-        fmt("SELECT $$a  \n\n\n\nb$$, `x  \r\ny`, \"p \r\nq\"\r\n"),
-        "SELECT $$a  \n\n\n\nb$$, `x  \r\ny`, \"p \r\nq\"\n"
+        fmt("EXPLAIN $$a  \n\n\n\nb$$, `x  \r\ny`, \"p \r\nq\"\r\n"),
+        "EXPLAIN $$a  \n\n\n\nb$$, `x  \r\ny`, \"p \r\nq\"\n"
     );
 }
 
 #[test]
 fn jinja_tags_keep_their_bytes() {
     assert_eq!(
-        fmt_in("SELECT {{ x  \r\n }}  \r\n{% if a  \r\n %}\r\n", true),
-        "SELECT {{ x  \r\n }}\n{% if a  \r\n %}\n"
+        fmt_in("EXPLAIN {{ x  \r\n }}  \r\n{% if a  \r\n %}\r\n", true),
+        "EXPLAIN {{ x  \r\n }}\n{% if a  \r\n %}\n"
     );
     // A line comment with a tag spanning lines: the tag is untouched, the
     // comment's end is trimmed.
     assert_eq!(
-        fmt_in("-- {{ x  \r\n }}  \r\nSELECT 1", true),
-        "-- {{ x  \r\n }}\nSELECT 1\n"
+        fmt_in("-- {{ x  \r\n }}  \r\nEXPLAIN 1", true),
+        "-- {{ x  \r\n }}\nEXPLAIN 1\n"
     );
     // In SQL mode the braces are SQL and the same text is cleaned up.
     assert_eq!(
-        fmt("-- {{ x  \r\n }}  \r\nSELECT 1"),
-        "-- {{ x\n }}\nSELECT 1\n"
+        fmt("-- {{ x  \r\n }}  \r\nEXPLAIN 1"),
+        "-- {{ x\n}}\nEXPLAIN 1\n"
     );
 }
 
@@ -160,10 +173,10 @@ fn whitespace_next_to_a_strip_marker() {
     // The renderer strips the comment's trailing spaces and the blank lines
     // before `{%-` anyway. What follows the tag meets the comment once
     // rendered, not the tag, so it stays as it is.
-    let source = "SELECT 1\nWHERE true -- c  \n\n\n  {%- if a %}  \n\n\n  AND a\n  {%- endif %}\n";
+    let source = "EXPLAIN 1\nWHERE true -- c  \n\n\n  {%- if a %}  \n\n\n  AND a\n  {%- endif %}\n";
     assert_eq!(
         fmt_in(source, true),
-        "SELECT 1\nWHERE true -- c\n\n  {%- if a %}  \n\n\n  AND a\n  {%- endif %}\n"
+        "EXPLAIN 1\nWHERE true -- c\n\n  {%- if a %}  \n\n\n  AND a\n{%- endif %}\n"
     );
 }
 
@@ -177,7 +190,7 @@ fn whitespace_after_a_tag_that_renders_nothing() {
     assert_eq!(fmt_in(comment, true), comment);
     let comment = "{% x %}# {#- y #} \n1\n";
     assert_eq!(fmt_in(comment, true), comment);
-    let whitespace = "SELECT 1{% x %}  \n\n\n2\n";
+    let whitespace = "EXPLAIN 1{% x %}  \n\n\n2\n";
     assert_eq!(fmt_in(whitespace, true), whitespace);
     // Where only whitespace renders before the tag, no render puts anything
     // else before the run.
@@ -185,16 +198,16 @@ fn whitespace_after_a_tag_that_renders_nothing() {
     // After whitespace with only comment tags between, after an expression,
     // or where a `-` marker strips the run, the cleanup applies.
     assert_eq!(
-        fmt_in("SELECT 1 {# c #}  \n\n\n2  \n", true),
-        "SELECT 1 {# c #}\n\n2\n"
+        fmt_in("EXPLAIN 1 {# c #}  \n\n\n2  \n", true),
+        "EXPLAIN 1 {# c #}\n\n2\n"
     );
     assert_eq!(
-        fmt_in("SELECT {{ x }}  \n\n\n2\n", true),
-        "SELECT {{ x }}\n\n2\n"
+        fmt_in("EXPLAIN {{ x }}  \n\n\n2\n", true),
+        "EXPLAIN {{ x }}\n\n2\n"
     );
     assert_eq!(
-        fmt_in("SELECT 1 {% x -%}  \n\n\n2\n", true),
-        "SELECT 1 {% x -%}\n\n2\n"
+        fmt_in("EXPLAIN 1 {% x -%}  \n\n\n2\n", true),
+        "EXPLAIN 1 {% x -%}\n\n2\n"
     );
 }
 
@@ -245,7 +258,7 @@ fn values_data_keeps_every_byte() {
     let source = "INSERT INTO t VALUES (1, 'a'),  \r\n\r\n\r\n  (2, 'b')  ;  \r\nSELECT 1;  \r\n";
     assert_eq!(
         fmt(source),
-        "INSERT INTO t VALUES (1, 'a'),  \r\n\r\n\r\n  (2, 'b')  ;\nSELECT 1;\n"
+        "INSERT INTO t VALUES (1, 'a'),  \r\n\r\n\r\n  (2, 'b')  ;\n\nSELECT 1;\n"
     );
     assert_eq!(
         fmt("INSERT INTO t VALUES\r\n\r\n\r\n(1)  \r\n"),
@@ -299,9 +312,13 @@ fn lexer_errors_leave_the_text_alone() {
 /// even at the end of a line.
 #[test]
 fn literals_read_as_text_are_kept() {
-    let source = "SELECT [1,  \n2]::Array(Int8), x  \n";
-    let split = crate::split::split(source, crate::lexer::Mode::Sql);
-    let parse = crate::syntax::parse_split(source, &split, crate::syntax::Entry::SelectListProbe);
-    let cleaned = super::cleanup(source, &split, crate::lexer::Mode::Sql, parse.facts());
-    assert_eq!(cleaned, "SELECT [1,  \n2]::Array(Int8), x\n");
+    assert_eq!(
+        fmt("SELECT [1,  \n2]::Array(Int8), x  \n"),
+        "SELECT\n    [1,  \n2]::Array(Int8),\n    x\n"
+    );
+    // In a statement kept as written too.
+    assert_eq!(
+        fmt_in("SELECT [1,  \n2]::Array(Int8), x  {# c #}y\n", true),
+        "SELECT [1,  \n2]::Array(Int8), x  {# c #}y\n"
+    );
 }

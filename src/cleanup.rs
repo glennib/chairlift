@@ -1,26 +1,30 @@
 //! The safe cleanup: changes to whitespace that cannot change what any
-//! token is.
+//! token is. It is how a statement the layout keeps as written is printed
+//! (see [`Builder::as_written`](crate::doc::Builder::as_written)), and the
+//! layout keeps its guarantees for every statement:
 //!
 //! - Whitespace at the end of a line is removed, and so is the `\r` of a
-//!   CRLF line ending: only the `\n` and the indentation of the next line are
-//!   kept of a whitespace token that ends a line. A line comment loses the
-//!   whitespace at its end, `\r` included (see [`TokenKind::LineComment`]),
-//!   except that `# ` keeps its space, without which it is not a comment.
-//!   In a template, characters that ClickHouse counts as whitespace and the
-//!   renderer does not (U+FEFF, U+200B and a few more) stay, because they
-//!   stop a `-` marker from stripping what lies beyond them.
+//!   CRLF line ending. A line comment loses the whitespace at its end, `\r`
+//!   included (see [`TokenKind::LineComment`]), except that `# ` keeps its
+//!   space, without which it is not a comment. In a template, characters
+//!   that ClickHouse counts as whitespace and the renderer does not
+//!   (U+FEFF, U+200B and a few more) stay, because they stop a `-` marker
+//!   from stripping what lies beyond them.
 //! - In a template whose rendering joins text (see
 //!   [`render_joins_text`]), whitespace changes only where the rendered SQL
 //!   puts it between the same neighbours as the template does; the rule and
-//!   why it is enough are at [`inside_rendered_tokens`].
+//!   why it is enough are at [`inside_rendered_tokens`]. This module finds
+//!   that whitespace, for statements kept as written; in statements it lays
+//!   out, the layout puts every block tag on a line of its own, which keeps
+//!   whitespace on both sides of it (see `crate::layout`).
 //! - Blank lines collapse: at most two between statements, at most one
 //!   inside a statement, and none right after `(` or before `)`.
 //! - The file starts without a blank line (a byte-order mark stays) and ends
 //!   with exactly one `\n`; a file of only whitespace becomes empty.
 //!   ClickHouse lexes the first and last bytes of the input specially (`.`
 //!   at the very start begins a number, `1e` at the very end is a bare word),
-//!   so where removing or adding whitespace there would change the first or
-//!   last token, it is left as it is.
+//!   so where adding whitespace there would change the first or last token,
+//!   none is added.
 //!
 //! Nothing inside a token changes, line endings included: block comments,
 //! strings, quoted identifiers, heredocs and Jinja tags spanning lines keep
@@ -33,7 +37,8 @@
 //! end of the input and gain the final newline.
 //!
 //! Text the parser found ClickHouse reads as written (see
-//! [`Facts::keep_verbatim`]) is left as it is, whitespace inside it included.
+//! [`Facts::keep_verbatim`](crate::verify::Facts::keep_verbatim)) is left as
+//! it is, whitespace inside it included.
 
 use crate::lexer::Mode;
 use crate::lexer::Token;
@@ -41,175 +46,12 @@ use crate::lexer::TokenKind;
 use crate::lexer::is_whitespace;
 use crate::lexer::jinja;
 use crate::lexer::jinja::TagKind;
-use crate::lexer::same_before_newline;
 use crate::split::DataFormat;
 use crate::split::Split;
 use crate::split::split;
-use crate::verify::Facts;
 use crate::verify::line_comment_text;
 use crate::verify::render_joins_text;
 use crate::verify::rendered;
-
-/// The cleaned-up text of `source`, which `split` came from; `facts` says
-/// which text must stay as written.
-pub(crate) fn cleanup(source: &str, split: &Split, mode: Mode, facts: &Facts) -> String {
-    let tokens = split.tokens();
-    let Some(last_solid) = tokens
-        .iter()
-        .rposition(|t| t.kind() != TokenKind::Whitespace)
-    else {
-        return String::new();
-    };
-    // ClickHouse looks at most two bytes past a token, so whether the last
-    // tokens lex the same with a newline after them depends on the last three.
-    let tail = (0..=last_solid)
-        .rev()
-        .filter(|&i| tokens[i].kind() != TokenKind::Whitespace)
-        .take(3)
-        .last()
-        .unwrap_or(last_solid);
-    // A template's `-` markers strip what the renderer counts as whitespace,
-    // which leaves out some of ClickHouse's (U+FEFF, U+200B and others); such
-    // a character stops the stripping, so in a template it stays.
-    let removable = |c: char| is_whitespace(c) && (mode == Mode::Sql || c.is_whitespace());
-    let Rendered {
-        mut kept,
-        open_data: rendered_open_data,
-        ..
-    } = rendered_facts(source, split, mode);
-    for &(first, last) in facts.verbatim_regions() {
-        if kept.len() < tokens.len() {
-            kept.resize(tokens.len(), false);
-        }
-        if let Some(region) = kept.get_mut(first..=last) {
-            region.fill(true);
-        }
-    }
-    // Whether the part of a whitespace token up to its last line break, which
-    // the cleanup rewrites, is removable; a leading byte-order mark stays.
-    let lines_removable = |text: &str, first: bool| {
-        let text = if first {
-            text.strip_prefix('\u{feff}').unwrap_or(text)
-        } else {
-            text
-        };
-        let end = text.rfind('\n').map_or(0, |i| i + 1);
-        text[..end].chars().all(|c| c == '\n' || removable(c))
-    };
-    let dot_first = tokens[1..]
-        .iter()
-        .find(|t| {
-            !matches!(
-                t.kind(),
-                TokenKind::JinjaBlock | TokenKind::JinjaComment | TokenKind::Whitespace
-            )
-        })
-        .is_some_and(|t| t.kind() == TokenKind::Dot);
-    let mut tail_start = 0;
-    let mut out = String::with_capacity(source.len() + 1);
-    let statements = split.statements();
-    let mut statement = 0;
-    let mut prev_solid = None;
-    for (i, token) in tokens.iter().enumerate().take(last_solid + 1) {
-        if i == tail {
-            tail_start = out.len();
-        }
-        let text = token.text(source);
-        match token.kind() {
-            _ if kept.get(i).copied().unwrap_or(false) => out.push_str(text),
-            // At the very start of the input `.` begins a number, so the
-            // whitespace in front of a `Dot` stays, also where only tags that
-            // render nothing come between, and whitespace that a `-` marker
-            // may strip.
-            TokenKind::Whitespace if i == 0 && dot_first => out.push_str(text),
-            TokenKind::Whitespace if !lines_removable(text, i == 0) => out.push_str(text),
-            TokenKind::Whitespace if i == 0 => {
-                let text = match text.strip_prefix('\u{feff}') {
-                    Some(rest) => {
-                        out.push('\u{feff}');
-                        rest
-                    }
-                    None => text,
-                };
-                out.push_str(after_last_newline(text));
-            }
-            TokenKind::Whitespace => {
-                let newlines = text.bytes().filter(|&b| b == b'\n').count();
-                if newlines == 0 {
-                    out.push_str(text);
-                    continue;
-                }
-                while statements.get(statement).is_some_and(|s| s.tokens.end <= i) {
-                    statement += 1;
-                }
-                let inside = statements
-                    .get(statement)
-                    .is_some_and(|s| s.tokens.start < i);
-                let next = tokens[i + 1].kind();
-                let max = if !inside {
-                    3
-                } else if prev_solid == Some(TokenKind::OpeningRoundBracket)
-                    || next == TokenKind::ClosingRoundBracket
-                {
-                    1
-                } else {
-                    2
-                };
-                for _ in 0..newlines.min(max) {
-                    out.push('\n');
-                }
-                out.push_str(after_last_newline(text));
-            }
-            TokenKind::LineComment => {
-                let trimmed = text.trim_end_matches(removable);
-                out.push_str(if trimmed == "#" { text } else { trimmed });
-            }
-            _ => out.push_str(text),
-        }
-        if token.kind() != TokenKind::Whitespace {
-            prev_solid = Some(token.kind());
-        }
-    }
-    let last = tokens[last_solid];
-    let open_data = statements
-        .last()
-        .and_then(|s| s.data)
-        .is_some_and(|data| data.token == last_solid && data.format == DataFormat::Other);
-    if rendered_open_data {
-        // The rendered text ends in data that runs to its end or to a blank
-        // line, or a branch can move where data ends; whatever follows the
-        // last token is data or ends the data.
-        out.push_str(&source[last.end()..]);
-    } else if !open_data {
-        // Tokens followed by whitespace in the input lex the same before the
-        // final newline. Tokens that end the input may lex differently with
-        // a newline after them, in the template or in its rendered text;
-        // then the end stays as it is.
-        let text = last.text(source);
-        let followed = last.end() < source.len()
-            || (last.kind() == TokenKind::LineComment && line_comment_text(text) != text);
-        let prev_significant = tokens[..tail]
-            .iter()
-            .rev()
-            .find(|t| t.kind().is_significant())
-            .map(|t| t.kind());
-        let tail_same =
-            same_before_newline(mode, prev_significant, &out[tail_start..], tail_start > 0);
-        // Where the tail lands in the rendered text, and what comes before
-        // it there, only the whole rendered text tells.
-        let rendered_same = || {
-            !render_joins_text(&out)
-                || same_before_newline(Mode::Jinja, None, &rendered(&out).0, false)
-        };
-        if followed || (tail_same && (mode == Mode::Sql || rendered_same())) {
-            out.push('\n');
-        }
-    } else if last.end() < source.len() {
-        // The data ended at a blank line, which must stay.
-        out.push_str("\n\n");
-    }
-    out
-}
 
 /// What a template's rendered text means for the cleanup.
 #[derive(Default)]
@@ -395,11 +237,6 @@ fn inside_rendered_tokens(
         inside,
         open_data,
     }
-}
-
-/// The indentation part of a whitespace token: what follows its last `\n`.
-fn after_last_newline(text: &str) -> &str {
-    text.rfind('\n').map_or(text, |i| &text[i + 1..])
 }
 
 #[cfg(test)]

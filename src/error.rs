@@ -1,6 +1,7 @@
 //! Why a text could not be formatted.
 
 use crate::Position;
+use crate::doc::TokenCheckError;
 use crate::lexer::TokenKind;
 use crate::verify::VerifyError;
 
@@ -16,6 +17,10 @@ pub enum Error {
     /// chairlift, which kept the text from being changed.
     #[error("the formatted text failed verification, a bug in chairlift: {0}")]
     Verify(#[from] VerifyError),
+    /// The layout did not print every token of the text exactly once: a
+    /// bug in chairlift, which kept the text from being changed.
+    #[error("the layout lost or repeated a token, a bug in chairlift: {0}")]
+    Layout(#[from] TokenCheckError),
     /// The text is 4 GiB or longer.
     #[error("the text is {len} bytes long; chairlift formats texts under 4 GiB")]
     TooLarge {

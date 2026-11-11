@@ -137,18 +137,25 @@ impl FileError {
             FileError::Format(chairlift::Error::Lex(e)) => {
                 format!("{name}:{e}; the file is left unchanged")
             }
-            FileError::Format(chairlift::Error::Verify(e)) => format!(
-                "{name}: chairlift's output failed verification, so the file is left \
-                 unchanged.\nThis is a bug in chairlift. Please report it at {ISSUES} with the \
-                 file, or the smallest part of it that shows the problem, and the output of \
-                 `chairlift --version`.\n  {e}"
-            ),
+            FileError::Format(chairlift::Error::Verify(e)) => bug_report(&name, e),
+            FileError::Format(chairlift::Error::Layout(e)) => bug_report(&name, e),
             FileError::Format(e) => format!("{name}: {e}; the file is left unchanged"),
             FileError::Write(e) => {
                 format!("{name}: cannot be written: {e}; the file is left as it was")
             }
         }
     }
+}
+
+/// The report for a file whose formatting failed a check that only a bug
+/// in chairlift can fail.
+fn bug_report(name: impl fmt::Display, e: &dyn fmt::Display) -> String {
+    format!(
+        "{name}: chairlift's output failed verification, so the file is left \
+         unchanged.\nThis is a bug in chairlift. Please report it at {ISSUES} with the \
+         file, or the smallest part of it that shows the problem, and the output of \
+         `chairlift --version`.\n  {e}"
+    )
 }
 
 fn main() -> ExitCode {

@@ -1,0 +1,5 @@
+---
+source: tests/format.rs
+expression: once
+---
+DROP DATABASE chum_upgrade_app;

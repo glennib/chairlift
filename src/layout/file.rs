@@ -5,6 +5,7 @@ use std::ops::Range;
 
 use super::Decision;
 use super::Kept;
+use super::Statement;
 use super::tree::El;
 use super::tree::Node;
 use super::tree::Part;
@@ -245,6 +246,19 @@ pub(crate) fn plan<'g>(
                 decision,
                 empty,
             })
+        })
+        .collect()
+}
+
+/// The statements of `plan` as reported.
+pub(crate) fn report(w: &Writer<'_>, plan: &[Planned]) -> Vec<Statement> {
+    plan.iter()
+        .map(|p| {
+            let (first, last) = w.range(&p.node);
+            Statement {
+                tokens: first..last + 1,
+                decision: p.decision,
+            }
         })
         .collect()
 }

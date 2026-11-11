@@ -1,0 +1,9 @@
+---
+source: tests/format.rs
+expression: once
+---
+{% if env.tier == "prod" %}
+DROP TABLE {{ env.db | sql_ident }}.prod_only;
+{% endif %}
+
+DROP DATABASE {{ env.db | sql_ident }};

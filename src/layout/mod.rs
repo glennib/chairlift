@@ -173,9 +173,10 @@ impl Kept {
     }
 }
 
-/// A text laid out.
+/// A text laid out: the document and what became of each statement.
 pub(crate) struct Layout<'s> {
     pub(crate) doc: Doc<'s>,
+    pub(crate) statements: Vec<Statement>,
 }
 
 /// The document [`format`](crate::format) prints for `source`, which
@@ -206,7 +207,11 @@ pub(crate) fn layout<'s>(
     file::root(&mut w, &root, &plan);
     let ending = ending(source, split, rendered.open_data);
     w.b.set_ending(ending);
-    Layout { doc: w.b.finish() }
+    let statements = file::report(&w, &plan);
+    Layout {
+        doc: w.b.finish(),
+        statements,
+    }
 }
 
 /// Freezes the whitespace that must stay as it is: in statements kept as
@@ -332,3 +337,6 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         _ => w.generic(node),
     }
 }
+
+#[cfg(test)]
+mod tests;

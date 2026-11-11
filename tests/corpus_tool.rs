@@ -95,7 +95,7 @@ fn fixtures_verify_and_keep_their_meaning() {
          oracle_rejected_empty_query,oracle_rejected_syntax,oracle_rejected_other,\
          oracle_rejected_failed,oracle_changed,oracle_changed_judged,round_trip,\
          parsed_statements,opaque_statements,partial_statements,verbatim_statements,clauses,\
-         verbatim_clauses,items,verbatim_items,detail\n"
+         verbatim_clauses,items,verbatim_items,formatted_statements,kept_statements,detail\n"
     ));
     let rows = rows(&csv);
     assert_eq!(rows.len(), 14);
@@ -208,21 +208,26 @@ fn the_expression_probe_reports_each_statement() {
     assert_eq!(
         lines.next(),
         Some(
-            "corpus,path,statement,kind,outcome,clauses,verbatim_clauses,items,verbatim_items,\
-             opaque,probe_items,probe_opaque_items,probe_fallback_items,fallback,text"
+            "corpus,path,statement,kind,outcome,layout,clauses,verbatim_clauses,items,\
+             verbatim_items,opaque,probe_items,probe_opaque_items,probe_fallback_items,fallback,\
+             text"
         )
     );
     let rows: Vec<&str> = lines.collect();
-    assert!(rows[0].starts_with("mine,q.sql,1,select,parsed,"), "{csv}");
-    assert!(rows[1].starts_with("mine,q.sql,2,select,partial,"), "{csv}");
-    assert!(rows[1].contains("expected"), "{csv}");
+    // Re-casing lays out nothing, so the layout column is empty.
+    assert!(rows[0].starts_with("mine,q.sql,1,select,parsed,,"), "{csv}");
     assert!(
-        rows[2].starts_with("mine,q.sql,3,drop table,verbatim,"),
+        rows[1].starts_with("mine,q.sql,2,select,partial,,"),
         "{csv}"
     );
-    assert!(rows[3].starts_with("mine,q.sql,4,select,parsed,"), "{csv}");
+    assert!(rows[1].contains("expected"), "{csv}");
     assert!(
-        rows[4].starts_with("mine,q.sql,5,select,opaque,0,0,3,0,1,2,1,0,"),
+        rows[2].starts_with("mine,q.sql,3,drop table,verbatim,,"),
+        "{csv}"
+    );
+    assert!(rows[3].starts_with("mine,q.sql,4,select,parsed,,"), "{csv}");
+    assert!(
+        rows[4].starts_with("mine,q.sql,5,select,opaque,,0,0,3,0,1,2,1,0,"),
         "{csv}"
     );
 

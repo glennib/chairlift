@@ -1,0 +1,314 @@
+use super::Decision;
+use super::Kept;
+use crate::Options;
+use crate::format_with_statements;
+
+/// Formats `source`, checking that formatting again changes nothing.
+fn fmt_in(source: &str, jinja: bool, width: u16) -> String {
+    let options = Options::default().with_jinja(jinja).with_line_width(width);
+    let once = crate::format(source, &options).unwrap_or_else(|e| panic!("{source:?}: {e}"));
+    let twice = crate::format(&once, &options).unwrap_or_else(|e| panic!("{once:?}: {e}"));
+    assert_eq!(twice, once, "not idempotent on {source:?}");
+    once
+}
+
+fn fmt(source: &str) -> String {
+    fmt_in(source, false, 100)
+}
+
+fn jinja(source: &str) -> String {
+    fmt_in(source, true, 100)
+}
+
+/// What the layout decided for each statement of `source`.
+fn decisions(source: &str, jinja: bool) -> Vec<Decision> {
+    let options = Options::default().with_jinja(jinja);
+    let (_, statements) =
+        format_with_statements(source, &options).unwrap_or_else(|e| panic!("{source:?}: {e}"));
+    statements.iter().map(|s| s.decision).collect()
+}
+
+#[test]
+fn comments_between_list_items() {
+    assert_eq!(
+        fmt("select a, -- first\n  b /* inline */, c\nfrom t"),
+        "SELECT\n    a,  -- first\n    b /* inline */,\n    c\nFROM t\n"
+    );
+    // An own-line comment goes with the item after it, a blank line before
+    // it stays, and comments on consecutive lines keep their relative
+    // indentation.
+    assert_eq!(
+        fmt("select a,\n\n  -- one\n    -- two\n  b from t"),
+        "SELECT\n    a,\n\n    -- one\n      -- two\n    b\nFROM t\n"
+    );
+    // A blank line after `(` goes, one between items stays.
+    assert_eq!(
+        fmt("select f(\n\n  a,\n\n\n  -- c\n  b)"),
+        "SELECT\n    f(\n        a,\n\n        -- c\n        b\n    )\n"
+    );
+}
+
+#[test]
+fn comments_between_clauses_and_before_the_semicolon() {
+    assert_eq!(
+        fmt("select 1 -- one\n-- before from\nfrom t /* t */\nwhere x -- x\n;"),
+        "SELECT 1  -- one\n-- before from\nFROM t /* t */\nWHERE x  -- x\n;\n"
+    );
+}
+
+#[test]
+fn a_comment_inside_an_expression_breaks_its_group() {
+    assert_eq!(
+        fmt("select a + -- why\n b from t"),
+        "SELECT\n    a\n        +  -- why\n        b\nFROM t\n"
+    );
+}
+
+#[test]
+fn a_comment_on_the_line_of_what_follows_stays_on_it() {
+    assert_eq!(
+        fmt("select 1;\n/* a */\n/* b */ select 2"),
+        "SELECT 1;\n/* a */\n/* b */ SELECT 2\n"
+    );
+    assert_eq!(jinja("{#\n#} {##} select 1"), "{#\n#}\n{##} SELECT 1\n");
+    // After a comment on a line of its own, the next starts a line too.
+    assert_eq!(fmt("/* a *//* b */select 1"), "/* a */\n/* b */ SELECT 1\n");
+    assert_eq!(
+        fmt("select 1;\n/* a */ -- b\nselect 2"),
+        "SELECT 1;\n/* a */ -- b\nSELECT 2\n"
+    );
+}
+
+#[test]
+fn comments_at_the_start_and_end_of_the_file() {
+    assert_eq!(
+        fmt("\n\n-- header\n-- more\n\n\n\nselect 1; -- done\n\n-- tail\n"),
+        "-- header\n-- more\n\n\nSELECT 1;  -- done\n\n-- tail\n"
+    );
+    assert_eq!(fmt("/* only */"), "/* only */\n");
+}
+
+#[test]
+fn a_statement_on_several_lines_gets_blank_lines_also_past_comments() {
+    assert_eq!(
+        fmt("select 1;\n-- the next one\nselect a, b from t;\nselect 2;"),
+        "SELECT 1;\n\n-- the next one\nSELECT\n    a,\n    b\nFROM t;\n\nSELECT 2;\n"
+    );
+}
+
+#[test]
+fn set_operations_are_flat() {
+    assert_eq!(
+        fmt("select 1 union all select 2 union distinct (select 3) order by 1 limit 1"),
+        "SELECT 1\nUNION ALL\nSELECT 2\nUNION DISTINCT\n(\n    SELECT 3\n)\nORDER BY 1\nLIMIT 1\n"
+    );
+}
+
+#[test]
+fn several_ctes_go_one_per_line_under_with() {
+    assert_eq!(
+        fmt("with a as (select 1), b as (select 2) select * from a, b"),
+        "WITH\n    a AS (\n        SELECT 1\n    ),\n    b AS (\n        SELECT 2\n    )\nSELECT *\nFROM a, b\n"
+    );
+    assert_eq!(
+        fmt("with 1 as x, 2 as y select x + y"),
+        "WITH 1 AS x, 2 AS y\nSELECT x + y\n"
+    );
+}
+
+#[test]
+fn group_by_modifiers_follow_the_keys() {
+    assert_eq!(
+        fmt("select count() from t group by grouping sets ((a, b), (a), ()) with totals"),
+        "SELECT count()\nFROM t\nGROUP BY GROUPING SETS ((a, b), (a), ()) WITH TOTALS\n"
+    );
+    assert_eq!(
+        fmt_in("select 1 group by aaaa, bbbb with rollup", false, 20),
+        "SELECT 1\nGROUP BY\n    aaaa,\n    bbbb\nWITH ROLLUP\n"
+    );
+}
+
+#[test]
+fn joins_go_on_lines_of_their_own() {
+    assert_eq!(
+        fmt("select * from t1 join t2 on t1.a = t2.a and t1.b = t2.b left array join arr as x"),
+        "SELECT *\nFROM t1\nJOIN t2 ON t1.a = t2.a AND t1.b = t2.b\nLEFT ARRAY JOIN arr AS x\n"
+    );
+    assert_eq!(
+        fmt("select * from (t1 join t2 using (a)) cross join t3, t4"),
+        "SELECT *\nFROM (\n    t1\n    JOIN t2 USING (a)\n)\nCROSS JOIN t3,\nt4\n"
+    );
+}
+
+#[test]
+fn clickhouse_clauses() {
+    assert_eq!(
+        fmt(
+            "select n from numbers(10) order by n with fill from 1 to 20 step 2 interpolate (x as x + 1)"
+        ),
+        "SELECT n\nFROM numbers(10)\nORDER BY n WITH FILL FROM 1 TO 20 STEP 2\nINTERPOLATE (x AS x + 1)\n"
+    );
+    assert_eq!(
+        fmt("select a from t final sample 1/10 offset 1/2 window w as (order by b) qualify x = 1"),
+        "SELECT a\nFROM t FINAL SAMPLE 1 / 10 OFFSET 1 / 2\nWINDOW w AS (order by b)\nQUALIFY x = 1\n"
+    );
+    assert_eq!(
+        fmt("select a from t offset 5 rows fetch first 10 rows only"),
+        "SELECT a\nFROM t\nOFFSET 5 ROWS\nFETCH FIRST 10 ROWS ONLY\n"
+    );
+    assert_eq!(
+        fmt("select x into outfile 'f.csv' format CSV"),
+        "SELECT x\nINTO OUTFILE 'f.csv'\nFORMAT CSV\n"
+    );
+}
+
+#[test]
+fn or_inside_parentheses_hangs_one_level_deeper() {
+    assert_eq!(
+        fmt_in(
+            "select 1 where (a = 1 or b = 2) and c = 3 and (dddd = 4 or eeee = 5)",
+            false,
+            25
+        ),
+        "SELECT 1\nWHERE (a = 1 OR b = 2)\n    AND c = 3\n    AND (dddd = 4\n        OR eeee = 5)\n"
+    );
+}
+
+#[test]
+fn between_never_breaks_at_its_and() {
+    assert_eq!(
+        fmt_in("select 1 where a between 1 and 2 and b = 3", false, 20),
+        "SELECT 1\nWHERE a BETWEEN 1 AND 2\n    AND b = 3\n"
+    );
+}
+
+#[test]
+fn spacing_of_expressions() {
+    assert_eq!(
+        fmt(
+            "select -x, not y, f(1)(2), a.b, t.*, x::Int8, a[1], x.1, {p:UInt8}, @@v, - -1, {'k': 1}"
+        ),
+        "SELECT\n    -x,\n    NOT y,\n    f(1)(2),\n    a.b,\n    t.*,\n    x::Int8,\n    a[1],\n    x.1,\n    \
+         {p:UInt8},\n    @@v,\n    - -1,\n    {'k': 1}\n"
+    );
+    assert_eq!(
+        fmt("select cast(x as UInt8), extract(day from d), * except (a), columns('c') apply(sum)"),
+        "SELECT\n    cast(x AS UInt8),\n    extract(DAY FROM d),\n    * EXCEPT (a),\n    \
+         COLUMNS('c') APPLY(sum)\n"
+    );
+}
+
+#[test]
+fn literals_read_as_text_keep_their_bytes() {
+    assert_eq!(
+        fmt("select [1,2,  3]::Array(UInt8)"),
+        "SELECT [1,2,  3]::Array(UInt8)\n"
+    );
+}
+
+#[test]
+fn verbatim_items_and_clauses_keep_their_text() {
+    // An item that does not parse.
+    assert_eq!(
+        fmt("select a, b c d, e from t"),
+        "SELECT\n    a,\n    b c d,\n    e\nFROM t\n"
+    );
+}
+
+// Jinja.
+
+#[test]
+fn block_tags_between_clauses_and_statements() {
+    assert_eq!(
+        jinja("select 1\n{% if x %}\nwhere a\n{% else %}\nwhere b\n{% endif %}\n"),
+        "SELECT 1\n{% if x %}\nWHERE a\n{% else %}\nWHERE b\n{% endif %}\n"
+    );
+    // Between statements a tag goes to column 0.
+    assert_eq!(
+        jinja("  {% if x %}\n  select 1;\n  {% endif %}\nselect 2;"),
+        "{% if x %}\nSELECT 1;\n{% endif %}\nSELECT 2;\n"
+    );
+}
+
+#[test]
+fn a_closer_aligns_with_its_opener() {
+    assert_eq!(
+        jinja("select a,\n{% if x %}\nb,\n{% endif %}\nc from t"),
+        "SELECT\n    a,\n    {% if x %}\n    b,\n    {% endif %}\n    c\nFROM t\n"
+    );
+}
+
+#[test]
+fn jinja_shapes_the_layout_does_not_cover_are_kept_as_written() {
+    // A block tag inside an expression.
+    let source = "select a + {% if x %} b {% else %} c {% endif %} from t";
+    assert_eq!(jinja(source), format!("{source}\n"));
+    assert_eq!(decisions(source, true), [Decision::Kept(Kept::TagPlace)]);
+    // A tag touching a word.
+    let source = "select a,{% if x %} b {% endif %} from t";
+    assert_eq!(decisions(source, true), [Decision::Kept(Kept::TagTouching)]);
+    // A tag inside a comment: every statement is kept.
+    let source = "-- {% if x %}\nselect 1;\n{% endif %}\nselect 2;";
+    assert_eq!(
+        decisions(source, true),
+        [
+            Decision::Kept(Kept::HiddenTag),
+            Decision::Kept(Kept::HiddenTag)
+        ]
+    );
+    // Rendering joins tokens into one heredoc.
+    let source = "select {% if a %}$x$ {% endif %}$x$";
+    assert_eq!(
+        decisions(source, true),
+        [Decision::Kept(Kept::RenderJoined)]
+    );
+}
+
+#[test]
+fn whitespace_next_to_a_strip_marker_may_move() {
+    // `-%}` strips the whitespace after it whatever it is.
+    assert_eq!(
+        jinja("select 1\nwhere true\n  and a\n{% if x -%}\nand b\n{%- endif %}"),
+        "SELECT 1\nWHERE true\n    AND a\n    {% if x -%}\n    AND b\n    {%- endif %}\n"
+    );
+}
+
+#[test]
+fn expressions_are_atoms_and_keep_their_adjacency() {
+    assert_eq!(
+        jinja("select {{ x }}, events_{{ s }}, f({{ a }})from {{ t }}"),
+        "SELECT\n    {{ x }},\n    events_{{ s }},\n    f({{ a }})\nFROM {{ t }}\n"
+    );
+}
+
+#[test]
+fn statements_the_layout_has_no_rule_for_are_kept() {
+    assert_eq!(
+        decisions(
+            "select 1; create table t (a Int8) engine = Memory; ;",
+            false
+        ),
+        [
+            Decision::Formatted,
+            Decision::Kept(Kept::NoRule),
+            Decision::Formatted
+        ]
+    );
+}
+
+#[test]
+fn an_empty_statement_stays_on_the_line_before_unless_a_tag_comes_between() {
+    assert_eq!(fmt("select 1;;\n;"), "SELECT 1;;\n;\n");
+    assert_eq!(jinja("};{%-{}%} ;"), "};\n{%-{}%}\n;\n");
+}
+
+/// Whitespace kept as written before a statement does not make it span
+/// lines.
+#[test]
+fn a_kept_line_break_before_a_statement_is_not_inside_it() {
+    // `FORMAT` keeps the whitespace after its statement in a template.
+    assert_eq!(
+        jinja("FORMAT D;$%;{%-%}L;$%-"),
+        "FORMAT D;\n$%;\n{%-%}L;\n$%-\n"
+    );
+}
