@@ -965,13 +965,37 @@ fn unified_diff_within(
     after: &str,
     deadline: std::time::Duration,
 ) -> String {
-    similar::TextDiff::configure()
+    // Lines end at `\n` only, as `patch` and `git apply` read them.
+    // `similar`'s own lines and its unified diff also end lines at a lone
+    // `\r`, which gives hunk ranges and a missing "No newline" marker that
+    // `patch` rejects.
+    let before: Vec<&str> = before.split_inclusive('\n').collect();
+    let after: Vec<&str> = after.split_inclusive('\n').collect();
+    let diff = similar::TextDiff::configure()
         .algorithm(similar::Algorithm::Myers)
         .timeout(deadline)
-        .diff_lines(before, after)
-        .unified_diff()
-        .header(&format!("a/{name}"), &format!("b/{name}"))
-        .to_string()
+        .diff_slices(&before, &after);
+    let mut out = String::new();
+    for group in diff.grouped_ops(3) {
+        if out.is_empty() {
+            out = format!("--- a/{name}\n+++ b/{name}\n");
+        }
+        let header = similar::udiff::UnifiedHunkHeader::new(&group);
+        let _ = std::fmt::Write::write_fmt(&mut out, format_args!("{header}\n"));
+        for change in group.iter().flat_map(|op| diff.iter_changes(op)) {
+            out.push(match change.tag() {
+                similar::ChangeTag::Equal => ' ',
+                similar::ChangeTag::Delete => '-',
+                similar::ChangeTag::Insert => '+',
+            });
+            let line = change.value();
+            out.push_str(line);
+            if !line.ends_with('\n') {
+                out.push_str("\n\\ No newline at end of file\n");
+            }
+        }
+    }
+    out
 }
 
 /// The line that sums up a run: how many files changed or would change,
@@ -1191,6 +1215,12 @@ mod tests {
                 &*format!("SELECT a;\n{unchanged}SELECT b;\n\n\n{unchanged}SELECT c;\n"),
             ),
             (&*format!("{unchanged}select 1;\n"), &*unchanged),
+            // A lone `\r` does not end a line for `patch`.
+            (
+                "select a,\rb from t\nwhere x\n",
+                "SELECT\n    a,\n    b\nFROM t\nWHERE x\n",
+            ),
+            ("select 1\r", "SELECT 1\n"),
         ];
         let mut coarser = 0;
         for (before, after) in cases {
