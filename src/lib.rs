@@ -19,6 +19,7 @@
 //! ```
 
 mod cleanup;
+pub mod doc;
 mod error;
 pub mod keyword;
 pub mod lexer;
