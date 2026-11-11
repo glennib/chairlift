@@ -1,0 +1,28 @@
+---
+source: tests/format.rs
+expression: once
+---
+USE analytics;
+
+SET max_threads = 8, max_memory_usage = 20000000000;
+SET send_logs_level = 'fatal';
+SET allow_experimental_analyzer;
+SET TIME ZONE 'Europe/Oslo';
+
+-- Swap the backfilled table in.
+RENAME TABLE
+    analytics.page_views TO analytics.page_views_old,
+    analytics.page_views_backfill TO analytics.page_views
+ON CLUSTER '{cluster}';
+
+EXCHANGE TABLES analytics.sessions AND analytics.sessions_staging;
+RENAME DATABASE scratch TO scratch_old;
+
+OPTIMIZE TABLE analytics.page_views FINAL;
+
+OPTIMIZE TABLE analytics.page_views PARTITION '2026-01' FINAL DEDUPLICATE BY
+    site,
+    event_time,
+    visitor_id;
+
+OPTIMIZE TABLE analytics.sessions PARTITION ID '202601' FINAL SETTINGS optimize_throw_if_noop = 1;

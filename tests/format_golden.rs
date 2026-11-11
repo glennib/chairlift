@@ -312,7 +312,34 @@ SELECT *
 FROM staging.page_views_by_site_and_hour;
 ";
 
+const ONE_LINE_STATEMENTS: &str = "
+USE analytics;
+SET max_threads = 8, send_logs_level = 'fatal';
+DROP TABLE IF EXISTS analytics.page_views ON CLUSTER '{cluster}' SYNC;
+DROP VIEW IF EXISTS analytics.active_sites;
+TRUNCATE TABLE analytics.sessions;
+DETACH TABLE analytics.sessions PERMANENTLY;
+ATTACH TABLE analytics.sessions;
+EXCHANGE TABLES analytics.sessions AND analytics.sessions_staging;
+OPTIMIZE TABLE analytics.page_views PARTITION '2026-01' FINAL DEDUPLICATE BY site, event_time;
+
+RENAME TABLE
+    analytics.page_views TO analytics.page_views_old,
+    analytics.page_views_backfill TO analytics.page_views
+ON CLUSTER '{cluster}';
+
+SET
+    max_threads = 8,
+    max_memory_usage = 20000000000,
+    max_bytes_before_external_group_by = 10000000000;
+";
+
 #[test]
 fn inserts_in_the_proposal_s_style() {
     golden(INSERTS);
+}
+
+#[test]
+fn statements_of_a_line_or_two_in_the_proposal_s_style() {
+    golden(ONE_LINE_STATEMENTS);
 }

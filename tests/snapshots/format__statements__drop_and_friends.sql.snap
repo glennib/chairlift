@@ -1,0 +1,35 @@
+---
+source: tests/format.rs
+expression: once
+---
+-- Tear-down before a test run.
+DROP TABLE IF EXISTS analytics.page_views ON CLUSTER '{cluster}' SYNC;
+
+DROP TABLE IF EXISTS
+    analytics.page_views_old,
+    analytics.page_views_new,
+    analytics.page_views_backfill_2025,
+    analytics.page_views_backfill_2026;
+
+DROP VIEW IF EXISTS analytics.active_sites;
+DROP DICTIONARY IF EXISTS analytics.sites_dict;
+DROP DATABASE IF EXISTS scratch;
+DROP FUNCTION IF EXISTS normalise_site;
+DROP TEMPORARY TABLE IF EXISTS tmp_ids;
+
+TRUNCATE TABLE analytics.sessions;
+TRUNCATE analytics.sessions_staging;
+TRUNCATE ALL TABLES FROM IF EXISTS scratch LIKE 'tmp_%';
+
+DETACH TABLE analytics.sessions PERMANENTLY;
+ATTACH TABLE analytics.sessions;
+DETACH DICTIONARY analytics.sites_dict;
+ATTACH DICTIONARY analytics.sites_dict;
+UNDROP TABLE analytics.sessions;
+
+ATTACH TABLE analytics.sessions_restored FROM '/var/lib/clickhouse/restore/sessions' (
+    session_id String,
+    started_at DateTime
+)
+engine = MergeTree
+order by session_id;

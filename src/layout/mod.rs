@@ -29,6 +29,7 @@
 //! | `query` | `SELECT` queries, clauses, joins, set operations, `WITH` |
 //! | `create` | `CREATE TABLE` and materialized views: header line, element list, column definitions, storage clauses, `AS` |
 //! | `insert` | `INSERT`: header line, data, the query after it |
+//! | `simple` | `DROP`, `SET`, `RENAME`, `OPTIMIZE` and other statements of a line or two |
 //! | `tree` | preorder node numbers and the facts about each node, from one pass |
 //! | `comment_end` | the template line comments the rendering can make run on, which leave the text as it is |
 //!
@@ -91,6 +92,7 @@ mod file;
 mod insert;
 mod query;
 mod shapes;
+mod simple;
 mod tree;
 mod writer;
 

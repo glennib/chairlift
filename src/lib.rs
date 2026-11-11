@@ -6,17 +6,18 @@
 //! against its input with the [verifier](verify) before returning it.
 //!
 //! The crate is pre-release: [`format`](fn@format) lays out `SELECT` and
-//! `WITH` queries, `CREATE TABLE` and `CREATE MATERIALIZED VIEW`, and keeps
-//! every other statement as written, with only the safe cleanup of its
-//! whitespace; `docs/MILESTONES.md` in the repository lays out what comes
+//! `WITH` queries, `CREATE TABLE`, `CREATE MATERIALIZED VIEW`, `INSERT`, and
+//! `DROP`, `TRUNCATE`, `ATTACH`, `RENAME`, `OPTIMIZE`, `SET`, `USE` and their
+//! kin, and keeps every other statement as written, with only the safe
+//! cleanup of its whitespace; `docs/MILESTONES.md` in the repository lays out what comes
 //! next. The [parser](syntax) turns the text into a lossless syntax tree, the
 //! [layout] turns that into a [document](doc), and the document's printer
 //! chooses the line breaks.
 //!
 //! ```
 //! let options = chairlift::Options::default();
-//! let formatted = chairlift::format("select a, b from t where x = 1;  \r\n\n\n\ndrop table t;", &options)?;
-//! assert_eq!(formatted, "SELECT\n    a,\n    b\nFROM t\nWHERE x = 1;\n\n\ndrop table t;\n");
+//! let formatted = chairlift::format("select a, b from t where x = 1;  \r\n\n\n\nsystem flush logs;", &options)?;
+//! assert_eq!(formatted, "SELECT\n    a,\n    b\nFROM t\nWHERE x = 1;\n\n\nsystem flush logs;\n");
 //! assert!(chairlift::check(&formatted, &options)?);
 //! # Ok::<(), chairlift::Error>(())
 //! ```
