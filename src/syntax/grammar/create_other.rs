@@ -232,7 +232,7 @@ fn pair(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         return Some(m.complete(p, SyntaxKind::KeyValuePair));
     }
     if p.eat(T::OpeningRoundBracket) {
-        pairs(p)?;
+        p.nested(pairs)?;
         p.expect(T::ClosingRoundBracket)?;
     } else if names::at_name(p, 0) && p.nth_at(1, T::OpeningRoundBracket) {
         exprs::expr(p)?;

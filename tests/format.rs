@@ -148,3 +148,127 @@ fn every_tag_of_a_template_keeps_its_bytes() {
     chairlift::verify::verify(source, &output, Mode::Jinja, parse.facts())
         .unwrap_or_else(|e| panic!("{e}\n{output}"));
 }
+
+/// Formats `source` on a thread of its own with the stack of a process's main thread,
+/// so that a recursion the depth limit does not bound overflows here as it
+/// would in the binary.
+fn spawn_format_on_main_sized_stack(
+    source: String,
+) -> std::thread::JoinHandle<Result<String, String>> {
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(move || chairlift::format(&source, &Options::default()).map_err(|e| e.to_string()))
+        .expect("thread starts")
+}
+
+/// Pairs nested in a dictionary's `SOURCE` deeper than the parser's depth
+/// limit are kept as written; this depth overflowed the stack.
+#[test]
+fn deeply_nested_dictionary_pairs_are_kept_without_overflowing() {
+    let deep = 100_000;
+    let source = format!(
+        "CREATE DICTIONARY d (a UInt64) PRIMARY KEY a SOURCE({}a 1{}) LAYOUT(FLAT()) LIFETIME(0);\n",
+        "x(".repeat(deep),
+        ")".repeat(deep)
+    );
+    let output = spawn_format_on_main_sized_stack(source)
+        .join()
+        .expect("no overflow")
+        .unwrap();
+    assert!(output.contains(&"x(".repeat(deep)));
+}
+
+/// Every bracketed construct of the statements beyond `SELECT` and
+/// `CREATE TABLE`, nested far deeper than the depth limit, formats without
+/// overflowing the stack.
+#[test]
+fn deep_nesting_in_any_statement_formats_without_overflowing() {
+    let deep = 200_000;
+    // The text before the nesting, the opener repeated, what is innermost,
+    // the closer repeated, and the text after it.
+    let cases = [
+        "INSERT INTO t |(|a|)| VALUES (1)",
+        "INSERT INTO t (a) VALUES |(|1|)|",
+        "INSERT INTO t |(|SELECT 1|)|",
+        "INSERT INTO t SELECT * FROM |(|SELECT 1|)|",
+        "INSERT INTO FUNCTION |f(|1|)| SELECT 1",
+        "ALTER TABLE t |(|a|)|",
+        "ALTER TABLE t UPDATE a = |(|1|)| WHERE 1",
+        "ALTER TABLE t DELETE WHERE |(|1|)|",
+        "ALTER TABLE t ADD COLUMN a |Array(|Int8|)|",
+        "ALTER TABLE t MODIFY COLUMN a Int8 DEFAULT |[|1|]|",
+        "ALTER TABLE t MODIFY COLUMN a Int8 CODEC|(|ZSTD|)|",
+        "ALTER TABLE t ADD PROJECTION p |(|SELECT 1|)|",
+        "ALTER TABLE t ADD INDEX i |(|a|)| TYPE minmax",
+        "ALTER TABLE t MODIFY TTL |(|d|)|",
+        "ALTER TABLE t MODIFY SETTING a = |(|1|)|",
+        "ALTER TABLE t DROP PARTITION |(|1|)|",
+        "ALTER TABLE t MODIFY QUERY SELECT |(|1|)|",
+        "ALTER TABLE t MODIFY ORDER BY |(|a|)|",
+        "DELETE FROM t WHERE |(|1|)|",
+        "UPDATE t SET a = |(|1|)| WHERE 1",
+        "CREATE VIEW v AS |(|SELECT 1|)|",
+        "CREATE DATABASE d ENGINE = e|(|1|)|",
+        "CREATE DATABASE d ENGINE = e(|f(|1|)|)",
+        "CREATE DICTIONARY d (a |Array(|Int8|)|) PRIMARY KEY a",
+        "CREATE DICTIONARY d (a Int8 DEFAULT |[|1|]|) PRIMARY KEY a",
+        "CREATE DICTIONARY d (a Int8 EXPRESSION |(|1|)|) PRIMARY KEY a",
+        "CREATE DICTIONARY d (a Int8) SOURCE(|x(|a 1|)|)",
+        "CREATE DICTIONARY d (a Int8) SOURCE(x(|k(|a 1|)|))",
+        "CREATE DICTIONARY d (a Int8) SOURCE(x(k |f(|1|)|))",
+        "CREATE DICTIONARY d (a Int8) SOURCE(x(k |[|1|]|))",
+        "CREATE DICTIONARY d (a Int8) LAYOUT(|x(|a 1|)|)",
+        "CREATE DICTIONARY d (a Int8) LIFETIME(MIN |x(|a 1|)|)",
+        "CREATE DICTIONARY d (a Int8) RANGE(MIN |x(|a 1|)|)",
+        "CREATE DICTIONARY d (a Int8) SETTINGS(a = |(|1|)|)",
+        "CREATE FUNCTION f AS x -> |(|1|)|",
+        "CREATE FUNCTION f AS |x -> |1||",
+        "CREATE INDEX i ON t |(|a|)| TYPE minmax",
+        "CREATE INDEX i ON t (a) TYPE x|(|1|)|",
+        "GRANT SELECT|(|a|)| ON t TO u",
+        "GRANT SELECT ON t TO u|(|a|)|",
+        "REVOKE SELECT|(|a|)| ON t FROM u",
+        "CREATE ROW POLICY p ON t USING |(|1|)| TO u",
+        "CREATE USER u SETTINGS a = |(|1|)|",
+        "CREATE USER u HOST IP |(|'x'|)|",
+        "CREATE ROLE r SETTINGS a = |[|1|]|",
+        "CREATE SETTINGS PROFILE p SETTINGS a MIN |(|1|)|",
+        "CREATE QUOTA q FOR INTERVAL |(|1|)| HOUR MAX queries = 1",
+        "CREATE QUOTA q FOR INTERVAL 1 HOUR MAX queries = |(|1|)|",
+        "ALTER USER u SETTINGS a = |(|1|)|",
+        "SET a = |[|1|]|",
+        "SET a = |(|1|)|",
+        "SET ROLE |(|r|)|",
+        "DROP TABLE t SETTINGS a = |(|1|)|",
+        "OPTIMIZE TABLE t PARTITION |(|1|)|",
+        "OPTIMIZE TABLE t DEDUPLICATE BY |(|a|)|",
+        "ATTACH TABLE t FROM '/x' (a |Array(|Int8|)|) ENGINE = Memory",
+        "RENAME TABLE |(|a|)| TO b",
+        "DESCRIBE |(|SELECT 1|)|",
+        "DESCRIBE TABLE |f(|1|)|",
+        "DESCRIBE TABLE t SETTINGS a = |(|1|)|",
+        "SHOW TABLES LIKE |(|'x'|)|",
+        "SHOW TABLES WHERE |(|1|)|",
+        "SHOW TABLES LIMIT |(|1|)|",
+        "SHOW CREATE TABLE |(|t|)|",
+        "SHOW GRANTS FOR |(|u|)|",
+    ];
+    let runs: Vec<_> = cases
+        .iter()
+        .map(|case| {
+            let [head, open, inner, close, tail] = case.split('|').collect::<Vec<_>>()[..] else {
+                panic!("{case}: five parts");
+            };
+            let source = format!(
+                "{head}{}{inner}{}{tail};\n",
+                open.repeat(deep),
+                close.repeat(deep)
+            );
+            (case, spawn_format_on_main_sized_stack(source))
+        })
+        .collect();
+    for (case, run) in runs {
+        let output = run.join().unwrap_or_else(|_| panic!("{case}: no overflow"));
+        assert!(output.is_ok(), "{case}: {output:?}");
+    }
+}
