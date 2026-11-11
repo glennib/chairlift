@@ -48,7 +48,7 @@ GROUP BY day, event_name;
 
 CREATE DICTIONARY users_dict
 (
-    user_id   UInt64,
+    user_id UInt64,
     user_name String
 )
 PRIMARY KEY user_id
@@ -57,4 +57,7 @@ LIFETIME(MIN 0 MAX 0)
 LAYOUT(HASHED());
 
 CREATE VIEW active_users AS
-SELECT user_id, user_name FROM users;
+SELECT
+    user_id,
+    user_name
+FROM users;

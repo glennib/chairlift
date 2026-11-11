@@ -375,7 +375,44 @@ SET site = 'nordlys', event_type = 'page_view'
 WHERE site = 'Nordlys';
 ";
 
+const VIEWS_DICTIONARIES_FUNCTIONS: &str = "
+CREATE DATABASE IF NOT EXISTS analytics ENGINE = Atomic COMMENT 'Aggregates for the dashboards';
+
+CREATE VIEW analytics.active_sites AS
+SELECT
+    site,
+    count() AS views
+FROM raw.events
+WHERE event_time > now() - INTERVAL 1 HOUR
+GROUP BY site;
+
+CREATE DICTIONARY analytics.sites_dict
+(
+    site_id UInt64,
+    name String DEFAULT '',
+    timezone String EXPRESSION lower(tz)
+)
+PRIMARY KEY site_id
+SOURCE(CLICKHOUSE(
+    HOST 'clickhouse.internal'
+    PORT 9000
+    USER 'reader'
+    PASSWORD 'secret'
+    DB 'analytics'
+    TABLE 'sites'
+))
+LAYOUT(HASHED())
+LIFETIME(MIN 300 MAX 3600);
+
+CREATE FUNCTION clamp_views AS (views, cap) -> if(views > cap, cap, views);
+";
+
 #[test]
 fn alters_and_mutations_in_the_proposal_s_style() {
     golden(ALTERS_AND_MUTATIONS);
+}
+
+#[test]
+fn views_dictionaries_and_functions_in_the_proposal_s_style() {
+    golden(VIEWS_DICTIONARIES_FUNCTIONS);
 }

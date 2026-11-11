@@ -1,0 +1,327 @@
+---
+source: src/syntax/grammar/create_other/tests.rs
+expression: "trees(&[\"CREATE DICTIONARY IF NOT EXISTS db.d ON CLUSTER c (id UInt64, name String DEFAULT '' EXPRESSION lower(n) HIERARCHICAL INJECTIVE, parent UInt64 DEFAULT 0 IS_OBJECT_ID,) PRIMARY KEY id SOURCE(CLICKHOUSE(HOST 'localhost' PORT 9000 USER 'default' PASSWORD 'secret' DB 'db' TABLE 't')) LAYOUT(HASHED()) LIFETIME(MIN 0 MAX 1000) COMMENT 'x'\",\n\"CREATE OR REPLACE DICTIONARY d (k String, a Array(UInt8) DEFAULT [1, 2]) PRIMARY KEY (k) SOURCE(clickhouse(table 'x' query 'SELECT 1')) LAYOUT(COMPLEX_KEY_HASHED(SHARDS 4)) LIFETIME(300) RANGE(MIN start MAX end) SETTINGS(format_csv_allow_single_quotes = 0)\",\n\"CREATE DICTIONARY d (id UInt64) PRIMARY KEY id LAYOUT(FLAT) SOURCE(MONGODB(OPTIONS (a 1) URI 'x')) LIFETIME(MIN 0 MAX 0)\",])"
+---
+> CREATE DICTIONARY IF NOT EXISTS db.d ON CLUSTER c (id UInt64, name String DEFAULT '' EXPRESSION lower(n) HIERARCHICAL INJECTIVE, parent UInt64 DEFAULT 0 IS_OBJECT_ID,) PRIMARY KEY id SOURCE(CLICKHOUSE(HOST 'localhost' PORT 9000 USER 'default' PASSWORD 'secret' DB 'db' TABLE 't')) LAYOUT(HASHED()) LIFETIME(MIN 0 MAX 1000) COMMENT 'x'
+CreateDictionary
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "DICTIONARY"
+    IfNotExists
+      Keyword "IF"
+      Keyword "NOT"
+      Keyword "EXISTS"
+    QualifiedName
+      Name
+        BareWord "db"
+      Dot "."
+      Name
+        BareWord "d"
+    OnCluster
+      Keyword "ON"
+      Keyword "CLUSTER"
+      Name
+        BareWord "c"
+  DictionaryAttributeList
+    OpeningRoundBracket "("
+    DictionaryAttribute
+      Name
+        BareWord "id"
+      DataType
+        Name
+          BareWord "UInt64"
+    Comma ","
+    DictionaryAttribute
+      Name
+        BareWord "name"
+      DataType
+        Name
+          BareWord "String"
+      Keyword "DEFAULT"
+      Literal
+        StringLiteral "''"
+      Keyword "EXPRESSION"
+      FunctionCall
+        Name
+          BareWord "lower"
+        ArgList
+          OpeningRoundBracket "("
+          Name
+            BareWord "n"
+          ClosingRoundBracket ")"
+      Keyword "HIERARCHICAL"
+      Keyword "INJECTIVE"
+    Comma ","
+    DictionaryAttribute
+      Name
+        BareWord "parent"
+      DataType
+        Name
+          BareWord "UInt64"
+      Keyword "DEFAULT"
+      Literal
+        Number "0"
+      Keyword "IS_OBJECT_ID"
+    Comma ","
+    ClosingRoundBracket ")"
+  DictionaryPrimaryKey
+    Keyword "PRIMARY"
+    Keyword "KEY"
+    NameList
+      Name
+        BareWord "id"
+  DictionaryClause
+    Keyword "SOURCE"
+    OpeningRoundBracket "("
+    KeyValueFunction
+      Name
+        BareWord "CLICKHOUSE"
+      OpeningRoundBracket "("
+      KeyValuePairs
+        KeyValuePair
+          Name
+            BareWord "HOST"
+          Literal
+            StringLiteral "'localhost'"
+        KeyValuePair
+          Name
+            BareWord "PORT"
+          Literal
+            Number "9000"
+        KeyValuePair
+          Name
+            BareWord "USER"
+          Literal
+            StringLiteral "'default'"
+        KeyValuePair
+          Name
+            BareWord "PASSWORD"
+          Literal
+            StringLiteral "'secret'"
+        KeyValuePair
+          Name
+            BareWord "DB"
+          Literal
+            StringLiteral "'db'"
+        KeyValuePair
+          Name
+            BareWord "TABLE"
+          Literal
+            StringLiteral "'t'"
+      ClosingRoundBracket ")"
+    ClosingRoundBracket ")"
+  DictionaryClause
+    Keyword "LAYOUT"
+    OpeningRoundBracket "("
+    KeyValueFunction
+      Name
+        BareWord "HASHED"
+      OpeningRoundBracket "("
+      ClosingRoundBracket ")"
+    ClosingRoundBracket ")"
+  DictionaryClause
+    Keyword "LIFETIME"
+    OpeningRoundBracket "("
+    KeyValuePairs
+      KeyValuePair
+        Name
+          BareWord "MIN"
+        Literal
+          Number "0"
+      KeyValuePair
+        Name
+          BareWord "MAX"
+        Literal
+          Number "1000"
+    ClosingRoundBracket ")"
+  CommentClause
+    Keyword "COMMENT"
+    Literal
+      StringLiteral "'x'"
+
+> CREATE OR REPLACE DICTIONARY d (k String, a Array(UInt8) DEFAULT [1, 2]) PRIMARY KEY (k) SOURCE(clickhouse(table 'x' query 'SELECT 1')) LAYOUT(COMPLEX_KEY_HASHED(SHARDS 4)) LIFETIME(300) RANGE(MIN start MAX end) SETTINGS(format_csv_allow_single_quotes = 0)
+CreateDictionary
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "OR"
+    Keyword "REPLACE"
+    Keyword "DICTIONARY"
+    Name
+      BareWord "d"
+  DictionaryAttributeList
+    OpeningRoundBracket "("
+    DictionaryAttribute
+      Name
+        BareWord "k"
+      DataType
+        Name
+          BareWord "String"
+    Comma ","
+    DictionaryAttribute
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Array"
+        TypeArgList
+          OpeningRoundBracket "("
+          DataType
+            Name
+              BareWord "UInt8"
+          ClosingRoundBracket ")"
+      Keyword "DEFAULT"
+      ArrayExpr
+        OpeningSquareBracket "["
+        Literal
+          Number "1"
+        Comma ","
+        Literal
+          Number "2"
+        ClosingSquareBracket "]"
+    ClosingRoundBracket ")"
+  DictionaryPrimaryKey
+    Keyword "PRIMARY"
+    Keyword "KEY"
+    OpeningRoundBracket "("
+    NameList
+      Name
+        BareWord "k"
+    ClosingRoundBracket ")"
+  DictionaryClause
+    Keyword "SOURCE"
+    OpeningRoundBracket "("
+    KeyValueFunction
+      Name
+        BareWord "clickhouse"
+      OpeningRoundBracket "("
+      KeyValuePairs
+        KeyValuePair
+          Name
+            BareWord "table"
+          Literal
+            StringLiteral "'x'"
+        KeyValuePair
+          Name
+            BareWord "query"
+          Literal
+            StringLiteral "'SELECT 1'"
+      ClosingRoundBracket ")"
+    ClosingRoundBracket ")"
+  DictionaryClause
+    Keyword "LAYOUT"
+    OpeningRoundBracket "("
+    KeyValueFunction
+      Name
+        BareWord "COMPLEX_KEY_HASHED"
+      OpeningRoundBracket "("
+      KeyValuePairs
+        KeyValuePair
+          Name
+            BareWord "SHARDS"
+          Literal
+            Number "4"
+      ClosingRoundBracket ")"
+    ClosingRoundBracket ")"
+  DictionaryClause
+    Keyword "LIFETIME"
+    OpeningRoundBracket "("
+    Literal
+      Number "300"
+    ClosingRoundBracket ")"
+  DictionaryClause
+    Keyword "RANGE"
+    OpeningRoundBracket "("
+    KeyValuePairs
+      KeyValuePair
+        Name
+          BareWord "MIN"
+        Name
+          BareWord "start"
+      KeyValuePair
+        Name
+          BareWord "MAX"
+        Name
+          BareWord "end"
+    ClosingRoundBracket ")"
+  DictionaryClause
+    Keyword "SETTINGS"
+    OpeningRoundBracket "("
+    SettingsList
+      SettingItem
+        Name
+          BareWord "format_csv_allow_single_quotes"
+        Equals "="
+        Literal
+          Number "0"
+    ClosingRoundBracket ")"
+
+> CREATE DICTIONARY d (id UInt64) PRIMARY KEY id LAYOUT(FLAT) SOURCE(MONGODB(OPTIONS (a 1) URI 'x')) LIFETIME(MIN 0 MAX 0)
+CreateDictionary
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "DICTIONARY"
+    Name
+      BareWord "d"
+  DictionaryAttributeList
+    OpeningRoundBracket "("
+    DictionaryAttribute
+      Name
+        BareWord "id"
+      DataType
+        Name
+          BareWord "UInt64"
+    ClosingRoundBracket ")"
+  DictionaryPrimaryKey
+    Keyword "PRIMARY"
+    Keyword "KEY"
+    NameList
+      Name
+        BareWord "id"
+  DictionaryClause
+    Keyword "LAYOUT"
+    OpeningRoundBracket "("
+    KeyValueFunction
+      Name
+        BareWord "FLAT"
+    ClosingRoundBracket ")"
+  DictionaryClause
+    Keyword "SOURCE"
+    OpeningRoundBracket "("
+    KeyValueFunction
+      Name
+        BareWord "MONGODB"
+      OpeningRoundBracket "("
+      KeyValuePairs
+        KeyValuePair
+          Name
+            BareWord "OPTIONS"
+          OpeningRoundBracket "("
+          KeyValuePairs
+            KeyValuePair
+              Name
+                BareWord "a"
+              Literal
+                Number "1"
+          ClosingRoundBracket ")"
+        KeyValuePair
+          Name
+            BareWord "URI"
+          Literal
+            StringLiteral "'x'"
+      ClosingRoundBracket ")"
+    ClosingRoundBracket ")"
+  DictionaryClause
+    Keyword "LIFETIME"
+    OpeningRoundBracket "("
+    KeyValuePairs
+      KeyValuePair
+        Name
+          BareWord "MIN"
+        Literal
+          Number "0"
+      KeyValuePair
+        Name
+          BareWord "MAX"
+        Literal
+          Number "0"
+    ClosingRoundBracket ")"

@@ -1,6 +1,7 @@
-//! `CREATE TABLE` and `CREATE MATERIALIZED VIEW`: the header line, the
-//! element list with `(` alone on its line and one element per line, and
-//! the clauses one per line in the order written.
+//! `CREATE TABLE`, `CREATE VIEW`, `CREATE MATERIALIZED VIEW` and `CREATE
+//! DICTIONARY`: the header line, the element or attribute list with `(`
+//! alone on its line and one element per line, and the clauses one per line
+//! in the order written.
 //!
 //! The header line holds the statement's keywords and name and the clauses
 //! that read as part of it, when they follow the name directly: a view's
@@ -46,7 +47,7 @@ pub(crate) fn statement(w: &mut Writer<'_>, node: &Node) {
     w.b.close(header);
     for (k, part) in rest.iter().enumerate().skip(on_line) {
         let (sep, blank) = match part.el.kind() {
-            SyntaxKind::TableElementList => (Sep::Hard, 0),
+            SyntaxKind::TableElementList | SyntaxKind::DictionaryAttributeList => (Sep::Hard, 0),
             // The header group counts `AS` in its measure, as it follows
             // the group on its line.
             SyntaxKind::AsClause if holds_query(w, part) && ends_line_with_as(&rest[..k]) => {

@@ -27,10 +27,11 @@
 //! | `shapes` | lists, clauses of a keyword and a list, hugging brackets |
 //! | `expr` | binary operators, `AND`/`OR` runs, `BETWEEN`, `CASE`, lambdas, `?:`, casts and data types |
 //! | `query` | `SELECT` queries, clauses, joins, set operations, `WITH` |
-//! | `create` | `CREATE TABLE` and materialized views: header line, element list, column definitions, storage clauses, `AS` |
+//! | `create` | `CREATE TABLE`, views and dictionaries: header line, element list, column definitions, storage clauses, `AS` |
 //! | `insert` | `INSERT`: header line, data, the query after it |
 //! | `simple` | `DROP`, `SET`, `RENAME`, `OPTIMIZE` and other statements of a line or two |
 //! | `alter` | `ALTER` and its commands, the lightweight `DELETE` and `UPDATE` |
+//! | `create_other` | `CREATE DATABASE`, the clauses of `CREATE DICTIONARY` |
 //! | `tree` | preorder node numbers and the facts about each node, from one pass |
 //! | `comment_end` | the template line comments the rendering can make run on, which leave the text as it is |
 //!
@@ -89,6 +90,7 @@
 mod alter;
 mod comment_end;
 mod create;
+mod create_other;
 mod expr;
 mod file;
 mod insert;
@@ -340,7 +342,7 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         S::Subquery => shapes::hugged(w, node),
         S::SelectClause => query::select_clause(w, node),
         S::WithClause => query::with_clause(w, node),
-        S::TableElementList => create::element_list(w, node),
+        S::TableElementList | S::DictionaryAttributeList => create::element_list(w, node),
         S::ColumnDef => create::column(w, node),
         S::IndexDef => create::index(w, node),
         S::ProjectionDef => create::projection(w, node),
@@ -352,6 +354,8 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         S::SqlSecurityClause => create::sql_security(w, node),
         S::AsClause => create::as_clause(w, node),
         S::AlterCommand => alter::command(w, node),
+        S::DictionaryClause => create_other::clause(w, node),
+        S::KeyValueFunction => create_other::key_value_function(w, node),
         S::ViewTargetClause => create::view_target(w, node),
         S::FromClause
         | S::ArrayJoinClause

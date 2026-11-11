@@ -11,10 +11,11 @@
 //! | [`types`] | data types |
 //! | [`common`] | expression lists, `ORDER BY` items, `SETTINGS`, `ON CLUSTER`, `IF [NOT] EXISTS` |
 //! | [`select`] | `SELECT` queries and subqueries |
-//! | [`create`] | `CREATE TABLE`, `CREATE MATERIALIZED VIEW` |
+//! | [`create`] | `CREATE TABLE`, `CREATE VIEW`, `CREATE MATERIALIZED VIEW`, `CREATE DATABASE` |
 //! | [`insert`] | `INSERT`, with the `WITH` clause before it |
 //! | [`simple`] | `DROP`, `DETACH`, `TRUNCATE`, `UNDROP`, `ATTACH`, `RENAME`, `EXCHANGE`, `OPTIMIZE`, `SET`, `USE` |
 //! | [`alter`] | `ALTER TABLE`, `ALTER DATABASE`, the lightweight `DELETE` and `UPDATE` |
+//! | [`create_other`] | `CREATE DICTIONARY`, `CREATE FUNCTION` |
 //! | [`probe`] | the `SELECT <list>` expression probe |
 //!
 //! # Writing grammar
@@ -116,7 +117,7 @@
 //!    [`Role::List`](crate::syntax::Role).
 //! 2. Recognise it in an `at_statement` function by its leading keywords
 //!    and call it from [`statement`] (`select`, `create`, `insert`,
-//!    `simple` and `alter` are dispatched already).
+//!    `simple`, `alter` and `create_other` are dispatched already).
 //! 3. Parse its head, then its clauses in a loop: while the current token
 //!    starts a clause, parse it with [`fallback::clause`], passing a
 //!    predicate that recognises every clause keyword of the statement, so
@@ -144,6 +145,7 @@
 pub(crate) mod alter;
 pub(crate) mod common;
 pub(crate) mod create;
+pub(crate) mod create_other;
 pub(crate) mod exprs;
 pub(crate) mod fallback;
 pub(crate) mod insert;
@@ -182,6 +184,8 @@ pub(crate) fn statement(p: &mut Parser<'_>, entry: Entry) {
                 fallback::statement(p, simple::statement);
             } else if alter::at_statement(p) {
                 fallback::statement(p, alter::statement);
+            } else if create_other::at_statement(p) {
+                fallback::statement(p, create_other::statement);
             } else {
                 fallback::verbatim_statement(p);
             }

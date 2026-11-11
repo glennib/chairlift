@@ -1,0 +1,257 @@
+---
+source: src/syntax/grammar/create_other/tests.rs
+expression: "trees(&[\"CREATE FUNCTION f AS (x, y) -> x + y\",\n\"CREATE OR REPLACE FUNCTION IF NOT EXISTS f ON CLUSTER c AS x -> if(x > 0, x, 0)\",\n\"CREATE FUNCTION f LANGUAGE WASM ARGUMENTS (a Int32) RETURNS Int32 FROM 'm'\",\n\"CREATE VIEW IF NOT EXISTS db.v ON CLUSTER c (a UInt8) AS SELECT 1 AS a COMMENT 'x'\",\n\"CREATE OR REPLACE VIEW v DEFINER = u SQL SECURITY DEFINER AS SELECT * FROM t WHERE x = {p:UInt8}\",\n\"CREATE TEMPORARY VIEW v AS (SELECT 1)\",\n\"CREATE DATABASE IF NOT EXISTS d ON CLUSTER c ENGINE = Replicated('/x', '{shard}', '{replica}') SETTINGS a = 1 COMMENT 'x'\",\n\"CREATE DATABASE d\",])"
+---
+> CREATE FUNCTION f AS (x, y) -> x + y
+CreateFunction
+  Keyword "CREATE"
+  Keyword "FUNCTION"
+  Name
+    BareWord "f"
+  Keyword "AS"
+  LambdaExpr
+    TupleExpr
+      OpeningRoundBracket "("
+      Name
+        BareWord "x"
+      Comma ","
+      Name
+        BareWord "y"
+      ClosingRoundBracket ")"
+    Arrow "->"
+    BinaryExpr
+      Name
+        BareWord "x"
+      Plus "+"
+      Name
+        BareWord "y"
+
+> CREATE OR REPLACE FUNCTION IF NOT EXISTS f ON CLUSTER c AS x -> if(x > 0, x, 0)
+CreateFunction
+  Keyword "CREATE"
+  Keyword "OR"
+  Keyword "REPLACE"
+  Keyword "FUNCTION"
+  IfNotExists
+    Keyword "IF"
+    Keyword "NOT"
+    Keyword "EXISTS"
+  Name
+    BareWord "f"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+  Keyword "AS"
+  LambdaExpr
+    Name
+      BareWord "x"
+    Arrow "->"
+    FunctionCall
+      Name
+        BareWord "if"
+      ArgList
+        OpeningRoundBracket "("
+        BinaryExpr
+          Name
+            BareWord "x"
+          Greater ">"
+          Literal
+            Number "0"
+        Comma ","
+        Name
+          BareWord "x"
+        Comma ","
+        Literal
+          Number "0"
+        ClosingRoundBracket ")"
+
+> CREATE FUNCTION f LANGUAGE WASM ARGUMENTS (a Int32) RETURNS Int32 FROM 'm'
+CreateFunction
+  Keyword "CREATE"
+  Keyword "FUNCTION"
+  Name
+    BareWord "f"
+  Opaque
+    BareWord "LANGUAGE"
+    BareWord "WASM"
+    BareWord "ARGUMENTS"
+    OpeningRoundBracket "("
+    BareWord "a"
+    BareWord "Int32"
+    ClosingRoundBracket ")"
+    BareWord "RETURNS"
+    BareWord "Int32"
+    BareWord "FROM"
+    StringLiteral "'m'"
+
+> CREATE VIEW IF NOT EXISTS db.v ON CLUSTER c (a UInt8) AS SELECT 1 AS a COMMENT 'x'
+CreateView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "VIEW"
+    IfNotExists
+      Keyword "IF"
+      Keyword "NOT"
+      Keyword "EXISTS"
+    QualifiedName
+      Name
+        BareWord "db"
+      Dot "."
+      Name
+        BareWord "v"
+    OnCluster
+      Keyword "ON"
+      Keyword "CLUSTER"
+      Name
+        BareWord "c"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "UInt8"
+    ClosingRoundBracket ")"
+  AsClause
+    Keyword "AS"
+    SelectQuery
+      SelectClause
+        Keyword "SELECT"
+        SelectList
+          AliasedExpr
+            Literal
+              Number "1"
+            Alias
+              Keyword "AS"
+              Name
+                BareWord "a"
+  CommentClause
+    Keyword "COMMENT"
+    Literal
+      StringLiteral "'x'"
+
+> CREATE OR REPLACE VIEW v DEFINER = u SQL SECURITY DEFINER AS SELECT * FROM t WHERE x = {p:UInt8}
+CreateView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "OR"
+    Keyword "REPLACE"
+    Keyword "VIEW"
+    Name
+      BareWord "v"
+  SqlSecurityClause
+    Keyword "DEFINER"
+    Equals "="
+    Name
+      BareWord "u"
+    Keyword "SQL"
+    Keyword "SECURITY"
+    Keyword "DEFINER"
+  AsClause
+    Keyword "AS"
+    SelectQuery
+      SelectClause
+        Keyword "SELECT"
+        SelectList
+          AsteriskExpr
+            Asterisk "*"
+      FromClause
+        Keyword "FROM"
+        TableList
+          TableExpr
+            Name
+              BareWord "t"
+      WhereClause
+        Keyword "WHERE"
+        BinaryExpr
+          Name
+            BareWord "x"
+          Equals "="
+          QueryParameter
+            OpeningCurlyBrace "{"
+            Name
+              BareWord "p"
+            Colon ":"
+            DataType
+              Name
+                BareWord "UInt8"
+            ClosingCurlyBrace "}"
+
+> CREATE TEMPORARY VIEW v AS (SELECT 1)
+CreateView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TEMPORARY"
+    Keyword "VIEW"
+    Name
+      BareWord "v"
+  AsClause
+    Keyword "AS"
+    UnionQuery
+      Subquery
+        OpeningRoundBracket "("
+        SelectQuery
+          SelectClause
+            Keyword "SELECT"
+            SelectList
+              Literal
+                Number "1"
+        ClosingRoundBracket ")"
+
+> CREATE DATABASE IF NOT EXISTS d ON CLUSTER c ENGINE = Replicated('/x', '{shard}', '{replica}') SETTINGS a = 1 COMMENT 'x'
+CreateDatabase
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "DATABASE"
+    IfNotExists
+      Keyword "IF"
+      Keyword "NOT"
+      Keyword "EXISTS"
+    Name
+      BareWord "d"
+    OnCluster
+      Keyword "ON"
+      Keyword "CLUSTER"
+      Name
+        BareWord "c"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    FunctionCall
+      Name
+        BareWord "Replicated"
+      ArgList
+        OpeningRoundBracket "("
+        Literal
+          StringLiteral "'/x'"
+        Comma ","
+        Literal
+          StringLiteral "'{shard}'"
+        Comma ","
+        Literal
+          StringLiteral "'{replica}'"
+        ClosingRoundBracket ")"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "a"
+        Equals "="
+        Literal
+          Number "1"
+  CommentClause
+    Keyword "COMMENT"
+    Literal
+      StringLiteral "'x'"
+
+> CREATE DATABASE d
+CreateDatabase
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "DATABASE"
+    Name
+      BareWord "d"

@@ -30,12 +30,15 @@ pub(crate) fn rule_for(kind: SyntaxKind) -> Option<Rule> {
         SyntaxKind::InsertQuery => Some(super::insert::statement),
         SyntaxKind::AlterQuery => Some(super::alter::statement),
         SyntaxKind::DeleteQuery | SyntaxKind::UpdateQuery => Some(super::alter::mutation),
+        SyntaxKind::CreateView | SyntaxKind::CreateDictionary => Some(super::create::statement),
+        SyntaxKind::CreateDatabase => Some(super::create_other::database),
         SyntaxKind::DropQuery
         | SyntaxKind::AttachQuery
         | SyntaxKind::RenameQuery
         | SyntaxKind::OptimizeQuery
         | SyntaxKind::SetQuery
-        | SyntaxKind::UseQuery => Some(super::simple::statement),
+        | SyntaxKind::UseQuery
+        | SyntaxKind::CreateFunction => Some(super::simple::statement),
         _ => None,
     }
 }

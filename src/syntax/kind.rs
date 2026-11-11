@@ -959,6 +959,67 @@ syntax_kinds! {
         UpdateQuery: Statement,
         /// `SET` and an [`AssignmentList`](Self::AssignmentList) of `UPDATE`.
         UpdateSetClause: Clause,
+
+        // ---- Other CREATE kinds -------------------------------------------
+        // Grammar in `grammar/create.rs` for views and databases and in
+        // `grammar/create_other.rs` for dictionaries and functions.
+        /// `CREATE [OR REPLACE] [TEMPORARY] VIEW …`: a
+        /// [`CreateHeader`](Self::CreateHeader), any
+        /// [`TableElementList`](Self::TableElementList), then clauses
+        /// ([`SqlSecurityClause`](Self::SqlSecurityClause),
+        /// [`CommentClause`](Self::CommentClause)) and the query in an
+        /// [`AsClause`](Self::AsClause).
+        CreateView: Statement,
+        /// `CREATE DATABASE …`: a [`CreateHeader`](Self::CreateHeader),
+        /// then clauses: [`EngineClause`](Self::EngineClause),
+        /// [`SettingsClause`](Self::SettingsClause) and
+        /// [`CommentClause`](Self::CommentClause).
+        CreateDatabase: Statement,
+        /// `CREATE [OR REPLACE] DICTIONARY …`: a
+        /// [`CreateHeader`](Self::CreateHeader), a
+        /// [`DictionaryAttributeList`](Self::DictionaryAttributeList), then
+        /// clauses in the order written:
+        /// [`DictionaryPrimaryKey`](Self::DictionaryPrimaryKey) and the
+        /// [`DictionaryClause`](Self::DictionaryClause)s `SOURCE`, `LAYOUT`,
+        /// `LIFETIME`, `RANGE` and `SETTINGS`, and
+        /// [`CommentClause`](Self::CommentClause).
+        CreateDictionary: Statement,
+        /// `( attributes )` of a dictionary: `(`,
+        /// [`DictionaryAttribute`](Self::DictionaryAttribute)s separated by
+        /// commas, a trailing comma if written, `)`.
+        DictionaryAttributeList: List,
+        /// A dictionary attribute: its [`Name`](Self::Name), its
+        /// [`DataType`](Self::DataType), then in any order `DEFAULT` and a
+        /// literal, `EXPRESSION` and an expression, `HIERARCHICAL`,
+        /// `BIDIRECTIONAL`, `INJECTIVE` and `IS_OBJECT_ID`.
+        DictionaryAttribute: Node,
+        /// `PRIMARY KEY` and the key attributes, a
+        /// [`NameList`](Self::NameList), in brackets if written so.
+        DictionaryPrimaryKey: Clause,
+        /// `SOURCE`, `LAYOUT`, `LIFETIME`, `RANGE` or `SETTINGS`, then `(`, what
+        /// it holds, `)`: a [`KeyValueFunction`](Self::KeyValueFunction) for
+        /// `SOURCE` and `LAYOUT`, [`KeyValuePairs`](Self::KeyValuePairs) or a
+        /// number for `LIFETIME` and `RANGE`, a
+        /// [`SettingsList`](Self::SettingsList) for `SETTINGS`.
+        DictionaryClause: Clause,
+        /// `name(pairs)` in `SOURCE` or `LAYOUT`, `CLICKHOUSE(TABLE 'x')`: a
+        /// [`Name`](Self::Name), then `(`, [`KeyValuePairs`](Self::KeyValuePairs)
+        /// and `)`. The name is a name, never a keyword, and keeps its case.
+        KeyValueFunction: Node,
+        /// [`KeyValuePair`](Self::KeyValuePair)s, one after another without
+        /// commas.
+        KeyValuePairs: Node,
+        /// A key, a [`Name`](Self::Name) that keeps its case whatever it
+        /// spells (`TABLE`, `MIN`), and a value: a literal, a name, a
+        /// function call, or `(`, [`KeyValuePairs`](Self::KeyValuePairs) and
+        /// `)`.
+        KeyValuePair: Node,
+        /// `CREATE [OR REPLACE] FUNCTION [IF NOT EXISTS]`, the function's
+        /// [`Name`](Self::Name), any [`OnCluster`](Self::OnCluster), `AS` and
+        /// an expression, usually a [`LambdaExpr`](Self::LambdaExpr); or with
+        /// what follows the name kept [`Opaque`](Self::Opaque) for the
+        /// `ENGINE` and `LANGUAGE` forms.
+        CreateFunction: Statement,
     }
 }
 

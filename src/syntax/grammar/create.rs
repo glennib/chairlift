@@ -1,5 +1,6 @@
-//! `CREATE TABLE` and `CREATE MATERIALIZED VIEW`, as ClickHouse's
-//! `ParserCreateTableQuery` and `ParserCreateViewQuery` read them
+//! `CREATE TABLE`, `CREATE VIEW`, `CREATE MATERIALIZED VIEW` and `CREATE
+//! DATABASE`, as ClickHouse's `ParserCreateTableQuery`,
+//! `ParserCreateViewQuery` and `ParserCreateDatabaseQuery` read them
 //! (`src/Parsers/ParserCreateQuery.cpp`).
 //!
 //! A statement is a [`CreateHeader`](SyntaxKind::CreateHeader) (keywords,
@@ -31,7 +32,8 @@ use crate::syntax::parser::CompletedMarker;
 use crate::syntax::parser::Parser;
 
 /// Whether the statement at the current token is `CREATE [OR REPLACE]
-/// [TEMPORARY] TABLE` or `CREATE MATERIALIZED VIEW`.
+/// [TEMPORARY] TABLE`, `CREATE [OR REPLACE] [TEMPORARY] VIEW`, `CREATE
+/// MATERIALIZED VIEW` or `CREATE DATABASE`.
 pub(crate) fn at_statement(p: &Parser<'_>) -> bool {
     if !p.at_kw(K::Create) {
         return false;
@@ -43,11 +45,14 @@ pub(crate) fn at_statement(p: &Parser<'_>) -> bool {
     if p.nth_at_kw(n, K::Temporary) {
         n += 1;
     }
-    p.nth_at_kw(n, K::Table) || (p.nth_at_kw(n, K::Materialized) && p.nth_at_kw(n + 1, K::View))
+    p.nth_at_kw(n, K::Table)
+        || p.nth_at_kw(n, K::View)
+        || (n == 1 && p.nth_at_kw(n, K::Database))
+        || (p.nth_at_kw(n, K::Materialized) && p.nth_at_kw(n + 1, K::View))
 }
 
-/// A `CREATE TABLE` or `CREATE MATERIALIZED VIEW` statement, up to the end
-/// of the statement.
+/// A `CREATE TABLE`, `CREATE VIEW`, `CREATE MATERIALIZED VIEW` or `CREATE
+/// DATABASE` statement, up to the end of the statement.
 pub(crate) fn statement(p: &mut Parser<'_>) -> Option<()> {
     let mut n = 1;
     let mut object = Object::Table;
@@ -57,10 +62,11 @@ pub(crate) fn statement(p: &mut Parser<'_>) -> Option<()> {
         }
         n += 1;
     }
-    if p.nth_at_kw(n, K::Materialized) {
-        materialized_view(p)
-    } else {
-        table(p, object)
+    match p.nth_keyword(n) {
+        Some(K::Materialized) => materialized_view(p),
+        Some(K::View) => view(p),
+        Some(K::Database) => database(p),
+        _ => table(p, object),
     }
 }
 
@@ -122,6 +128,45 @@ fn materialized_view(p: &mut Parser<'_>) -> Option<()> {
     }
     clauses(p, context);
     m.complete(p, SyntaxKind::CreateMaterializedView);
+    Some(())
+}
+
+/// [`CreateView`](SyntaxKind::CreateView), as `ParserCreateViewQuery` reads
+/// an ordinary view: the column list after the name, then `SQL SECURITY`,
+/// `COMMENT` and `AS` and a query, which a `COMMENT` may follow.
+fn view(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    header(p, &[K::View])?;
+    if p.at(T::OpeningRoundBracket) {
+        elements::element_list(p)?;
+    }
+    clauses(
+        p,
+        Context {
+            object: Object::View,
+            columns: false,
+            storage: false,
+        },
+    );
+    m.complete(p, SyntaxKind::CreateView);
+    Some(())
+}
+
+/// [`CreateDatabase`](SyntaxKind::CreateDatabase), as
+/// `ParserCreateDatabaseQuery` reads it: the header, then `ENGINE`,
+/// `SETTINGS` and `COMMENT` as clauses.
+fn database(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    header(p, &[K::Database])?;
+    clauses(
+        p,
+        Context {
+            object: Object::Table,
+            columns: false,
+            storage: true,
+        },
+    );
+    m.complete(p, SyntaxKind::CreateDatabase);
     Some(())
 }
 
