@@ -30,8 +30,14 @@ if [[ $# -lt 1 ]]; then
 fi
 threshold=${2:-10}
 root=$(cd "$(dirname "$0")/.." && pwd)
-work=${CARGO_TARGET_DIR:-$root/target}/bench-compare
+head_target=${CARGO_TARGET_DIR:-$root/target}
+work=$head_target/bench-compare
 export CRITERION_HOME=$work/criterion
+# The base builds into a target directory of its own. In one directory,
+# cargo can take the second build for fresh, both packages being
+# `chairlift` at the same version, and the script would time one binary
+# against itself.
+base_target=$work/target-base
 
 notice() {
   if [[ -n ${GITHUB_ACTIONS:-} ]]; then
@@ -41,7 +47,7 @@ notice() {
   fi
 }
 
-rm -rf "$work"
+rm -rf "$work/criterion" "$work/base"
 mkdir -p "$work"
 if [[ -d $1 ]]; then
   base_dir=$(cd "$1" && pwd)
@@ -75,14 +81,17 @@ if ! diff -rq "$base_dir/tests/fixtures" "$root/tests/fixtures" >/dev/null; then
 fi
 
 # Both builds come first, so that no build runs beside a measurement.
-(cd "$base_dir" && cargo bench --bench format --no-run)
-(cd "$root" && cargo bench --bench format --no-run)
+(cd "$base_dir" && CARGO_TARGET_DIR=$base_target cargo bench --bench format --no-run)
+(cd "$root" && CARGO_TARGET_DIR=$head_target cargo bench --bench format --no-run)
 
 # bench DIR FILTER CRITERION_ARGS…
 bench() {
-  local dir=$1 only=$2
+  local dir=$1 only=$2 target=$head_target
   shift 2
-  (cd "$dir" && cargo bench --bench format -- --noplot "$@" "$only")
+  if [[ $dir != "$root" ]]; then
+    target=$base_target
+  fi
+  (cd "$dir" && CARGO_TARGET_DIR=$target cargo bench --bench format -- --noplot "$@" "$only")
 }
 
 # One `NAME LOWER_BOUND_PERCENT` line per benchmark: the change of this
