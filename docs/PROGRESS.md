@@ -12,9 +12,9 @@ M9 (chum integration) is not part of this run.
 | M2. Verifier, splitter, safe-cleanup CLI | done | review findings fixed |
 | M3. Parser core | done | both grammar reviews' fixes are on `main` |
 | M4. Formatting rules and printer | done | acceptance measured; reviews' fixes on `main`; style readings await the project owner |
-| M5. Jinja templates | not started | |
+| M5. Jinja templates | in progress |  |
 | M6. CLI polish and performance | implemented, unmerged | complete on the branch `wip/m6-cli`; needs rebasing onto `main` |
-| M7. Remaining statement kinds | in progress | part 1: `INSERT` and the one-line statements |
+| M7. Remaining statement kinds | in progress | part 1 (`INSERT`, one-line statements) done; `ALTER TABLE`, other `CREATE` kinds and access control in progress |
 | M8. Hardening and first release | not started | |
 
 ## Resuming the work
@@ -34,10 +34,8 @@ Next:
    and the message of `Error::Layout`; snapshots that quote formatted output need refreshing.
 2. Measure a 1 MB file through the binary on a quiet machine (target 100 ms).
    Under load it took 0.12–0.19 s; in process, on a quiet machine, 62 ms before the layout fixes.
-3. M7 part 1 is being built on `main`; the remaining parts are `ALTER TABLE`,
-   `CREATE VIEW`/`DATABASE`/`DICTIONARY`/`FUNCTION`, and the access-control statements.
-4. M5, then M8.
-   The notes for M5 below still hold.
+3. M5 and the remaining M7 parts (`ALTER TABLE` with the other `CREATE` kinds; access control) are in progress.
+4. M8 last.
 
 Only the tip of a branch is checked with `mise run ci` from here on, not every commit.
 
@@ -134,6 +132,8 @@ Those assumptions are used unless the project owner decides otherwise:
 - Snapshot review: `insta` snapshots are committed so that every commit passes its tests.
   They are listed here per milestone until reviewed.
   - M0: the inline snapshot of `--help` in `tests/cli.rs`.
+  - M7 part 1: 9 tree snapshots under `src/syntax/grammar/{insert,simple}/snapshots/`
+    and `tests/snapshots/format__statements__*.snap`.
   - M6, unmerged: new and changed snapshots in `tests/cli.rs` and `src/bin/chairlift.rs`.
   - M4 part 3: five of the `tests/snapshots/format__*.snap` files changed:
     the chum migrations lose column alignment and get `(` on its own line, and the design example is re-cased.
@@ -161,6 +161,12 @@ None blocks the work.
 - The operator stays on its line before `IN (list)` and before a subquery.
 - A statement kept as written starts at column 0, and a comment trailing it keeps its spacing.
 - `;;` stays on the line of the statement before it.
+- `INSERT` and the one-line statements:
+  - `INSERT` header clauses break to column 0; after a column list that broke, `VALUES` stays on the `)` line.
+  - The query after `INSERT` always starts a line at column 0.
+  - `VALUES` rows keep their line breaks and the first row's indentation as written.
+  - A one-line statement whose list does not fit puts one item per line, one level in,
+    and what follows the list starts a line at column 0.
 - `CREATE TABLE`, on `main`:
   - A column definition that does not fit breaks before each modifier
     (`DEFAULT`, `CODEC`, `TTL`, `COMMENT`), one level in; `NULL` and `COLLATE` stay with the type.
@@ -549,3 +555,34 @@ Acceptance, measured at the tip:
   nothing non-idempotent and no verify failure.
 - Fuzz, 3 minutes each: `format` 136,000 runs, `parser` 64,000 runs, no crash.
 - A 1.05 MB file formats in 0.12–0.19 s on a loaded machine, against 0.11–0.13 s before the fixes.
+
+### M7
+
+Part 1: `INSERT` and the one-line statements.
+Only the tip was checked with `mise run ci`.
+
+| Stateless corpus | Statements | Parsed | Formatted |
+| --- | --- | --- | --- |
+| `INSERT` | 25,314 | 25,253 | 24,867 |
+| `DROP` and its kin | 36,459 | 36,457 | 36,290 |
+| `SET` | 20,449 | 20,424 | 20,143 |
+| `OPTIMIZE` | 1,598 | 1,591 | 1,594 |
+| `ATTACH` | 635 | 561 | 632 |
+
+- `DETACH`, `TRUNCATE`, `USE`, `RENAME`, `EXCHANGE` and `UNDROP` all parse.
+  The statements that do not parse are ones ClickHouse rejects too.
+- `INSERT` data is one token, kept byte for byte: the verifier compares it,
+  and a corpus test requires the same data tokens before and after.
+  The oracle cannot judge data in formats other than `VALUES`.
+  After `VALUES` rows the rest of the line stays as written,
+  because `clickhouse-format` reads rows to the end of the line.
+- An `ATTACH` with a full definition has its head parsed and the definition kept as written.
+- Verify and idempotence hold on every corpus file.
+  The oracle judges 270,251 statements and none differs; 148,451 statements are changed by formatting.
+- Keyword positions: 617,679 cases with no failure.
+  One wrong slot was found and fixed: `true.*` in an `INSERT` column list is a table name.
+- Statements still verbatim at statement level on the stateless corpus: 22,492 of 275,515 (8.2%, from 39%).
+  By leading keyword: `ALTER` 4,991, `SYSTEM` 3,887, other `CREATE` kinds 3,774, `EXPLAIN` 2,941, `PRINT` 1,454,
+  `SHOW` 1,189, `DESCRIBE` 1,059, `DROP` of access entities 727, `UPDATE` 285, `DELETE` 263.
+- Where ClickHouse differs from the plan: `INSERT` takes no `SETTINGS` after `FORMAT` and has no `WATCH` form;
+  the `SETTINGS` of an `INSERT … SELECT` belongs to the `SELECT`; `DETACH` and `TRUNCATE` take one name.
