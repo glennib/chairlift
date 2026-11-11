@@ -644,36 +644,3 @@ fn deep_subqueries_become_verbatim_without_overflowing() {
         .join();
     assert!(parsed.is_ok(), "no overflow");
 }
-
-/// Unclosed nesting and long runs of clauses or operands, which a
-/// quadratic rescan would make slow.
-#[test]
-fn pathological_queries_parse_in_bounded_time() {
-    for (prefix, unit) in [
-        ("", "(select "),
-        ("", "select 1 union all "),
-        ("select * from t ", "join t on "),
-        ("", "with x as ("),
-        ("select * from ", "("),
-        ("select * from ", "(select * from "),
-        ("select a from t ", "where a "),
-        ("select ", "a, "),
-    ] {
-        let source = format!("{prefix}{}", unit.repeat((64 << 10) / unit.len()));
-        let started = std::time::Instant::now();
-        let parsed = std::thread::Builder::new()
-            .stack_size(2 << 20)
-            .spawn(move || {
-                let parse = crate::syntax::parse(&source, crate::lexer::Mode::Sql);
-                parse.syntax().text() == source.as_str()
-            })
-            .expect("thread starts")
-            .join();
-        assert!(parsed.is_ok_and(|lossless| lossless), "{unit}");
-        assert!(
-            started.elapsed().as_secs() < 10,
-            "{unit}: {:?}",
-            started.elapsed()
-        );
-    }
-}

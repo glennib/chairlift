@@ -247,7 +247,120 @@ const SHAPES: &[Shape] = &[
         "a + 1, ",
         "a",
     ),
+    // Brackets that are never closed, at a length a re-scan per bracket
+    // would show.
+    unclosed("", "(SELECT "),
+    unclosed("", "(SELECT 1 UNION ALL "),
+    unclosed("", "(("),
+    unclosed("", "WITH x AS ("),
+    unclosed("", "WITH x AS (SELECT * FROM x WHERE x IN ("),
+    unclosed("WITH x (", "a, "),
+    unclosed("SELECT * FROM ", "(a JOIN "),
+    unclosed("SELECT * FROM ", "((a, b), "),
+    unclosed("SELECT * FROM ", "(SELECT * FROM "),
+    unclosed("SELECT * FROM ", "view(SELECT * FROM "),
+    unclosed("SELECT * FROM ", "f("),
+    unclosed("SELECT * FROM t JOIN u ON ", "("),
+    unclosed(
+        "SELECT * FROM t WHERE x IN ",
+        "(SELECT x FROM t WHERE x IN ",
+    ),
+    unclosed("SELECT ", "(from "),
+    unclosed("SELECT ", "(with "),
+    unclosed("CREATE TABLE t (", "a UInt8, "),
+    unclosed("CREATE TABLE t (a UInt8 CODEC(", "ZSTD("),
+    unclosed("CREATE TABLE t (a UInt8, ", "PROJECTION p (SELECT "),
+    unclosed("CREATE TABLE t (a UInt8, INDEX i ", "("),
+    unclosed("CREATE TABLE t (a UInt8) ENGINE = ", "f("),
+    unclosed(
+        "CREATE TABLE t (a UInt8) ENGINE = MergeTree ORDER BY ",
+        "tuple(",
+    ),
+    unclosed("CREATE TABLE t AS ", "SELECT * FROM ("),
+    // Nesting that closes, where each level looks into the brackets it
+    // opens: for a query after `FROM` or `WITH`, a table, a join.
+    statement("SELECT ", "(from ", "(x, y)", ")", ""),
+    statement("SELECT ", "(with x AS ", "(SELECT 1)", " SELECT 1)", ""),
+    statement("SELECT * FROM ", "(a JOIN ", "b ON 1", ") ON 1", ""),
+    statement(
+        "SELECT * FROM ",
+        "viewIfPermitted(SELECT * FROM ",
+        "t",
+        " ELSE f())",
+        "",
+    ),
+    statement(
+        "CREATE TABLE t AS ",
+        "with x AS (",
+        "SELECT 1",
+        ") SELECT 1",
+        "",
+    ),
+    // Long runs of what a clause or list reads, well-formed or not.
+    run("SELECT * FROM a", ", a b c", ""),
+    run("SELECT * FROM t", " GLOBAL ANY LEFT OUTER", ""),
+    run("SELECT * FROM t JOIN u ON 1", ", v", ""),
+    run("SELECT * FROM t JOIN u USING a", ", a", ""),
+    // Each join's condition is the next join's keyword, so every join falls
+    // back and its keywords are read again as the next clause's.
+    Shape {
+        per_token: 48,
+        ..run("SELECT * FROM t", " JOIN t ON ", "1")
+    },
+    run("", "SELECT 1 UNION ", ""),
+    run("SELECT 1", " WHERE 1 1", ""),
+    run("SELECT ", "a b c, ", "1"),
+    run("SELECT 1 SETTINGS a = 1", ", a", ""),
+    run("SELECT 1", " LIMIT 1 BY a", ""),
+    run("SELECT 1 ORDER BY a", " WITH FILL", ""),
+    run("SELECT 1 FORMAT JSON", " SETTINGS a = 1", ""),
+    run("SELECT * FROM f(", "SETTINGS a = 1, ", ")"),
+    run("FROM t", " select", ""),
+    run("", "SELECT 1; ", ""),
+    run("CREATE TABLE t AS with ", "a, ", "b"),
+    run(
+        "CREATE TABLE t (d Date) ENGINE = MergeTree ORDER BY d TTL d GROUP BY a SET a = 1",
+        ", a = 1",
+        "",
+    ),
+    run(
+        "CREATE TABLE t (d Date) ENGINE = MergeTree ORDER BY d TTL d GROUP BY ",
+        "a, ",
+        "b",
+    ),
+    run("CREATE TABLE t (a UInt8)", " ENGINE = Memory", ""),
+    run("CREATE TABLE t (a UInt8)", " ENGINE = Memory 1", ""),
+    run(
+        "CREATE TABLE t (a UInt8 CODEC(",
+        "ZSTD(1), ",
+        "NONE)) ENGINE = Memory",
+    ),
+    run(
+        "CREATE TABLE t (a UInt8) ENGINE = MergeTree ORDER BY (",
+        "a DESC, ",
+        "b)",
+    ),
+    run("CREATE MATERIALIZED VIEW v REFRESH EVERY ", "1 HOUR ", ""),
+    run(
+        "CREATE MATERIALIZED VIEW v REFRESH EVERY 1 HOUR DEPENDS ON a",
+        ", a",
+        "",
+    ),
+    run(
+        "CREATE TABLE t (a UInt8) ENGINE = Kafka SETTINGS ",
+        "a = 1, ",
+        "b",
+    ),
 ];
+
+/// A statement of `head` and `open` repeated, never closed, at lengths
+/// past the depth limit.
+const fn unclosed(head: &'static str, open: &'static str) -> Shape {
+    Shape {
+        n: 1000,
+        ..statement(head, open, "", "", "")
+    }
+}
 
 /// Lists of items like those above, as the probe's `SELECT` list.
 const LISTS: &[&str] = &[
@@ -308,20 +421,23 @@ fn steps_stay_linear() {
         let text = |n: usize| format!("SELECT {}x", item.repeat(n));
         texts.push((text(500), text(1000), Entry::SelectListProbe, 24));
     }
+    let mut failures = Vec::new();
     for (small, large, entry, per_token) in texts {
         let (small_steps, small_tokens) = steps(&small, entry);
         let (large_steps, large_tokens) = steps(&large, entry);
+        let shape: String = small.chars().take(80).collect();
         for (steps, tokens) in [(small_steps, small_tokens), (large_steps, large_tokens)] {
-            assert!(
-                steps <= per_token * tokens + FUEL_BASE,
-                "{large}: {steps} steps for {tokens} tokens"
-            );
+            if steps > per_token * tokens + FUEL_BASE {
+                failures.push(format!("{shape}…: {steps} steps for {tokens} tokens"));
+            }
         }
-        assert!(
-            large_steps * 10 <= small_steps * 25 + 10 * FUEL_BASE,
-            "{large}: {small_steps} steps, then {large_steps} at twice the size"
-        );
+        if large_steps * 10 > small_steps * 25 + 10 * FUEL_BASE {
+            failures.push(format!(
+                "{shape}…: {small_steps} steps, then {large_steps} at twice the size"
+            ));
+        }
     }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// A statement that would take more than its fuel is kept verbatim, having

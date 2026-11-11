@@ -613,6 +613,8 @@ fn deep_nesting_in_a_column_becomes_verbatim_without_overflowing() {
     }
 }
 
+/// A large table parses whole, within a small number of looks per token
+/// (`steps_stay_linear` in `fallback/tests.rs` checks how the looks grow).
 #[test]
 fn many_columns_parse_in_linear_time() {
     let columns: Vec<String> = (0..5000)
@@ -623,8 +625,16 @@ fn many_columns_parse_in_linear_time() {
         columns.join(", "),
         vec!["c0 + 1"; 2000].join(", ")
     );
-    let started = std::time::Instant::now();
     let parse = parse(&source, Mode::Sql);
     assert_eq!(parse.fallbacks(), &[]);
-    assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+    let tokens = crate::split::split(&source, Mode::Sql)
+        .tokens()
+        .iter()
+        .filter(|t| t.kind().is_significant())
+        .count() as u64;
+    assert!(
+        parse.steps() <= 24 * tokens,
+        "{} steps for {tokens} tokens",
+        parse.steps()
+    );
 }
