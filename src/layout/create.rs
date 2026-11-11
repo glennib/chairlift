@@ -298,7 +298,7 @@ pub(crate) fn ttl_rule(w: &mut Writer<'_>, node: &Node) {
 /// Adds `node`'s children on one line if they fit, spaced as
 /// [`Writer::join`] says; otherwise a line break, one level in, before each
 /// child after the first that `breaks` picks.
-fn breaking(w: &mut Writer<'_>, node: &Node, breaks: impl Fn(&Writer<'_>, &El) -> bool) {
+pub(crate) fn breaking(w: &mut Writer<'_>, node: &Node, breaks: impl Fn(&Writer<'_>, &El) -> bool) {
     let parts = w.parts(node);
     let kind = node.kind();
     if parts.is_empty() {

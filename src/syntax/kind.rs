@@ -1110,6 +1110,16 @@ syntax_kinds! {
         /// (`IDENTIFIED WITH ssh_key BY KEY …`, `ADD HOST …` in `ALTER USER`)
         /// is [`Opaque`](Self::Opaque).
         AccessClause: Clause,
+        /// [`AuthMethod`](Self::AuthMethod)s separated by commas, after
+        /// `IDENTIFIED [WITH]`.
+        AuthMethodList: List,
+        /// An authentication method: its type, a [`Name`](Self::Name), unless
+        /// it is the first and `WITH` is missing or it follows a comma and
+        /// `BY` comes first; then `BY` and a string
+        /// [`Literal`](Self::Literal) with any `SALT` and a string, or what a
+        /// rarer type holds, [`Opaque`](Self::Opaque); then any `VALID
+        /// UNTIL` and a string.
+        AuthMethod: Node,
         /// [`HostItem`](Self::HostItem)s separated by commas.
         HostList: List,
         /// A host of `HOST`: `LOCAL`, `ANY` or `NONE`, `NAME`, `REGEXP`, `IP`

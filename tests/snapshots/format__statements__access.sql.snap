@@ -32,7 +32,8 @@ CREATE USER IF NOT EXISTS alice
     SETTINGS max_memory_usage = 10000000000 READONLY;
 
 CREATE USER bob
-    IDENTIFIED WITH sha256_hash BY '6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b' SALT 'salty';
+    IDENTIFIED WITH sha256_hash BY '6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b'
+        SALT 'salty';
 
 ALTER USER alice DEFAULT ROLE ALL EXCEPT events_writer;
 ALTER USER IF EXISTS bob RENAME TO robert DROP host local;
@@ -45,7 +46,8 @@ DROP ROLE events_writers;
 -- Quotas, row policies and settings profiles.
 CREATE QUOTA IF NOT EXISTS q
     KEYED BY user_name
-    FOR INTERVAL 1 HOUR MAX queries = 100, errors = 10, FOR RANDOMIZED INTERVAL 1 DAY NO LIMITS
+    FOR INTERVAL 1 HOUR MAX queries = 100, errors = 10,
+    FOR RANDOMIZED INTERVAL 1 DAY NO LIMITS
     TO events_writer;
 
 ALTER QUOTA q FOR INTERVAL 1 MONTH TRACKING ONLY;

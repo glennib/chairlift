@@ -9,12 +9,18 @@
 //! the statement's line if it fits, and otherwise goes one item per line,
 //! one level in, as a clause's list does. `ON CLUSTER` right after `GRANT`
 //! or `REVOKE` stays on that line. A `GRANT` of privileges on several
-//! objects is a list of them, each with its `ON`.
+//! objects is a list of them, each with its `ON`. A quota's `FOR INTERVAL`
+//! blocks go one per line when the statement breaks.
+//!
+//! Several authentication methods after `IDENTIFIED` go one per line, one
+//! level in, when the statement breaks; a method that does not fit breaks
+//! before `SALT` and `VALID UNTIL`, one level in.
 //!
 //! A user's host (`u@'%'`), a privilege's columns (`SELECT(a, b)`),
 //! `CURRENT_USER()` and a grant's object (`db.*`) are written without
 //! spaces.
 
+use super::query;
 use super::shapes;
 use super::tree::Node;
 use super::tree::Part;
@@ -127,6 +133,48 @@ fn single_element<'g>(w: &Writer<'_>, part: &Part<'g>, kind: SyntaxKind) -> Opti
         [only] if only.el.kind() == kind => only.el.node(),
         _ => None,
     }
+}
+
+/// A clause of an access entity: as [`query::keyword_clause`], unless it
+/// holds authentication methods. Several of those go one per line, one
+/// level in, where the statement breaks; one follows `IDENTIFIED` on its
+/// line.
+pub(crate) fn clause(w: &mut Writer<'_>, node: &Node) {
+    let parts = w.parts(node);
+    let Some(at) = parts
+        .iter()
+        .position(|p| p.el.kind() == SyntaxKind::AuthMethodList)
+    else {
+        query::keyword_clause(w, node);
+        return;
+    };
+    let kind = node.kind();
+    w.inline(kind, &parts[..at]);
+    if let Some(list) = parts[at].el.node() {
+        let inner = w.parts(&list);
+        let items = shapes::split_items(&inner);
+        let lead = Some(parts[at].trivia.clone());
+        if shapes::count_items(&items) > 1 {
+            let indent = w.b.open_indent();
+            shapes::items(w, list.kind(), &items, Sep::Line, lead);
+            w.b.close(indent);
+        } else {
+            shapes::items(w, list.kind(), &items, Sep::Space, lead);
+        }
+    }
+    for (k, part) in parts.iter().enumerate().skip(at + 1) {
+        let sep = w.join(kind, &parts[k - 1].el, &part.el);
+        w.gap(part.trivia.clone(), sep, 0);
+        w.el(&part.el);
+    }
+}
+
+/// A quota's intervals: one per line, at the clause's indentation, where
+/// the statement breaks.
+pub(crate) fn intervals(w: &mut Writer<'_>, node: &Node) {
+    let parts = w.parts(node);
+    let items = shapes::split_items(&parts);
+    shapes::items(w, node.kind(), &items, Sep::Nothing, None);
 }
 
 /// A node whose children touch: a [`UserName`](SyntaxKind::UserName), a

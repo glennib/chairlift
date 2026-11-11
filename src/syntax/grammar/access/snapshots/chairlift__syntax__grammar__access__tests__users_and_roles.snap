@@ -29,11 +29,13 @@ AccessEntityQuery
   AccessClause
     Keyword "IDENTIFIED"
     Keyword "WITH"
-    Name
-      BareWord "plaintext_password"
-    Keyword "BY"
-    Literal
-      StringLiteral "'secret'"
+    AuthMethodList
+      AuthMethod
+        Name
+          BareWord "plaintext_password"
+        Keyword "BY"
+        Literal
+          StringLiteral "'secret'"
 
 > CREATE USER u IDENTIFIED BY 'x' HOST IP '127.0.0.1', LOCAL DEFAULT ROLE ALL EXCEPT r DEFAULT DATABASE db GRANTEES ANY EXCEPT v SETTINGS max_memory_usage = 1 READONLY
 AccessEntityQuery
@@ -45,9 +47,11 @@ AccessEntityQuery
         BareWord "u"
   AccessClause
     Keyword "IDENTIFIED"
-    Keyword "BY"
-    Literal
-      StringLiteral "'x'"
+    AuthMethodList
+      AuthMethod
+        Keyword "BY"
+        Literal
+          StringLiteral "'x'"
   AccessClause
     Keyword "HOST"
     HostList
@@ -108,16 +112,17 @@ AccessEntityQuery
   AccessClause
     Keyword "IDENTIFIED"
     Keyword "WITH"
-    Name
-      BareWord "ldap"
-    Opaque
-      BareWord "SERVER"
-      StringLiteral "'srv'"
-  AccessClause
-    Keyword "VALID"
-    Keyword "UNTIL"
-    Literal
-      StringLiteral "'2030-01-01'"
+    AuthMethodList
+      AuthMethod
+        Name
+          BareWord "ldap"
+        Opaque
+          BareWord "SERVER"
+          StringLiteral "'srv'"
+        Keyword "VALID"
+        Keyword "UNTIL"
+        Literal
+          StringLiteral "'2030-01-01'"
   AccessClause
     Keyword "IN"
     Name

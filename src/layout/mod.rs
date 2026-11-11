@@ -431,6 +431,11 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         S::DataType => expr::data_type(w, node),
         S::UserName | S::RoleKeyword | S::GrantTarget => access::glued(w, node),
         S::Privilege | S::CurrentGrants => access::privilege(w, node),
+        S::QuotaIntervalList => access::intervals(w, node),
+        S::AccessClause => access::clause(w, node),
+        S::AuthMethod => create::breaking(w, node, |w, el| {
+            shapes::keyword_is(w, el, &["SALT", "VALID"])
+        }),
         _ if kind.is_list() => {
             let (_, last) = w.range(node);
             if matches!(

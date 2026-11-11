@@ -175,3 +175,44 @@ GRANT ON CLUSTER main SELECT
         40,
     );
 }
+
+/// Several authentication methods, each with its own `VALID UNTIL`, go
+/// one per line; `SALT` breaks off a long hash; a quota's intervals go one
+/// per line.
+#[test]
+fn methods_and_intervals_go_one_per_line() {
+    check_at(
+        "create user u identified with plaintext_password by 'a' valid until '2030-01-01', \
+         sha256_password by 'b'",
+        "
+CREATE USER u
+    IDENTIFIED WITH
+        plaintext_password BY 'a' VALID UNTIL '2030-01-01',
+        sha256_password BY 'b'
+",
+        60,
+    );
+    check(
+        "create user u identified by 'a', by 'b'",
+        "CREATE USER u IDENTIFIED BY 'a', BY 'b'\n",
+    );
+    check_at(
+        "create user u identified with sha256_hash by '0123456789abcdef0123456789abcdef' salt 'salty'",
+        "
+CREATE USER u
+    IDENTIFIED WITH sha256_hash BY '0123456789abcdef0123456789abcdef'
+        SALT 'salty'
+",
+        70,
+    );
+    check_at(
+        "create quota q for interval 1 hour max queries = 100, for interval 1 day max queries = 1000 to r",
+        "
+CREATE QUOTA q
+    FOR INTERVAL 1 HOUR MAX queries = 100,
+    FOR INTERVAL 1 DAY MAX queries = 1000
+    TO r
+",
+        60,
+    );
+}

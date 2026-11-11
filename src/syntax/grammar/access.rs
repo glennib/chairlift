@@ -639,16 +639,18 @@ fn user_clause(p: &mut Parser<'_>, alter: bool, at_next: Stop<'_>) -> Option<()>
         return Some(());
     }
     if p.eat_kw(K::Identified) {
-        if p.eat_kw(K::With) {
-            names::name(p)?;
+        let with = p.eat_kw(K::With);
+        let list = p.start();
+        let mut typed = with;
+        while auth_method(p, typed, at_next)?
+            && p.at(T::Comma)
+            && ((p.nth_at_kw(1, K::By) && p.nth_at(2, T::StringLiteral))
+                || (names::at_name(p, 1) && p.nth_at_kw(2, K::By)))
+        {
+            p.bump();
+            typed = !(p.at_kw(K::By) && p.nth_at(1, T::StringLiteral));
         }
-        if p.eat_kw(K::By) && p.at(T::StringLiteral) {
-            exprs::string(p)?;
-            if p.at_kw(K::Salt) && p.nth_at(1, T::StringLiteral) {
-                p.bump_keyword();
-                exprs::string(p)?;
-            }
-        }
+        list.complete(p, SyntaxKind::AuthMethodList);
         return tail(p);
     }
     if p.at_kws(&[K::Reset, K::Authentication]) {
@@ -696,6 +698,38 @@ fn user_clause(p: &mut Parser<'_>, alter: bool, at_next: Stop<'_>) -> Option<()>
         return role_set(p, allow, at_next).map(drop);
     }
     p.expected("a clause of USER")
+}
+
+/// An [`AuthMethod`](SyntaxKind::AuthMethod) (`parseAuthenticationData`),
+/// with its type first if `typed`. Returns whether another method may
+/// follow it after a comma: what a method of a rarer type holds after its
+/// type is kept as written up to the next clause, commas included.
+fn auth_method(p: &mut Parser<'_>, typed: bool, at_next: Stop<'_>) -> Option<bool> {
+    if !typed && !p.at_kw(K::By) {
+        return p.expected("`BY`");
+    }
+    let m = p.start();
+    if typed {
+        names::name(p)?;
+    }
+    let mut more = true;
+    if p.eat_kw(K::By) && p.at(T::StringLiteral) {
+        exprs::string(p)?;
+        if p.at_kw(K::Salt) && p.nth_at(1, T::StringLiteral) {
+            p.bump_keyword();
+            exprs::string(p)?;
+        }
+    } else if !(p.at_end() || at_next(p) || p.at(T::Comma)) {
+        fallback::opaque_until(p, at_next)?;
+        more = false;
+    }
+    if p.at_kws(&[K::Valid, K::Until]) && p.nth_at(2, T::StringLiteral) {
+        p.bump_keyword();
+        p.bump_keyword();
+        exprs::string(p)?;
+    }
+    m.complete(p, SyntaxKind::AuthMethod);
+    Some(more)
 }
 
 /// A [`HostItem`](SyntaxKind::HostItem).
