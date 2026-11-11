@@ -46,6 +46,8 @@ pub(crate) fn decide(w: &Writer<'_>, statement: &Node, body: Option<&Node>) -> D
     let flags = w.info(statement).flags;
     if flags & flag::RENDER_JOINED != 0 {
         Decision::Kept(Kept::RenderJoined)
+    } else if flags & flag::TEMPLATE_DATA != 0 {
+        Decision::Kept(Kept::TemplateData)
     } else if flags & flag::HIDDEN_TAG != 0 {
         Decision::Kept(Kept::HiddenTag)
     } else if flags & flag::TAG_PLACE != 0 {

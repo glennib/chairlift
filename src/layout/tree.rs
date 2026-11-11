@@ -84,6 +84,9 @@ pub(crate) mod flag {
     pub(crate) const HIDDEN_TAG: u16 = 1 << 3;
     /// A token other than whitespace that spans lines.
     pub(crate) const MULTILINE: u16 = 1 << 4;
+    /// A token in or after `INSERT` data whose extent the rendering of the
+    /// template can change (see [`Rendered::data`](crate::cleanup::Rendered)).
+    pub(crate) const TEMPLATE_DATA: u16 = 1 << 5;
 }
 
 /// Facts about one node.
@@ -112,6 +115,7 @@ impl Tree {
         source: &str,
         tokens: &[Token],
         joined: &[bool],
+        data: &[bool],
     ) -> Tree {
         let mut info: Vec<Info> = Vec::with_capacity(tokens.len());
         let mut token = 0u32;
@@ -142,6 +146,9 @@ impl Tree {
                     token += 1;
                     let kind = ClickHouse::kind_from_raw(t.kind());
                     info[id as usize].flags |= token_flags(source, tokens, i, kind, parent, joined);
+                    if data.get(i).copied().unwrap_or(false) {
+                        info[id as usize].flags |= flag::TEMPLATE_DATA;
+                    }
                 }
                 None => {
                     open.pop();

@@ -74,6 +74,39 @@ fn literals_read_as_text_in_kept_statements_keep_their_bytes() {
     assert_eq!(out.matches("[1,  2]::String").count(), 4, "{out}");
 }
 
+/// In a template, `INSERT … FORMAT` data whose extent the rendering can
+/// change is kept as written, and so is what follows it; a later `FORMAT`
+/// of another statement does not count.
+#[test]
+fn template_data_is_kept_and_other_formats_are_not() {
+    let source = "{% if x %}\nselect 1;\n{% endif %}\ninsert into t select 1;\n\
+                  select 2 format Null;\nselect 3;";
+    assert_eq!(
+        decisions(source, true),
+        [
+            Decision::Formatted,
+            Decision::Kept(Kept::NotParsed),
+            Decision::Formatted,
+            Decision::Formatted
+        ]
+    );
+    let source = "{% if x %}\nselect 1;\n{% endif %}\ninsert into t format CSV\n1\n\nselect 2;";
+    assert_eq!(
+        decisions(source, true),
+        [
+            Decision::Formatted,
+            Decision::Kept(Kept::NotParsed),
+            Decision::Kept(Kept::TemplateData)
+        ]
+    );
+    // A block tag inside the `INSERT` can leave out the `;` that ends it.
+    let source = "insert into t select 1 {% if x %};{% endif %}\nselect 2 format CSV;";
+    assert_eq!(
+        decisions(source, true)[1..],
+        [Decision::Kept(Kept::TemplateData)]
+    );
+}
+
 #[test]
 fn the_list_of_limit_by_follows_the_list_rule() {
     assert_eq!(

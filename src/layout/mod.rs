@@ -143,9 +143,12 @@ pub enum Kept {
     /// moving it to a line of its own would change what the template
     /// renders.
     TagTouching,
-    /// Rendering the template joins its tokens into others (a string or
-    /// heredoc around a tag, or `INSERT` data).
+    /// Rendering the template joins its tokens into others: a string or
+    /// heredoc around a tag.
     RenderJoined,
+    /// It is in or after `INSERT … FORMAT` data in a template whose rendering
+    /// can change where the data starts or ends.
+    TemplateData,
     /// The text has a Jinja block or comment tag inside a comment, string
     /// or word, whose branches the layout cannot see.
     HiddenTag,
@@ -173,6 +176,7 @@ impl Kept {
             Kept::TagPlace => "tag_place",
             Kept::TagTouching => "tag_touching",
             Kept::RenderJoined => "render_joined",
+            Kept::TemplateData => "template_data",
             Kept::HiddenTag => "hidden_tag",
         }
     }
@@ -202,7 +206,13 @@ pub(crate) fn layout<'s>(
     let tokens = split.tokens();
     let rendered = rendered_facts(source, split, mode);
     let syntax = parse.syntax();
-    let tree = Tree::new(syntax.green(), source, tokens, &rendered.inside);
+    let tree = Tree::new(
+        syntax.green(),
+        source,
+        tokens,
+        &rendered.inside,
+        &rendered.data,
+    );
     let root = Tree::root(syntax.green());
     let mut w = Writer::new(source, tokens, mode, tree);
     let (parts, _) = w.parts_and_tail(&root);
@@ -231,12 +241,16 @@ fn freeze(
     parse: &Parse,
     keep_all: bool,
 ) {
-    let all = if keep_all {
-        &rendered.kept
+    let mut frozen: Vec<bool> = if keep_all {
+        rendered.kept.clone()
     } else {
-        &rendered.inside
+        rendered
+            .inside
+            .iter()
+            .zip(&rendered.data)
+            .map(|(a, b)| *a || *b)
+            .collect()
     };
-    let mut frozen = all.clone();
     // The token ranges of the statements kept as written, in order.
     let kept: Vec<(usize, usize)> = plan
         .iter()

@@ -60,11 +60,14 @@ pub(crate) struct Rendered {
     /// is; empty for a text whose rendering joins nothing.
     pub(crate) kept: Vec<bool>,
     /// For each token, whether it lies inside a token of the rendered text
-    /// together with other tokens, or in or after `INSERT` data that the
-    /// rendered text holds: the part of [`kept`](Self::kept) that does not
-    /// depend on the whitespace next to block and comment tags, which the
-    /// layout handles itself.
+    /// together with other tokens.
     pub(crate) inside: Vec<bool>,
+    /// For each token, whether it lies in or after `INSERT` data that the
+    /// rendered text holds or a branch can make. With
+    /// [`inside`](Self::inside), the part of [`kept`](Self::kept) that does
+    /// not depend on the whitespace next to block and comment tags, which the
+    /// layout handles itself.
+    pub(crate) data: Vec<bool>,
     /// The end of the text stays as it is: the rendered text ends in
     /// `INSERT` data in a format other than `Values`, with nothing but
     /// whitespace after it, or a branch can move where such data ends.
@@ -185,16 +188,28 @@ fn inside_rendered_tokens(
             neighbour[i] = true;
         }
     }
+    let inside = kept;
+    let mut kept = vec![false; tokens.len()];
     // Where inline data starts and ends depends on the line breaks around
     // it, and the rendered SQL can have an `INSERT` the template's tokens do
-    // not show. Its statement stays as it is, with the whitespace after it.
+    // not show (`{{ verb }} INTO t FORMAT CSV`). A statement with data, or
+    // with a `FORMAT` and a head that can render as `INSERT`, stays as it
+    // is, with the whitespace after it.
     let rendered_tokens = rendered_split.tokens();
+    let word = |t: &Token, w: &str| {
+        t.kind() == TokenKind::BareWord && t.text(&text).eq_ignore_ascii_case(w)
+    };
     for statement in rendered_split.statements() {
         let range = statement.tokens.clone();
-        let has_format = rendered_tokens[range.clone()].iter().any(|t| {
-            t.kind() == TokenKind::BareWord && t.text(&text).eq_ignore_ascii_case("FORMAT")
-        });
-        if statement.data.is_none() && !has_format {
+        let has_format = rendered_tokens[range.clone()]
+            .iter()
+            .any(|t| word(t, "FORMAT"));
+        let head = rendered_tokens[range.start];
+        let not_insert = head.kind() == TokenKind::BareWord
+            && head.keyword().is_some()
+            && !word(&head, "INSERT");
+        let can_be_data = has_format && !not_insert;
+        if statement.data.is_none() && !can_be_data {
             continue;
         }
         let after = rendered_tokens
@@ -212,29 +227,43 @@ fn inside_rendered_tokens(
     // elsewhere, and the rows of one branch can become another's data. The
     // rendered text with every branch taken does not show this, so from an
     // `INSERT` with a `FORMAT` after it to the end, a template with block
-    // tags stays as it is.
+    // tags stays as it is: where the `FORMAT` is in the `INSERT`'s statement,
+    // or a block tag between the `INSERT` and the end of its statement can
+    // leave out what ends it.
     let mut open_data = open_data;
-    if jinja::tags(source).any(|t| t.kind == TagKind::Block) {
-        let word = |t: &Token, w: &str| {
-            t.kind() == TokenKind::BareWord && t.text(&text).eq_ignore_ascii_case(w)
-        };
-        let insert = rendered_tokens.iter().position(|t| word(t, "INSERT"));
-        if let Some(insert) = insert
-            && rendered_tokens[insert..].iter().any(|t| word(t, "FORMAT"))
-        {
+    let blocks: Vec<usize> = jinja::tags(source)
+        .filter(|t| t.kind == TagKind::Block)
+        .map(|t| t.range.start)
+        .collect();
+    if !blocks.is_empty() {
+        let statements = rendered_split.statements();
+        let insert = statements.iter().find_map(|statement| {
+            let range = statement.tokens.clone();
+            let insert = range
+                .clone()
+                .find(|&i| word(&rendered_tokens[i], "INSERT"))?;
+            let has_format = (insert..range.end).any(|i| word(&rendered_tokens[i], "FORMAT"));
             let start = to_source(rendered_tokens[insert].start());
+            let end = to_source(rendered_tokens[range.end - 1].end() - 1) + 1;
+            let open_end = blocks.iter().any(|&tag| start < tag && tag < end);
+            let format_later = rendered_tokens[insert..].iter().any(|t| word(t, "FORMAT"));
+            (has_format || (open_end && format_later)).then_some(start)
+        });
+        if let Some(start) = insert {
             let first = tokens.partition_point(|t| t.end() <= start);
             kept[first..].fill(true);
             open_data = true;
         }
     }
-    let inside = kept.clone();
+    let data = kept;
+    let mut kept: Vec<bool> = inside.iter().zip(&data).map(|(a, b)| *a || *b).collect();
     for (kept, neighbour) in kept.iter_mut().zip(neighbour) {
         *kept |= neighbour;
     }
     Rendered {
         kept,
         inside,
+        data,
         open_data,
     }
 }
