@@ -68,7 +68,10 @@ struct Cli {
 
     /// Also check with ClickHouse's own formatter, `clickhouse-format`, that
     /// ClickHouse reads each changed file as before. A file it reads
-    /// differently is an error and is not written. Files that formatting
+    /// differently is an error and is not written, and so is a file of which
+    /// it judges nothing because it crashes, times out or prints too much on
+    /// it; where that happens to only some statements of a file, a warning
+    /// that --quiet does not hide says so. Files that formatting
     /// leaves unchanged are not judged, as there is nothing to compare;
     /// neither are statements it cannot parse, nor template statements that
     /// hold Jinja.
@@ -238,19 +241,34 @@ fn verify(verifier: &Verifier, items: &mut [Item]) -> Verification {
             ));
         }
         let failed = verdict.counts.rejected(RejectionClass::Failed);
-        if failed > 0 {
-            notes.push(Diagnostic::warning(
-                "chairlift::verify::failed",
-                format!(
-                    "{name}: clickhouse-format failed (crashed, timed out or could not \
-                     start) on {}, not judged",
-                    statements(failed)
-                ),
-            ));
+        // A file the oracle judged nothing of has not been verified at all,
+        // which `--verify` must not pass in silence.
+        let unjudged = failed > 0 && verdict.counts.judged() == 0;
+        if failed > 0 && !unjudged {
+            notes.push(
+                Diagnostic::warning(
+                    "chairlift::verify::failed",
+                    format!(
+                        "{name}: clickhouse-format failed (crashed, timed out or printed too \
+                         much) on {}, not judged",
+                        statements(failed)
+                    ),
+                )
+                .even_when_quiet(),
+            );
         }
         notes.extend(verdict.whole_only);
         if let Some(bug) = verdict.bug {
             items[i].result = Err(FileError::Oracle(Box::new(bug)));
+        } else if unjudged {
+            items[i].result = Err(FileError::Oracle(Box::new(Diagnostic::error(
+                "chairlift::verify::failed",
+                format!(
+                    "{name}: clickhouse-format judged none of its statements, as it failed \
+                     (crashed, timed out or printed too much) on {failed}, so the file is left \
+                     unchanged"
+                ),
+            ))));
         }
     }
     verification

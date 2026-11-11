@@ -119,7 +119,7 @@ fn help() {
               Write nothing; print a unified diff of the changes and exit with 1 if there are any
 
           --verify
-              Also check with ClickHouse's own formatter, `clickhouse-format`, that ClickHouse reads each changed file as before. A file it reads differently is an error and is not written. Files that formatting leaves unchanged are not judged, as there is nothing to compare; neither are statements it cannot parse, nor template statements that hold Jinja
+              Also check with ClickHouse's own formatter, `clickhouse-format`, that ClickHouse reads each changed file as before. A file it reads differently is an error and is not written, and so is a file of which it judges nothing because it crashes, times out or prints too much on it; where that happens to only some statements of a file, a warning that --quiet does not hide says so. Files that formatting leaves unchanged are not judged, as there is nothing to compare; neither are statements it cannot parse, nor template statements that hold Jinja
 
           --clickhouse-binary <PATH>
               The `clickhouse-format` program for --verify, or the `clickhouse` binary [default: `clickhouse-format` on PATH]
@@ -1116,19 +1116,78 @@ fn verify_rejects_a_file_the_oracle_reads_differently() {
 }
 
 /// An oracle that crashes on everything but the check that it formats
-/// judges nothing: a warning, and the files are handled as without
-/// `--verify`.
+/// judges nothing: each changed file is an error and
+/// is left as it is, also with `--quiet`.
 #[cfg(unix)]
 #[test]
-fn verify_warns_when_the_oracle_crashes() {
+fn verify_fails_a_file_the_oracle_cannot_judge() {
     let dir = temp_dir("verify-crash");
-    let fake = fake_oracle(
+    let file = write(&dir, "q.sql", "select a from t;\n");
+    let clean = write(&dir, "clean.sql", "SELECT 1;\n");
+    for misbehaviour in ["kill -SEGV $$"] {
+        let fake = fake_oracle(
+            &dir,
+            &format!(
+                r#"input=$(cat)
+if [ "$input" = "select 1" ]; then echo 'SELECT 1;'; else {misbehaviour}; fi"#
+            ),
+        );
+        let fake = fake.to_str().unwrap();
+        let output = run(
+            &[
+                "--verify",
+                "--check",
+                "--clickhouse-binary",
+                fake,
+                "q.sql",
+                "clean.sql",
+            ],
+            None,
+            Some(&*dir),
+        );
+        assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+        assert_eq!(stdout(&output), "");
+        assert_eq!(
+            stderr(&output),
+            "chairlift::verify::failed\n\n  × q.sql: clickhouse-format judged none of its \
+             statements, as it failed (crashed, timed out or printed too much) on 1, so the file \
+             is left unchanged\n\
+             0 files would be reformatted, 1 file already formatted, 1 error\n\
+             clickhouse-format reads 0 of 1 statements in changed files the same; not judged: 1 \
+             on which it failed\n"
+        );
+        for (path, stdin) in [("q.sql", None), ("-", Some(&b"select a from t;\n"[..]))] {
+            let args = ["--verify", "--quiet", "--clickhouse-binary", fake, path];
+            let output = run(&args, stdin, Some(&*dir));
+            assert_eq!(output.status.code(), Some(2), "{args:?}");
+            assert!(
+                stderr(&output).contains("judged none of its statements"),
+                "{args:?}: {}",
+                stderr(&output)
+            );
+            assert_eq!(stdout(&output), "", "{args:?}");
+        }
+        assert_eq!(read(&file), "select a from t;\n");
+        assert_eq!(read(&clean), "SELECT 1;\n");
+    }
+}
+
+/// An oracle that crashes on some statements of a file and judges others:
+/// a warning that `--quiet` does not hide, and the file is written.
+#[cfg(unix)]
+#[test]
+fn verify_warns_when_the_oracle_crashes_on_a_statement() {
+    let dir = temp_dir("verify-crash-some");
+    let fake = whitespace_oracle(
         &dir,
-        r#"input=$(cat)
-if [ "$input" = "select 1" ]; then echo 'SELECT 1;'; else kill -SEGV $$; fi"#,
+        r#"case "$input" in *crash_me*) kill -SEGV $$ ;; esac"#,
     );
     let fake = fake.to_str().unwrap();
-    let file = write(&dir, "q.sql", "select a from t;\n");
+    let file = write(
+        &dir,
+        "q.sql",
+        "SELECT a   FROM t;\nSELECT crash_me   FROM t;\n",
+    );
     let output = run(
         &["--verify", "--check", "--clickhouse-binary", fake, "q.sql"],
         None,
@@ -1139,9 +1198,9 @@ if [ "$input" = "select 1" ]; then echo 'SELECT 1;'; else kill -SEGV $$; fi"#,
     assert_eq!(
         stderr(&output),
         "chairlift::verify::failed\n\n  ⚠ q.sql: clickhouse-format failed (crashed, timed out \
-         or could not start) on 1 statement, not judged\n\
+         or printed too much) on 1 statement, not judged\n\
          1 file would be reformatted, 0 files already formatted\n\
-         clickhouse-format reads 0 of 1 statements in changed files the same; not judged: 1 \
+         clickhouse-format reads 1 of 2 statements in changed files the same; not judged: 1 \
          on which it failed\n"
     );
     let output = run(
@@ -1150,8 +1209,15 @@ if [ "$input" = "select 1" ]; then echo 'SELECT 1;'; else kill -SEGV $$; fi"#,
         Some(&*dir),
     );
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
-    assert_eq!(stderr(&output), "");
-    assert_eq!(read(&file), "SELECT a\nFROM t;\n");
+    assert_eq!(
+        stderr(&output),
+        "chairlift::verify::failed\n\n  ⚠ q.sql: clickhouse-format failed (crashed, timed out \
+         or printed too much) on 1 statement, not judged\n"
+    );
+    assert_eq!(
+        read(&file),
+        "SELECT a\nFROM t;\n\nSELECT crash_me\nFROM t;\n"
+    );
 }
 
 #[test]
