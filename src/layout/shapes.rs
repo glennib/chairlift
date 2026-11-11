@@ -88,7 +88,9 @@ pub(crate) fn items(
         }
         pinned = false;
         if let Some(comma) = item.comma {
-            pinned = w.gap(comma.trivia.clone(), Sep::Nothing, 0);
+            // A comment before the comma pins it to the next line, after a
+            // blank line if the input has one there.
+            pinned = w.gap(comma.trivia.clone(), Sep::Nothing, 1);
             w.el(&comma.el);
         }
     }

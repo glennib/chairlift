@@ -30,6 +30,12 @@ fn decisions(source: &str, jinja: bool) -> Vec<Decision> {
 
 #[test]
 fn comments_between_list_items() {
+    // A blank line around a comment between items stays, also before a
+    // comma the comment pins.
+    assert_eq!(
+        fmt("select a,\n\n-- c\n\nb,\n\nc -- t\n\n, d\nfrom t"),
+        "SELECT\n    a,\n\n    -- c\n\n    b,\n\n    c  -- t\n\n    , d\nFROM t\n"
+    );
     assert_eq!(
         fmt("select a, -- first\n  b /* inline */, c\nfrom t"),
         "SELECT\n    a,  -- first\n    b /* inline */,\n    c\nFROM t\n"
@@ -150,7 +156,7 @@ fn a_comment_on_the_line_of_what_follows_stays_on_it() {
     // separates the expression before it from the comma.
     assert_eq!(
         jinja("select a, {{- c -}}\n\n{# c #} ,\nd\nfrom t\n"),
-        "SELECT\n    a,\n    {{- c -}}\n    {# c #} , d\nFROM t\n"
+        "SELECT\n    a,\n    {{- c -}}\n\n    {# c #} , d\nFROM t\n"
     );
     // After an opening bracket, a comment that trails it is spaced from
     // what follows only.
