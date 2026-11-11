@@ -52,8 +52,10 @@ const POSITIONS: &[&str] = &[
     "x = {w}(1)", "x = {w}(1, 2)", "x = {w}()", "x = {w}(y as z)", "x < {w}(y, z) + 1",
     "x = {w}((select 1))", "x = {w}((select 1), 2)", "x = {w} (select 1)", "x like {w}(y)",
     "x like {w}(y, z)", "x is distinct from {w}(y)", "x ~ {w}(y)",
-    // Collections.
-    "[{w}]", "({w}, 1)", "({w})", "{{'a': {w}}}",
+    // Collections, and brackets that hold a query only where ClickHouse reads
+    // one.
+    "[{w}]", "({w}, 1)", "({w})", "{{'a': {w}}}", "({w} - 1)", "({w} [1])", "({w} in (1))",
+    "({w} and x)", "({w} is null)", "x in ({w} - 1)",
     // CASE, INTERVAL, parameters.
     "case {w} when {w} then {w} else {w} end", "case when {w} then 1 end",
     "interval {w} day", "interval 1 {w}", "{{{w}:String}}", "{{x:{w}}}",

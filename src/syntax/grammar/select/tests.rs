@@ -52,7 +52,11 @@ fn with_clauses() {
         "WITH c (a, b) AS (SELECT 1, 2) SELECT a FROM c",
         "WITH x AS materialized SELECT materialized",
         "WITH a AS (SELECT 1), SELECT * FROM a",
+        "WITH 1 AS x FROM t",
+        "WITH x AS (SELECT 1)\n{% if a %}\nSELECT a FROM x\n{% else %}\nSELECT b FROM x\n{% endif %}",
     ]));
+    // ClickHouse reads no query without `SELECT` or `FROM` after `WITH`.
+    assert_eq!(fallbacks("WITH 1 AS x"), [FallbackLevel::Statement]);
 }
 
 #[test]
@@ -355,6 +359,18 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
     ("select (select = 1)", "SELECT (select = 1)"),
     ("select (select and x)", "SELECT (SELECT and x)"),
     ("select (with, y)", "SELECT (with, y)"),
+    ("select (with - 1)", "SELECT (with - 1)"),
+    ("select (with [1])", "SELECT (with [1])"),
+    ("select (with in (1))", "SELECT (with IN (1))"),
+    ("select (with and x)", "SELECT (with AND x)"),
+    ("select (with is null)", "SELECT (with IS NULL)"),
+    ("select x in (with - 1)", "SELECT x IN (with - 1)"),
+    (
+        "select (with 1 as x select x)",
+        "SELECT (WITH 1 AS x SELECT x)",
+    ),
+    ("with 1 as x from t", "WITH 1 AS x FROM t"),
+    ("with 1 as x", "with 1 as x"),
     ("select (from and x)", "SELECT (from AND x)"),
     ("select (from in t)", "SELECT (from IN t)"),
     ("select (from is null)", "SELECT (from IS NULL)"),
@@ -435,7 +451,7 @@ fn keyword_slots() {
 
 /// Inputs of [`KEYWORD_SLOTS`] that ClickHouse rejects, so that the oracle
 /// cannot judge them.
-const REJECTED_BY_CLICKHOUSE: &[&str] = &["select top from t"];
+const REJECTED_BY_CLICKHOUSE: &[&str] = &["select top from t", "with 1 as x"];
 
 /// The keyword slots against ClickHouse: `clickhouse-format` must print the
 /// re-cased query as it prints the input, which it does not if a name was

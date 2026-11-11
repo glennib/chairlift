@@ -1,6 +1,6 @@
 ---
 source: src/syntax/grammar/select/tests.rs
-expression: "trees(&[\"WITH daily AS (SELECT 1 AS x) SELECT x FROM daily\",\n\"WITH a AS (SELECT 1), b AS (SELECT 2) SELECT * FROM a, b\",\n\"WITH 1 AS one, now() AS t, (SELECT max(x) FROM u) AS m SELECT one\",\n\"WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r\",\n\"WITH m AS MATERIALIZED (SELECT 1) SELECT * FROM m\",\n\"WITH c (a, b) AS (SELECT 1, 2) SELECT a FROM c\",\n\"WITH x AS materialized SELECT materialized\",\n\"WITH a AS (SELECT 1), SELECT * FROM a\",])"
+expression: "trees(&[\"WITH daily AS (SELECT 1 AS x) SELECT x FROM daily\",\n\"WITH a AS (SELECT 1), b AS (SELECT 2) SELECT * FROM a, b\",\n\"WITH 1 AS one, now() AS t, (SELECT max(x) FROM u) AS m SELECT one\",\n\"WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r\",\n\"WITH m AS MATERIALIZED (SELECT 1) SELECT * FROM m\",\n\"WITH c (a, b) AS (SELECT 1, 2) SELECT a FROM c\",\n\"WITH x AS materialized SELECT materialized\",\n\"WITH a AS (SELECT 1), SELECT * FROM a\", \"WITH 1 AS x FROM t\",\n\"WITH x AS (SELECT 1)\\n{% if a %}\\nSELECT a FROM x\\n{% else %}\\nSELECT b FROM x\\n{% endif %}\",])"
 ---
 > WITH daily AS (SELECT 1 AS x) SELECT x FROM daily
 SelectQuery
@@ -326,3 +326,70 @@ SelectQuery
       TableExpr
         Name
           BareWord "a"
+
+> WITH 1 AS x FROM t
+SelectQuery
+  WithClause
+    Keyword "WITH"
+    WithList
+      AliasedExpr
+        Literal
+          Number "1"
+        Alias
+          Keyword "AS"
+          Name
+            BareWord "x"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "t"
+
+> WITH x AS (SELECT 1)
+{% if a %}
+SELECT a FROM x
+{% else %}
+SELECT b FROM x
+{% endif %}
+SelectQuery
+  WithClause
+    Keyword "WITH"
+    WithList
+      CommonTableExpr
+        Name
+          BareWord "x"
+        Keyword "AS"
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                Literal
+                  Number "1"
+          ClosingRoundBracket ")"
+  JinjaBlock "{% if a %}"
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "a"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "x"
+  JinjaBlock "{% else %}"
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Name
+        BareWord "b"
+  FromClause
+    Keyword "FROM"
+    TableList
+      TableExpr
+        Name
+          BareWord "x"

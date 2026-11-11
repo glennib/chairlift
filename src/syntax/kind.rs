@@ -468,7 +468,9 @@ syntax_kinds! {
         /// [`IntoOutfileClause`](Self::IntoOutfileClause), and
         /// [`VerbatimClause`](Self::VerbatimClause) for one that did not
         /// parse. A query may start with `FROM` (`FROM t SELECT x`, or
-        /// `FROM t` alone for `SELECT *`).
+        /// `FROM t` alone for `SELECT *`), and always has a `SelectClause`
+        /// or a `FromClause`, parsed or verbatim: a `WITH` clause alone is
+        /// no query, and a statement of one is verbatim.
         SelectQuery: Statement,
         /// Queries joined by `UNION`, `EXCEPT` or `INTERSECT`, or one query
         /// in parentheses: operands ([`SelectQuery`](Self::SelectQuery) or

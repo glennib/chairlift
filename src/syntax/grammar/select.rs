@@ -166,7 +166,7 @@ pub(crate) fn query(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         let mut last = first.kind();
         loop {
             if last == SyntaxKind::Subquery {
-                clauses(p, Form::Query);
+                let _ = clauses(p, Form::Query);
             }
             if !at_set_operator(p) {
                 break;
@@ -204,18 +204,30 @@ fn at_set_operator(p: &Parser<'_>) -> bool {
 /// ClickHouse tries a subquery first and reads an expression if that fails,
 /// so `(select)`, `(select, y)` and `(select = 1)` are over a column named
 /// `select`; a word after `SELECT` starts its list, so `(select and x)` is
-/// `(SELECT and AS x)`.
+/// `(SELECT and AS x)`. A query needs `SELECT` or `FROM` after its `WITH`
+/// clause, so `(with - 1)` and `(with [1])` are over a column named `with`.
 pub(crate) fn at_subquery(p: &Parser<'_>, n: usize) -> bool {
     p.nth_at(n, T::OpeningRoundBracket)
         && match p.nth_keyword(n + 1) {
-            Some(K::Select | K::With | K::Explain) => {
+            Some(keyword @ (K::Select | K::With | K::Explain)) => {
                 !matches!(p.nth(n + 2), None | Some(T::Comma | T::ClosingRoundBracket))
                     && !at_symbol_operator(p, n + 2)
+                    && (keyword != K::With || select_follows_with(p, n))
             }
             Some(K::Values) => p.nth_at(n + 2, T::OpeningRoundBracket),
             Some(K::From) => at_from_first(p, n + 1),
             _ => false,
         }
+}
+
+/// Whether the bracket group that opens at the `n`th token, and holds a
+/// `WITH` clause, is closed and has `SELECT` or `FROM` among the tokens
+/// directly inside it, which a query needs after `WITH`.
+fn select_follows_with(p: &Parser<'_>, n: usize) -> bool {
+    p.closer(n).is_some()
+        && p.group_items(n)
+            .skip(1)
+            .any(|i| matches!(p.nth_keyword(i), Some(K::Select | K::From)))
 }
 
 /// Whether the `n`th token is an operator that no expression starts with:
@@ -254,13 +266,17 @@ fn at_query(p: &Parser<'_>) -> bool {
     p.at_kw(K::Select) || p.at_kw(K::With) || at_from_first(p, 0)
 }
 
-/// A [`SelectQuery`](SyntaxKind::SelectQuery): its clauses.
+/// A [`SelectQuery`](SyntaxKind::SelectQuery): its clauses, which must
+/// include `SELECT` or `FROM`.
 fn select_query(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     if !at_query(p) {
         return p.expected("a query");
     }
     let m = p.start();
-    clauses(p, Form::Query);
+    if !clauses(p, Form::Query) {
+        m.abandon(p);
+        return p.expected("SELECT");
+    }
     Some(m.complete(p, SyntaxKind::SelectQuery))
 }
 
@@ -280,7 +296,10 @@ pub(crate) fn projection_subquery(p: &mut Parser<'_>) -> Option<CompletedMarker>
     }
     p.with_no_in(false, |p| {
         let query = p.start();
-        clauses(p, Form::Projection);
+        if !clauses(p, Form::Projection) {
+            query.abandon(p);
+            return p.expected("SELECT");
+        }
         query.complete(p, SyntaxKind::SelectQuery);
         Some(())
     })?;
@@ -366,10 +385,13 @@ fn at_clause_or_comma(p: &Parser<'_>) -> bool {
 }
 
 /// The clauses from the current token, each with [`fallback::clause`], up
-/// to anything that starts no clause.
-fn clauses(p: &mut Parser<'_>, form: Form) {
+/// to anything that starts no clause. Returns whether they include `SELECT`,
+/// or in a query `FROM`, parsed or not: ClickHouse reads no query without
+/// one, so a `WITH` clause alone is none.
+fn clauses(p: &mut Parser<'_>, form: Form) -> bool {
     let mut after_join = false;
     let mut first = true;
+    let mut selects = false;
     loop {
         let mut clause = clause_at(p);
         // `WITH totals SELECT …` starts with a `WITH` clause.
@@ -379,8 +401,10 @@ fn clauses(p: &mut Parser<'_>, form: Form) {
         first = false;
         let comma_join = clause.is_none() && after_join && p.at(T::Comma);
         if clause.is_none() && !comma_join {
-            return;
+            return selects;
         }
+        selects |=
+            clause == Some(Clause::Select) || (form == Form::Query && clause == Some(Clause::From));
         let join = comma_join || matches!(clause, Some(Clause::Join));
         // A clause that does not parse is verbatim up to the next clause,
         // which cannot start among its own keywords: the `JOIN` of `LEFT
