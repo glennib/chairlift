@@ -14,7 +14,7 @@ M9 (chum integration) is not part of this run.
 | M4. Formatting rules and printer | done | acceptance measured; reviews' fixes on `main`; style readings await the project owner |
 | M5. Jinja templates | in progress |  |
 | M6. CLI polish and performance | done | acceptance measured; the CI benchmark check's sensitivity is unproven |
-| M7. Remaining statement kinds | in progress | part 1 (`INSERT`, one-line statements) done; `ALTER TABLE`, other `CREATE` kinds and access control in progress |
+| M7. Remaining statement kinds | in progress | parts 1 and 2 done; part 3 (access control, `SHOW`, `DESCRIBE`) in progress |
 | M8. Hardening and first release | not started | |
 
 ## Resuming the work
@@ -119,6 +119,9 @@ Those assumptions are used unless the project owner decides otherwise:
 - Snapshot review: `insta` snapshots are committed so that every commit passes its tests.
   They are listed here per milestone until reviewed.
   - M0: the inline snapshot of `--help` in `tests/cli.rs`.
+  - M7 part 2: 6 tree snapshots under `src/syntax/grammar/{alter,create_other}/snapshots/`,
+    two new `tests/snapshots/format__statements__*.snap`, and the chum initial-schema snapshot,
+    whose dictionary and view are now formatted.
   - M7 part 1: 9 tree snapshots under `src/syntax/grammar/{insert,simple}/snapshots/`
     and `tests/snapshots/format__statements__*.snap`.
   - M6: the `help` snapshot and five new ones in `tests/cli.rs`; three inline ones in `src/bin/chairlift.rs`.
@@ -168,6 +171,15 @@ None blocks the work.
     and break one level in when it does not fit.
   - The column list is always one element per line, even for one short column.
   - `CODEC(…)` is glued; `DEFINER = u@'%'` has no spaces around `@`.
+
+Readings chosen for `ALTER`, the mutations and the other `CREATE` kinds:
+
+- `DELETE` and `UPDATE` put each clause on its own line, as a query does.
+- A long `ALTER` command breaks before `WHERE` and `IN PARTITION`, one level in.
+- `MODIFY QUERY` as the only command puts the query at column 0.
+- A long `SOURCE(…)` of a dictionary puts one pair per line and closes with `))` on a line of its own.
+- A `CREATE DATABASE` that does not fit puts its clauses at column 0.
+- A `CREATE FUNCTION` is a one-line statement whose lambda breaks after `->`.
 
 ## Deviations from the plan
 
@@ -597,3 +609,35 @@ M6, closing notes:
 - The CI benchmark check runs base, head and base again in one job,
   and fails only when the lower 95% bound of the median change exceeds 10% against both base runs, and again on a rerun.
   It never failed on identical builds, but a build made twice as slow was not reliably caught on a loaded machine.
+
+Part 2: `ALTER`, lightweight `DELETE` and `UPDATE`, and `CREATE VIEW`, `DATABASE`, `DICTIONARY` and `FUNCTION`.
+Only the tip was checked with `mise run ci` (494 tests).
+
+| Stateless corpus | Statements | Parsed | Partial |
+| --- | --- | --- | --- |
+| `ALTER TABLE` | 4,818 | 4,792 | 26 |
+| `CREATE VIEW` | 627 | 588 | 10 |
+| `CREATE DICTIONARY` | 768 | 765 | 3 |
+| `CREATE DATABASE` | 378 | 376 | 2 |
+| `CREATE FUNCTION` | 127 | 86 | 3 |
+| `DELETE` | 263 | 257 | 4 |
+| `UPDATE` | 285 | 283 | 1 |
+
+- The partial ones are nearly all statements ClickHouse rejects too, plus two expression gaps:
+  `IN ((SELECT …) UNION …)` and the JSON `.:Type` operator.
+  29 views are opaque by design in a window clause, and 37 functions in their WASM and `ENGINE` forms.
+- Partition commands are parsed in full; the plan says to keep them verbatim.
+- Every statement of these kinds in the fixtures and the local corpora parses fully.
+- The proposal's `ALTER` and `DELETE` examples pass as goldens.
+- Verify and idempotence hold on every corpus file.
+  The oracle judges 270,251 statements and none differs; 151,939 statements are changed by formatting.
+  Keyword positions: about 747,000 cases, none failing.
+- Words inside `SOURCE`, `LAYOUT`, `LIFETIME` and `RANGE` of a dictionary are names and keep their case.
+- Where ClickHouse differs from the plan: a list inside a command
+  (`MODIFY SETTING`, `MODIFY TTL`, `UPDATE`, `IN PARTITION`)
+  carries on past a comma, so that command must be the last; `MODIFY QUERY` takes the rest of the statement.
+- Statements still verbatim at statement level on the stateless corpus: 15,208 of 275,515 (5.5%).
+  By leading keyword: `SYSTEM` 3,887, `EXPLAIN` 2,941, `CREATE` 1,875
+  (of which `CREATE INDEX` 1,016),
+  `PRINT` 1,454, `SHOW` 1,189, `DESCRIBE` 1,059, `DROP` of access entities 727, `ALTER` of access entities 152.
+- Known gaps: `CREATE INDEX`; a view's alias list `(a, b)`; `DEFINER` before `VIEW`; `UNLOCK SNAPSHOT`.
