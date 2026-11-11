@@ -118,6 +118,24 @@ fn table(p: &mut Parser<'_>, object: Object) -> Option<()> {
     Some(())
 }
 
+/// A table's definition after its name, as in [`CreateTable`]: the
+/// element list, then its clauses up to the end of the statement, which
+/// `ATTACH TABLE … FROM 'path'` takes too.
+///
+/// [`CreateTable`]: SyntaxKind::CreateTable
+pub(crate) fn table_definition(p: &mut Parser<'_>) -> Option<()> {
+    elements::element_list(p)?;
+    clauses(
+        p,
+        Context {
+            object: Object::Table,
+            columns: true,
+            storage: false,
+        },
+    );
+    Some(())
+}
+
 /// [`CreateMaterializedView`](SyntaxKind::CreateMaterializedView). The
 /// column list follows `REFRESH` and `TO`, as in ClickHouse.
 fn materialized_view(p: &mut Parser<'_>) -> Option<()> {

@@ -163,3 +163,19 @@ SHOW TABLES
         40,
     );
 }
+
+/// `ATTACH TABLE … FROM 'path'` with a definition is laid out as a table.
+#[test]
+fn attach_with_a_definition_is_laid_out_as_a_table() {
+    check(
+        "attach table t from '/x' (a Int8, b String default 'x') engine = Memory",
+        "
+ATTACH TABLE t FROM '/x'
+(
+    a Int8,
+    b String DEFAULT 'x'
+)
+ENGINE = Memory
+",
+    );
+}

@@ -89,17 +89,25 @@ AttachQuery
   Keyword "FROM"
   Literal
     StringLiteral "'/data/t'"
-  Opaque
+  TableElementList
     OpeningRoundBracket "("
-    BareWord "a"
-    BareWord "UInt8"
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "UInt8"
     ClosingRoundBracket ")"
-    BareWord "ENGINE"
+  EngineClause
+    Keyword "ENGINE"
     Equals "="
-    BareWord "MergeTree"
-    BareWord "ORDER"
-    BareWord "BY"
-    BareWord "a"
+    Name
+      BareWord "MergeTree"
+  OrderByClause
+    Keyword "ORDER"
+    Keyword "BY"
+    Name
+      BareWord "a"
 
 > ATTACH DATABASE d ENGINE = Atomic
 AttachQuery

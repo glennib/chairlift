@@ -32,8 +32,8 @@ pub(crate) fn rule_for(kind: SyntaxKind) -> Option<Rule> {
         SyntaxKind::DeleteQuery | SyntaxKind::UpdateQuery => Some(super::alter::mutation),
         SyntaxKind::CreateView | SyntaxKind::CreateDictionary => Some(super::create::statement),
         SyntaxKind::CreateDatabase => Some(super::create_other::database),
+        SyntaxKind::AttachQuery => Some(super::create::attach),
         SyntaxKind::DropQuery
-        | SyntaxKind::AttachQuery
         | SyntaxKind::RenameQuery
         | SyntaxKind::OptimizeQuery
         | SyntaxKind::SetQuery

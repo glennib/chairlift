@@ -34,6 +34,7 @@ use crate::keyword::Keyword as K;
 use crate::lexer::TokenKind as T;
 use crate::syntax::SyntaxKind;
 use crate::syntax::grammar::common;
+use crate::syntax::grammar::create;
 use crate::syntax::grammar::exprs;
 use crate::syntax::grammar::fallback;
 use crate::syntax::grammar::fallback::Stop;
@@ -233,7 +234,8 @@ fn uuid(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 /// An [`AttachQuery`](SyntaxKind::AttachQuery): `ATTACH`, the object and
 /// its name as `ParserCreateQuery` reads them before a definition, `FROM
 /// 'path'` or `AS [NOT] REPLICATED` for a table, any `ON CLUSTER`, and what
-/// follows kept [`Opaque`](SyntaxKind::Opaque).
+/// follows kept [`Opaque`](SyntaxKind::Opaque); after `FROM 'path'`, a
+/// table's columns and clauses as `CREATE TABLE` has them.
 fn attach(p: &mut Parser<'_>) -> Option<()> {
     let m = p.start();
     p.bump_keyword();
@@ -260,6 +262,11 @@ fn attach(p: &mut Parser<'_>) -> Option<()> {
     if table && p.at_kw(K::From) && p.nth_at(1, T::StringLiteral) {
         p.bump_keyword();
         exprs::literal(p)?;
+        if p.at(T::OpeningRoundBracket) {
+            create::table_definition(p)?;
+            m.complete(p, SyntaxKind::AttachQuery);
+            return Some(());
+        }
     } else if table
         && p.at_kw(K::As)
         && (p.nth_at_kw(1, K::Replicated)

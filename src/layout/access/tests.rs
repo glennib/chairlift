@@ -216,3 +216,22 @@ CREATE QUOTA q
         60,
     );
 }
+
+/// The fixed keyword sequences of `ALTER USER` and a policy's table in
+/// `SHOW CREATE ROW POLICY` are parsed, so their keywords are upper case.
+#[test]
+fn alter_user_phrases_and_show_create_row_policy_are_keywords() {
+    check(
+        "alter user u reset authentication methods to new;\n\
+         alter user u add identified with plaintext_password by 'x';\n\
+         alter user u drop host ip '1';\nalter user u add host local, name 'x';\n\
+         show create row policy p on db.t",
+        "
+ALTER USER u RESET AUTHENTICATION METHODS TO NEW;
+ALTER USER u ADD IDENTIFIED WITH plaintext_password BY 'x';
+ALTER USER u DROP HOST IP '1';
+ALTER USER u ADD HOST LOCAL, NAME 'x';
+SHOW CREATE ROW POLICY p ON db.t
+",
+    );
+}

@@ -8,7 +8,8 @@
 //! A `CREATE` or `ALTER` takes its clauses in any order, as ClickHouse's
 //! loops over them do, so each is parsed with the clause fallback. What a
 //! clause holds that chairlift does not model (the rarer authentication
-//! methods, `ADD`/`DROP` in an `ALTER`, `VALID FOR`) is kept as written,
+//! methods, `ADD`/`DROP`/`MODIFY` of settings and profiles in an `ALTER`,
+//! `VALID FOR`) is kept as written,
 //! [`Opaque`](SyntaxKind::Opaque) by design; a password or hash is a string
 //! literal either way, and comes out as written.
 //!
@@ -403,7 +404,7 @@ fn entity_names(p: &mut Parser<'_>, entity: Entity, ends: Stop<'_>) -> Option<Co
 /// (`ParserRowPolicyNames`): groups of `names ON tables`, separated by
 /// commas. After a comma, a table without a database before `ON` (but not
 /// `ON CLUSTER`) starts the next group.
-fn row_policy_names(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+pub(crate) fn row_policy_names(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     let list = p.start();
     loop {
         let item = p.start();
@@ -590,6 +591,16 @@ fn clause(p: &mut Parser<'_>, entity: Entity, alter: bool) -> Option<CompletedMa
         } else {
             name_or_string(p)?;
         }
+    } else if alter
+        && entity == Entity::User
+        && (p.at_kws(&[K::Add, K::Identified])
+            || (matches!(p.nth_keyword(0), Some(K::Add | K::Drop)) && p.nth_at_kw(1, K::Host)))
+    {
+        // `ADD IDENTIFIED …`, `ADD HOST …` and `DROP HOST …` read on as
+        // `IDENTIFIED` and `HOST` do (`parseAddIdentifiedWith`,
+        // `parseHosts` with a prefix).
+        p.bump_keyword();
+        user_clause(p, alter, &at_next)?;
     } else if alter && matches!(p.nth_keyword(0), Some(K::Add | K::Drop | K::Modify)) {
         // What is added or dropped (`HOST …`, `ALL SETTINGS`, `IDENTIFIED
         // …`) holds clause keywords of its own, so it runs to the next
@@ -652,6 +663,9 @@ fn user_clause(p: &mut Parser<'_>, alter: bool, at_next: Stop<'_>) -> Option<()>
         }
         list.complete(p, SyntaxKind::AuthMethodList);
         return tail(p);
+    }
+    if p.eat_kws(&[K::Reset, K::Authentication, K::Methods, K::To, K::New]) {
+        return Some(());
     }
     if p.at_kws(&[K::Reset, K::Authentication]) {
         p.bump_keyword();

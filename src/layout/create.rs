@@ -62,6 +62,25 @@ pub(crate) fn statement(w: &mut Writer<'_>, node: &Node) {
     }
 }
 
+/// An `ATTACH TABLE … FROM 'path'` with a definition, laid out as a table
+/// is: the head on one line, then the column list and the clauses; without
+/// one, as a statement of a line or two.
+pub(crate) fn attach(w: &mut Writer<'_>, node: &Node) {
+    let parts = w.parts(node);
+    let Some(list) = parts
+        .iter()
+        .position(|p| p.el.kind() == SyntaxKind::TableElementList)
+    else {
+        super::simple::statement(w, node);
+        return;
+    };
+    w.inline(node.kind(), &parts[..list]);
+    for (k, part) in parts.iter().enumerate().skip(list) {
+        w.gap(part.trivia.clone(), Sep::Hard, u8::from(k > list));
+        w.el(&part.el);
+    }
+}
+
 /// A [`CreateHeader`](SyntaxKind::CreateHeader): its keywords and name on
 /// one line, and `ON CLUSTER` on the next if the name and `ON CLUSTER` do
 /// not fit on it, at the indentation the caller opened for what continues

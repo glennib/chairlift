@@ -82,7 +82,7 @@ fn quotas_policies_and_profiles() {
 fn unmodelled_clauses_are_opaque() {
     for source in [
         "CREATE USER u IDENTIFIED WITH ssh_key BY KEY 'abc' TYPE 'ssh-ed25519'",
-        "ALTER USER u ADD HOST IP '::1'",
+        "ALTER USER u ADD PROFILE 'p'",
         "ALTER ROLE r DROP ALL SETTINGS",
     ] {
         assert_eq!(outcome(source), StatementOutcome::Opaque, "{source}");
@@ -91,6 +91,8 @@ fn unmodelled_clauses_are_opaque() {
         "GRANT SELECT ON db.t TO u",
         "CREATE QUOTA q FOR INTERVAL 1 hour MAX queries 10",
         "SET DEFAULT ROLE r TO u",
+        "ALTER USER u ADD HOST IP '::1'",
+        "ALTER USER u RESET AUTHENTICATION METHODS TO NEW",
     ] {
         assert_eq!(outcome(source), StatementOutcome::Parsed, "{source}");
     }

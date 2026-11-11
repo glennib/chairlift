@@ -147,9 +147,10 @@ AccessEntityQuery
         BareWord "v"
   AccessClause
     Keyword "DROP"
-    Opaque
-      BareWord "HOST"
-      BareWord "LOCAL"
+    Keyword "HOST"
+    HostList
+      HostItem
+        Keyword "LOCAL"
 
 > ALTER USER u DEFAULT ROLE NONE
 AccessEntityQuery

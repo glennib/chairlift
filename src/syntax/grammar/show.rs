@@ -152,9 +152,17 @@ fn show(p: &mut Parser<'_>) -> Option<()> {
 /// them, or `[TEMPORARY] [TABLE | VIEW | DICTIONARY | DATABASE]` and a
 /// name.
 fn show_create(p: &mut Parser<'_>) -> Option<()> {
-    if let Some((_, words)) = access::entity(p, 0).filter(|&(_, words)| !p.nth_at(words, T::Dot)) {
+    if let Some((entity, words)) =
+        access::entity(p, 0).filter(|&(_, words)| !p.nth_at(words, T::Dot))
+    {
         for _ in 0..words {
             p.bump_keyword();
+        }
+        // A policy's name may spell `SETTINGS`: `ParserRowPolicyNames`
+        // reads it before any output clause.
+        if entity == access::Entity::RowPolicy && !p.at_end() {
+            parsed_or_opaque(p, |p| access::row_policy_names(p).map(drop));
+            return Some(());
         }
         if !(p.at_end() || simple::at_output_clause(p)) {
             fallback::opaque_until(p, &simple::at_output_clause)?;

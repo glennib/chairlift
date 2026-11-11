@@ -36,7 +36,7 @@ CREATE USER bob
         SALT 'salty';
 
 ALTER USER alice DEFAULT ROLE ALL EXCEPT events_writer;
-ALTER USER IF EXISTS bob RENAME TO robert DROP host local;
+ALTER USER IF EXISTS bob RENAME TO robert DROP HOST LOCAL;
 ALTER ROLE events_writer ON CLUSTER c RENAME TO events_writers;
 SET ROLE ALL EXCEPT events_writer;
 SET DEFAULT ROLE NONE TO alice, CURRENT_USER;

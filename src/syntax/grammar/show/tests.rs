@@ -59,9 +59,10 @@ fn describe() {
 
 #[test]
 fn opaque_and_verbatim() {
+    assert_eq!(outcome("SHOW CREATE QUOTA q"), StatementOutcome::Opaque);
     assert_eq!(
         outcome("SHOW CREATE ROW POLICY p ON db.t"),
-        StatementOutcome::Opaque
+        StatementOutcome::Parsed
     );
     assert_eq!(
         outcome("SHOW TABLES OF something"),

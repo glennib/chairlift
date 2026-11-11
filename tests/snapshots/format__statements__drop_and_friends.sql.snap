@@ -27,9 +27,10 @@ DETACH DICTIONARY analytics.sites_dict;
 ATTACH DICTIONARY analytics.sites_dict;
 UNDROP TABLE analytics.sessions;
 
-ATTACH TABLE analytics.sessions_restored FROM '/var/lib/clickhouse/restore/sessions' (
+ATTACH TABLE analytics.sessions_restored FROM '/var/lib/clickhouse/restore/sessions'
+(
     session_id String,
     started_at DateTime
 )
-engine = MergeTree
-order by session_id;
+ENGINE = MergeTree
+ORDER BY session_id;
