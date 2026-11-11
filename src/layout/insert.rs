@@ -7,6 +7,10 @@
 //! own at the statement's indentation, as ClickHouse prints `SETTINGS`, but
 //! the first stays on the line of the column list's `)` when the list broke.
 //!
+//! A comment that ends a line inside the header puts what follows it on the
+//! header line one level in. A query alone in brackets hugs them: `(` ends
+//! the header line.
+//!
 //! The data is a token that keeps its bytes. After `FORMAT name` it starts
 //! the next line at column 0 if a line break comes before it in the input,
 //! and follows a space otherwise: ClickHouse skips the spaces and the line
@@ -77,11 +81,17 @@ pub(crate) fn statement(w: &mut Writer<'_>, node: &Node) {
         rest = after;
     }
     w.b.close(header);
+    let had_data = data.is_some();
     if let Some((data, format)) = data {
         insert_data(w, &data, format);
     }
-    for part in rest {
-        w.gap(part.trivia.clone(), Sep::Hard, 1);
+    for (k, part) in rest.iter().enumerate() {
+        // A query alone in brackets hugs them, as after `CREATE … AS`.
+        if k == 0 && !had_data && super::create::in_brackets(w, &part.el) {
+            w.gap(part.trivia.clone(), Sep::Space, 0);
+        } else {
+            w.gap(part.trivia.clone(), Sep::Hard, 1);
+        }
         match &part.el {
             El::Node(node) if node.kind() == SyntaxKind::InsertFormat => {
                 if let Some((data, format)) = clause(w, part) {
@@ -102,8 +112,13 @@ fn target(w: &mut Writer<'_>, node: &Node) -> Option<GroupId> {
     let parts = w.parts(node);
     let kind = node.kind();
     let mut columns = None;
+    // What follows a comment that ends a line goes one level in.
+    let mut scope = None;
     for (k, part) in parts.iter().enumerate() {
         if k > 0 {
+            if scope.is_none() {
+                scope = w.body_scope(part.trivia.clone());
+            }
             let sep = w.join(kind, &parts[k - 1].el, &part.el);
             w.gap(part.trivia.clone(), sep, 0);
         }
@@ -115,6 +130,9 @@ fn target(w: &mut Writer<'_>, node: &Node) -> Option<GroupId> {
         } else {
             w.el(&part.el);
         }
+    }
+    if let Some(scope) = scope {
+        w.b.close(scope);
     }
     columns
 }

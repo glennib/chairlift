@@ -176,7 +176,7 @@ pub(crate) fn as_clause(w: &mut Writer<'_>, node: &Node) {
 
 /// Whether `el` is a query alone in brackets: a union of one bracketed
 /// query.
-fn in_brackets(w: &Writer<'_>, el: &El) -> bool {
+pub(crate) fn in_brackets(w: &Writer<'_>, el: &El) -> bool {
     el.node().is_some_and(|node| {
         node.kind() == SyntaxKind::UnionQuery
             && matches!(w.parts(&node).as_slice(), [only] if only.el.kind() == SyntaxKind::Subquery)

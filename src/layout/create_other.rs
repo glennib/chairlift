@@ -12,7 +12,8 @@
 //! indentation, as a table's do.
 //!
 //! A dictionary's `SOURCE(…)`, `LAYOUT(…)`, `LIFETIME(…)` and `RANGE(…)`
-//! glue their brackets to the keyword and to the source's or layout's name,
+//! glue their brackets to the keyword, to the source's or layout's name and
+//! to the key of nested pairs (`replica(host 'a')`),
 //! as `SHOW CREATE DICTIONARY` prints them. Their key-value pairs stay on the
 //! line if they fit; otherwise they go one per line, one level in, and the
 //! closing brackets together start the line after them: `SOURCE(CLICKHOUSE(`,
@@ -57,7 +58,8 @@ pub(crate) fn clause(w: &mut Writer<'_>, node: &Node) {
     glued_brackets(w, node.kind(), &parts);
 }
 
-/// `name(pairs)` in `SOURCE` or `LAYOUT`.
+/// `name(pairs)` in `SOURCE` or `LAYOUT`, or a pair whose value is pairs in
+/// brackets.
 pub(crate) fn key_value_function(w: &mut Writer<'_>, node: &Node) {
     let parts = w.parts(node);
     glued_brackets(w, node.kind(), &parts);

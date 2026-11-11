@@ -207,3 +207,22 @@ SELECT 1
         40,
     );
 }
+
+/// Nested pairs glue their bracket to their key, as the source's name does.
+#[test]
+fn nested_pairs_glue_their_bracket() {
+    check(
+        "create dictionary d (a UInt64) primary key a \
+         source(mysql(replica(host 'a' priority 1) db 'x')) layout(flat()) lifetime(0)",
+        "
+CREATE DICTIONARY d
+(
+    a UInt64
+)
+PRIMARY KEY a
+SOURCE(mysql(replica(host 'a' priority 1) db 'x'))
+LAYOUT(flat())
+LIFETIME(0)
+",
+    );
+}

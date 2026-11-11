@@ -408,7 +408,7 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         S::CreateHeader => create::header(w, node),
         S::AlterCommand => alter::command(w, node),
         S::DictionaryClause => create_other::clause(w, node),
-        S::KeyValueFunction => create_other::key_value_function(w, node),
+        S::KeyValueFunction | S::KeyValuePair => create_other::key_value_function(w, node),
         S::ViewTargetClause => create::view_target(w, node),
         S::FromClause
         | S::ArrayJoinClause

@@ -50,8 +50,7 @@ FROM t
     check(
         "insert into t (select 1 union all select 2)",
         "
-INSERT INTO t
-(
+INSERT INTO t (
     SELECT 1
     UNION ALL
     SELECT 2
@@ -170,7 +169,7 @@ fn comments_and_tags_between_the_parts() {
         "insert into t -- the target\n(a) select 1",
         "
 INSERT INTO t  -- the target
-(a)
+    (a)
 SELECT 1
 ",
     );
@@ -196,5 +195,31 @@ fn statements_around_data_keep_their_lines() {
     assert_eq!(
         fmt("insert into t format CSV\n1\n\ninsert into t format CSV\n2\n"),
         "INSERT INTO t FORMAT CSV\n1\n\nINSERT INTO t FORMAT CSV\n2\n"
+    );
+}
+
+/// A query alone in brackets hugs them; a comment that ends the target's
+/// line puts the column list one level in.
+#[test]
+fn a_bracketed_query_hugs_and_a_comment_indents_the_columns() {
+    check(
+        "insert into t (select 1);\ninsert into t (a) (select 1)",
+        "
+INSERT INTO t (
+    SELECT 1
+);
+
+INSERT INTO t (a) (
+    SELECT 1
+)
+",
+    );
+    check(
+        "insert into t -- c\n(a, b) values (1, 2)",
+        "
+INSERT INTO t  -- c
+    (a, b)
+VALUES (1, 2)
+",
     );
 }
