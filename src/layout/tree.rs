@@ -275,6 +275,7 @@ pub(crate) fn tag_allowed_in(kind: SyntaxKind) -> bool {
                 | SyntaxKind::CreateTable
                 | SyntaxKind::CreateMaterializedView
                 | SyntaxKind::AsClause
+                | SyntaxKind::InsertQuery
         )
 }
 

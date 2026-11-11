@@ -1,0 +1,68 @@
+---
+source: tests/format.rs
+expression: once
+---
+-- Rows inline, as a test or a seed script writes them.
+INSERT INTO analytics.sites (site_id, name, timezone) VALUES
+    (1, 'Nordlys', 'Europe/Oslo'),
+    (2, 'Fjordposten', 'Europe/Oslo');
+
+INSERT INTO analytics.sites VALUES (3,'Kystavisa','Europe/Oslo') ;
+
+INSERT INTO analytics.sites
+SETTINGS async_insert = 1, wait_for_async_insert = 0
+VALUES (4, 'Vestlandet', 'Europe/Oslo');
+
+-- Data in another format runs to the first blank line.
+INSERT INTO raw.events FORMAT JSONEachRow
+{"event_time": "2026-01-01 00:00:00", "event_type": "page_view", "site": "nordlys"}
+{"event_time": "2026-01-01 00:00:01", "event_type":   "scroll_25", "site": "nordlys"}
+
+INSERT INTO raw.events (event_time, event_type, site) FORMAT CSV
+2026-01-01 00:00:02,page_view,  fjordposten
+
+INSERT INTO analytics.events_daily (day, event_name, cnt)
+SELECT
+    toDate(event_time) AS day,
+    event_name,
+    count() AS cnt
+FROM raw.events
+WHERE event_time < '2026-01-01 00:00:00'
+GROUP BY day, event_name;
+
+WITH recent AS (
+    SELECT *
+    FROM raw.events
+    WHERE event_time > now() - INTERVAL 1 DAY
+)
+INSERT INTO analytics.recent_sites (site, views)
+SELECT
+    site,
+    count()
+FROM recent
+GROUP BY site
+SETTINGS max_threads = 4;
+
+INSERT INTO TABLE FUNCTION file('sites.csv', 'CSVWithNames')
+SELECT *
+FROM analytics.sites;
+
+INSERT INTO raw.events FROM INFILE 'events.csv.gz' COMPRESSION 'gzip' FORMAT CSV;
+
+INSERT INTO analytics.page_views_by_site_and_hour (
+    site,
+    hour,
+    page_views,
+    unique_visitors,
+    sessions,
+    bounce_rate
+)
+SELECT
+    site,
+    toStartOfHour(event_time),
+    count(),
+    uniq(visitor_id),
+    uniq(session_id),
+    avg(bounced)
+FROM raw.page_views
+GROUP BY ALL;

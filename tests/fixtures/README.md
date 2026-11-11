@@ -20,3 +20,9 @@ The directories are `migrations`, `template_migrations`, `bootstrap_migrations`,
 `upgrade_migrations` and `question_mark_migrations`.
 
 chum is dual-licensed under MIT or Apache-2.0, the same terms as chairlift.
+
+## `statements/`
+
+Inputs written for chairlift's tests, one file per family of statements beyond `SELECT` and `CREATE`:
+`INSERT` with its data.
+They are written loosely on purpose, in mixed case and spacing, so that their snapshots show the layout.

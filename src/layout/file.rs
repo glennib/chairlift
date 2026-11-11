@@ -27,6 +27,7 @@ pub(crate) fn rule_for(kind: SyntaxKind) -> Option<Rule> {
         SyntaxKind::CreateTable | SyntaxKind::CreateMaterializedView => {
             Some(super::create::statement)
         }
+        SyntaxKind::InsertQuery => Some(super::insert::statement),
         _ => None,
     }
 }
@@ -68,12 +69,27 @@ pub(crate) struct Planned<'g> {
     pub(crate) empty: bool,
 }
 
+/// Whether `statement`, a [`Statement`](SyntaxKind::Statement) node, ends
+/// with the rows of `INSERT … VALUES`, before any `;`.
+fn ends_with_rows(w: &Writer<'_>, statement: &Node) -> bool {
+    let (first, last) = w.range(statement);
+    (first..=last)
+        .rev()
+        .find(|&i| {
+            !matches!(
+                w.token_kind(i),
+                TokenKind::Whitespace | TokenKind::Semicolon
+            )
+        })
+        .is_some_and(|i| w.token_kind(i) == TokenKind::InsertData)
+}
+
 /// Lays out the root: the statements in `plan`, each in a group of its own,
 /// one per line, with the comments, tags and blank lines between them.
 pub(crate) fn root(w: &mut Writer<'_>, root: &Node, plan: &[Planned]) {
     let (parts, tail) = w.parts_and_tail(root);
-    // The group of the last statement that is not empty, and whether it was
-    // kept as written.
+    // The group of the last statement that is not empty, and whether what
+    // trails its last line stays as written (see `freeze_trailing`).
     let mut previous: Option<(GroupId, bool)> = None;
     for planned in plan {
         let part = &parts[planned.part];
@@ -105,7 +121,7 @@ pub(crate) fn root(w: &mut Writer<'_>, root: &Node, plan: &[Planned]) {
         let open = w.b.open_reserved_group(id);
         statement(w, &planned.node, planned.decision);
         w.b.close(open);
-        previous = Some((id, kept));
+        previous = Some((id, kept || ends_with_rows(w, &planned.node)));
     }
     // Significant children of the root other than statements do not exist;
     // trivia after the last statement, or of a text without statements.
@@ -116,8 +132,9 @@ pub(crate) fn root(w: &mut Writer<'_>, root: &Node, plan: &[Planned]) {
 }
 
 /// Keeps the whitespace before comments that trail a statement kept as
-/// written on its last line as it is, as the rest of the line is: tools
-/// that read `INSERT … VALUES` rows to the end of the line see it.
+/// written, or one that ends with `INSERT … VALUES` rows, on its last line
+/// as it is, as the rest of the line is: tools that read the rows to the end
+/// of the line, as `clickhouse-format` does, see it.
 fn freeze_trailing(w: &mut Writer<'_>, trivia: Range<usize>, kept: bool) {
     if !kept {
         return;

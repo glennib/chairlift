@@ -249,8 +249,22 @@ fn maybe_data(source: &str, mode: Mode) -> Vec<&str> {
     found
 }
 
+/// The inline data of every `INSERT` of `text`, as the splitter finds it, in
+/// order.
+fn split_data(text: &str, mode: Mode) -> Vec<&str> {
+    let split = split(text, mode);
+    split
+        .statements()
+        .iter()
+        .filter_map(|s| s.data)
+        .map(|d| split.tokens()[d.token].text(text))
+        .collect()
+}
+
 /// Formatting keeps every byte of text that may be an `INSERT`'s inline
-/// data in a format other than `Values`, however the head before it reads.
+/// data in a format other than `Values`, however the head before it reads,
+/// and the output holds the same data as the input, of every format, where
+/// the splitter finds it.
 #[test]
 fn every_corpus_file_keeps_its_data() {
     let mut failures = Vec::new();
@@ -264,6 +278,13 @@ fn every_corpus_file_keeps_its_data() {
             let Ok(output) = chairlift::format(&source, &options) else {
                 continue;
             };
+            let mode = corpus.mode(path);
+            if split_data(&source, mode) != split_data(&output, mode) {
+                failures.push(format!(
+                    "{}: the data the splitter finds changed",
+                    path.display()
+                ));
+            }
             for data in maybe_data(&source, corpus.mode(path)) {
                 regions += 1;
                 if !output.contains(data) {

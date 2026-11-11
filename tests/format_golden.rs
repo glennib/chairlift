@@ -199,6 +199,11 @@ fn a_join_condition_breaks_before_on_with_leading_and() {
     golden(proposal::JOIN_ON);
 }
 
+#[test]
+fn insert_select_keeps_its_columns_on_the_insert_line() {
+    golden(proposal::INSERT_SELECT);
+}
+
 // Section 3: ClickHouse-specific constructs.
 
 #[test]
@@ -231,7 +236,6 @@ fn statements_kept_as_written_stay_as_the_proposal_prints_them() {
     for expected in [
         proposal::IN_LIST,
         proposal::BLANK_LINES_KEPT,
-        proposal::INSERT_SELECT,
         proposal::ALTER_TABLE,
         proposal::GRANT,
     ] {
@@ -270,4 +274,45 @@ fn the_design_example_prints_as_the_proposal_says() {
         .expect("expected output");
     assert_eq!(format(&input, Mode::Jinja, 100), expected);
     golden_at(&expected, Mode::Jinja, 100);
+}
+
+// Statements the proposal has no example of, laid out by its rules: the
+// header on one line, lists that fit or go one item per line, a query at
+// column 0, and blank lines around a statement on several lines.
+
+const INSERTS: &str = "
+INSERT INTO analytics.sites (site_id, name, timezone) VALUES (1, 'Nordlys', 'Europe/Oslo');
+INSERT INTO analytics.sites SETTINGS async_insert = 1 VALUES (2, 'Fjordposten', 'Europe/Oslo');
+
+INSERT INTO TABLE FUNCTION file('sites.csv', 'CSVWithNames')
+SELECT *
+FROM analytics.sites;
+
+WITH recent AS (
+    SELECT *
+    FROM raw.events
+    WHERE event_time > now() - INTERVAL 1 DAY
+)
+INSERT INTO analytics.recent_sites (site, views)
+SELECT
+    site,
+    count()
+FROM recent
+GROUP BY site;
+
+INSERT INTO analytics.page_views_by_site_and_hour (
+    site,
+    hour,
+    page_views,
+    unique_visitors,
+    sessions,
+    bounce_rate
+)
+SELECT *
+FROM staging.page_views_by_site_and_hour;
+";
+
+#[test]
+fn inserts_in_the_proposal_s_style() {
+    golden(INSERTS);
 }

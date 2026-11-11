@@ -28,6 +28,7 @@
 //! | `expr` | binary operators, `AND`/`OR` runs, `BETWEEN`, `CASE`, lambdas, `?:`, casts and data types |
 //! | `query` | `SELECT` queries, clauses, joins, set operations, `WITH` |
 //! | `create` | `CREATE TABLE` and materialized views: header line, element list, column definitions, storage clauses, `AS` |
+//! | `insert` | `INSERT`: header line, data, the query after it |
 //! | `tree` | preorder node numbers and the facts about each node, from one pass |
 //! | `comment_end` | the template line comments the rendering can make run on, which leave the text as it is |
 //!
@@ -75,8 +76,8 @@
 //!   the scope that should indent it.
 //! - **A query inside a statement** (`AS SELECT`, a materialized view's
 //!   body, `INSERT … SELECT`): end the header's line with a hard line and
-//!   call `query::query` at column 0, as `create::as_clause` does. A query
-//!   in brackets is `shapes::hugged`.
+//!   call `query::query` at column 0, as `create::as_clause` and
+//!   `insert::statement` do. A query in brackets is `shapes::hugged`.
 //!
 //! Jinja block tags are allowed only between the children of the node
 //! kinds in `tree::tag_allowed_in`; a statement with a tag anywhere else
@@ -87,6 +88,7 @@ mod comment_end;
 mod create;
 mod expr;
 mod file;
+mod insert;
 mod query;
 mod shapes;
 mod tree;
