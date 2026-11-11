@@ -39,6 +39,15 @@ fn loops_run_zero_one_and_three_times() {
 }
 
 #[test]
+fn a_condition_on_the_loop_is_decided_in_each_pass() {
+    let source =
+        "{% for c in cols %}{{ c }}{% if not loop.last %},{% elif x %};{% endif %}{% endfor %}";
+    let rendering = render(source);
+    assert_eq!(rendering.branches.chains, Vec::<usize>::new());
+    assert_eq!(texts(source), ["", "cols0;", "cols0,cols1,cols2;"]);
+}
+
+#[test]
 fn many_branches_are_sampled() {
     let source = "{% if a %}a{% endif %}".repeat(6);
     let rendering = render(&source);

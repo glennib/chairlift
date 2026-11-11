@@ -5,7 +5,9 @@
 //! The [verifier](crate::verify) checks one render of a template, the one
 //! with every branch taken. [`render`] renders a template in many: it
 //! replaces the condition of every `{% if %}` and `{% elif %}` tag by a
-//! choice it makes, so that each combination of branches renders once (up
+//! choice it makes (except in a chain whose `{% if %}` asks about `loop`,
+//! which is decided in each pass), so that each combination of branches
+//! renders once (up
 //! to [`MAX_COMBINATIONS`], sampled beyond), and the iterable of every
 //! `{% for %}` loop by the first 0, 1 and 3 of its items
 //! ([`LOOP_COUNTS`]). Formatting changes no tag, so the tags of a template
@@ -484,6 +486,12 @@ fn instrument(source: &str) -> (String, Branches) {
             .unwrap_or(inner.len());
         let (name, rest) = inner.split_at(name_len);
         let replacement = match name {
+            // A condition on the loop decides each pass of it, as in
+            // `{% if not loop.last %},{% endif %}`: it runs as written.
+            "if" if mentions_loop(rest) => {
+                open.push(Open::Other);
+                None
+            }
             "if" => {
                 let chain = branches.chains.len();
                 branches.chains.push(2);
@@ -534,6 +542,13 @@ fn instrument(source: &str) -> (String, Branches) {
     }
     out.push_str(&source[pos..]);
     (out, branches)
+}
+
+/// Whether a tag's text after its name uses the `loop` variable.
+fn mentions_loop(rest: &str) -> bool {
+    rest.match_indices("loop.").any(|(at, _)| {
+        !rest[..at].ends_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+    })
 }
 
 fn marker(control: WhitespaceControl) -> &'static str {
