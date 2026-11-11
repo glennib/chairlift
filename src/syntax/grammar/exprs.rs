@@ -158,8 +158,14 @@ pub(crate) fn alias(
     Some(m.complete(p, SyntaxKind::AliasedExpr))
 }
 
-/// Whether the current token can be an alias without `AS`.
+/// Whether the current token can be an alias without `AS`. Not across a
+/// Jinja block tag: what follows the tag is what follows the expression only
+/// in some renders, and in others the expression ends there, as in
+/// `FROM t {% else %} SELECT …`.
 fn at_implicit_alias(p: &Parser<'_>) -> bool {
+    if p.block_tag_before(0) {
+        return false;
+    }
     match p.nth(0) {
         Some(T::QuotedIdentifier | T::JinjaExpr) => true,
         Some(T::BareWord) => {
