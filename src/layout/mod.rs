@@ -23,12 +23,13 @@
 //! | Module | What it lays out |
 //! | --- | --- |
 //! | `file` | the statements, what lies between them, which are kept as written |
-//! | `writer` | tokens and keyword case, comments, block tags and blank lines between children, the generic one-line rule and its spacing |
+//! | `writer` | tokens and keyword case, comments, block tags and blank lines between children, the generic one-line rule and its spacing, closers that start a line, text kept on one line |
 //! | `shapes` | lists, clauses of a keyword and a list, hugging brackets |
-//! | `expr` | binary operators, `AND`/`OR` runs, `CASE`, lambdas, `?:` |
+//! | `expr` | binary operators, `AND`/`OR` runs, `BETWEEN`, `CASE`, lambdas, `?:`, casts and data types |
 //! | `query` | `SELECT` queries, clauses, joins, set operations, `WITH` |
 //! | `create` | `CREATE TABLE` and materialized views: header line, element list, column definitions, storage clauses, `AS` |
 //! | `tree` | preorder node numbers and the facts about each node, from one pass |
+//! | `comment_end` | the template line comments the rendering can make run on, which leave the text as it is |
 //!
 //! `node` dispatches a node to its rule by kind. A kind without a rule
 //! of its own is laid out by the generic rule
