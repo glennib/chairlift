@@ -209,6 +209,32 @@ TTL d RECOMPRESS CODEC(ZSTD(12)), d + 1 GROUP BY k SET v = max(v)
 }
 
 #[test]
+fn a_ttl_rule_that_does_not_fit_breaks_before_where_group_by_and_set() {
+    assert_eq!(
+        fmt_in(
+            "create table t (d Date) engine = MergeTree order by d \
+             ttl d + interval 1 month delete where x = 1 and d > today() - 100, \
+             d + interval 1 year to volume 'cold'",
+            false,
+            40,
+        ),
+        "CREATE TABLE t\n(\n    d Date\n)\nENGINE = MergeTree\nORDER BY d\nTTL\n    \
+         d + INTERVAL 1 MONTH DELETE\n        WHERE x = 1\n            AND d > today() - 100,\n    \
+         d + INTERVAL 1 YEAR TO VOLUME 'cold'\n"
+    );
+    assert_eq!(
+        fmt_in(
+            "create table t (d Date) engine = MergeTree order by d \
+             ttl d + interval 1 month group by d set x = max(x), y = min(y)",
+            false,
+            40,
+        ),
+        "CREATE TABLE t\n(\n    d Date\n)\nENGINE = MergeTree\nORDER BY d\n\
+         TTL d + INTERVAL 1 MONTH\n    GROUP BY d\n    SET x = max(x), y = min(y)\n"
+    );
+}
+
+#[test]
 fn as_a_query_ends_the_line_before_it_and_the_query_starts_a_line() {
     check(
         "create table t engine = Memory as select a, b from u",

@@ -341,6 +341,7 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         S::OrderByClause if create::is_table_order_by(w, node) => query::keyword_clause(w, node),
         S::OrderByTuple => create::order_by_tuple(w, node),
         S::RefreshClause => create::refresh(w, node),
+        S::TtlElement => create::ttl_rule(w, node),
         S::SqlSecurityClause => create::sql_security(w, node),
         S::AsClause => create::as_clause(w, node),
         S::ViewTargetClause => create::view_target(w, node),

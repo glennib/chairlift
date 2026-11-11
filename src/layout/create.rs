@@ -187,6 +187,33 @@ pub(crate) fn refresh(w: &mut Writer<'_>, node: &Node) {
     });
 }
 
+/// One rule of a table's `TTL`: on one line if it fits; otherwise a line
+/// break, one level in, before `WHERE`, `GROUP BY` and `SET`. The rule's
+/// expression breaks as it would on its own, at the indentation of the
+/// line it starts on.
+pub(crate) fn ttl_rule(w: &mut Writer<'_>, node: &Node) {
+    let parts = w.parts(node);
+    let kind = node.kind();
+    let Some((first, rest)) = parts.split_first() else {
+        return;
+    };
+    w.frozen_before(w.range(node).0);
+    let group = w.b.open_group();
+    w.el(&first.el);
+    let indent = w.b.open_indent();
+    for (k, part) in rest.iter().enumerate() {
+        let sep = if keyword_is(w, &part.el, &["WHERE", "GROUP", "SET"]) {
+            Sep::Line
+        } else {
+            w.join(kind, &parts[k].el, &part.el)
+        };
+        w.gap(part.trivia.clone(), sep, 0);
+        w.el(&part.el);
+    }
+    w.b.close(indent);
+    w.b.close(group);
+}
+
 /// Whether `el` is a keyword token whose text is one of `words`.
 fn keyword_is(w: &Writer<'_>, el: &El, words: &[&str]) -> bool {
     match el {
