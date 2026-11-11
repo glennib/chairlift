@@ -11,7 +11,7 @@ M9 (chum integration) is not part of this run.
 | M1. Lossless lexer | done | reviewed; CI green |
 | M2. Verifier, splitter, safe-cleanup CLI | done | review findings fixed |
 | M3. Parser core | implemented | fixes for the review of the `SELECT` and `CREATE` grammars in progress |
-| M4. Formatting rules and printer | in progress | part 1 (document IR and printer) done; part 2: layout framework and `SELECT` |
+| M4. Formatting rules and printer | in progress | parts 1 (printer) and 2 (layout framework, `SELECT`) done, part 2 under review; part 3: `CREATE TABLE` and materialized views |
 | M5. Jinja templates | not started | |
 | M6. CLI polish and performance | not started | |
 | M7. Remaining statement kinds | not started | |
@@ -60,6 +60,7 @@ Those assumptions are used unless the project owner decides otherwise:
 - Snapshot review: `insta` snapshots are committed so that every commit passes its tests.
   They are listed here per milestone until reviewed.
   - M0: the inline snapshot of `--help` in `tests/cli.rs`.
+  - M4 part 2: 14 formatted-fixture snapshots, `tests/snapshots/format__*.snap`.
   - M4 part 1: the inline snapshot in `doc::tests::a_document_dumps_as_indented_nodes`.
   - M3 part 2: 11 tree-dump snapshots under `src/syntax/grammar/select/snapshots/`.
   - M3 part 3: 10 tree-dump snapshots under `src/syntax/grammar/create/snapshots/`.
@@ -76,6 +77,16 @@ None blocks the work.
 - A `;` that has to go on its own line after a trailing line comment is printed at the statement's column.
 - "A statement spans several lines" (the blank-line rule) is read as "its layout broke".
 - A lambda body that does not fit goes one indent in from the line the lambda starts on.
+  `CASE … END` is placed relative to the line it starts on in the same way.
+- An `OR` group inside parentheses hangs: the first operand on the `(` line, the `OR` lines one level deeper.
+- A list clause with one item keeps the item after its keyword and breaks inside it.
+  A single `SELECT` item that does not fit moves to the next line.
+- The operator stays on its line before `IN (list)` and before a subquery.
+- A statement kept as written starts at column 0, and a comment trailing it keeps its spacing.
+- `;;` stays on the line of the statement before it.
+- **Open, under review**: whitespace next to a Jinja `-` marker is re-indented like any other,
+  with the rendered check as the safety net.
+  The plan says to treat it as fixed.
 
 ## Deviations from the plan
 
@@ -338,3 +349,25 @@ Part 1: the document IR and printer, in `chairlift::doc`, independent of the syn
 - Building, checking and printing a 1.1 MB document takes about 15 ms.
 - Known gaps: a trailing comment is not measured, so a line with one can exceed the width; width counts characters,
   not East Asian display width; there is no fill layout, which the plan rejects.
+
+Part 2: the layout framework, expression layout and `SELECT`/`WITH`, wired into `format`.
+
+- Every `SELECT` and `WITH` example of the layout proposal comes out byte for byte,
+  from flattened input and from the expected text.
+  The `CREATE` examples and the DESIGN.md example wait for part 3;
+  the query of the DESIGN.md example already formats as the proposal's section 4.
+- A statement the layout has no rule for, or cannot lay out safely, is printed as written.
+  Stateless corpus: 141,184 of 142,041 `SELECT` statements are formatted (99.4%).
+  Kept as written: 708 where the rendered template joins tokens, 135 with a tag hidden in a comment or string,
+  14 not parsed.
+- Verify, idempotence and the exactly-once token check hold on every corpus file.
+  The oracle judges 270,259 stateless statements the same and none differing.
+- `--check` over the stateless corpus takes 1.9 s single-threaded; per file the median is 95 µs and p95 538 µs.
+  A 1.1 MB file formats in about 88 ms: split 7.5, parse 30, layout 24, token check 1.5, print 5.8, verify 13.5.
+- Lines over 100 characters in the formatted stateless corpus: 34,500,
+  of which 29,100 are in statements kept as written, 2,000 carry a trailing comment, 1,600 are in opaque regions,
+  1,500 hold one long token.
+  A sample of the remaining 251 showed no missed break.
+- M2's `cleanup()` is gone; a statement kept as written prints through the document builder.
+- Known gaps: a long chain of `+` breaks one operator at a time from the end;
+  an alias after an expression that broke can pass the width; trailing comments are not measured.
