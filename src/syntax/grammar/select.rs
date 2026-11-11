@@ -488,12 +488,7 @@ fn parse_clause(
         Clause::Limit => limit_clause(p),
         Clause::Offset => offset_clause(p),
         Clause::Fetch => fetch_clause(p),
-        Clause::Settings => {
-            // A clause keyword before `=` names a setting (`limit = 5`).
-            let ends =
-                |p: &Parser<'_>| at_clause(p) && !(names::at_name(p, 0) && p.nth_at(1, T::Equals));
-            common::settings_clause(p, &ends).map(drop)
-        }
+        Clause::Settings => common::settings_clause(p, &at_clause).map(drop),
         Clause::Format => {
             let m = p.start();
             p.bump_keyword();

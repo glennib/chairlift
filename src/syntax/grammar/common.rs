@@ -13,9 +13,9 @@ use crate::syntax::parser::CompletedMarker;
 use crate::syntax::parser::Parser;
 
 /// Expressions separated by commas, each with an alias as `alias` allows and
-/// with item fallback, as an [`ExprList`](SyntaxKind::ExprList), up to
-/// `ends`, a closing bracket or the end of the statement. Fails if the list
-/// is empty.
+/// with item fallback, as an [`ExprList`](SyntaxKind::ExprList), with items
+/// that end at `ends` as [`fallback::comma_separated`] reads them. Fails if
+/// the list is empty.
 pub(crate) fn expr_list(
     p: &mut Parser<'_>,
     ends: Stop<'_>,
@@ -32,8 +32,8 @@ pub(crate) fn expr_list(
 }
 
 /// `ORDER BY` items separated by commas, as an
-/// [`OrderByList`](SyntaxKind::OrderByList), up to `ends`. Fails if the list
-/// is empty.
+/// [`OrderByList`](SyntaxKind::OrderByList), with items that end at `ends`.
+/// Fails if the list is empty.
 pub(crate) fn order_by_list(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<CompletedMarker> {
     let m = p.start();
     let shape = fallback::comma_separated(p, ends, &mut |p| order_by_item(p).map(drop));
@@ -90,7 +90,7 @@ pub(crate) fn at_settings(p: &Parser<'_>) -> bool {
 }
 
 /// `SETTINGS a = 1, …` as a [`SettingsClause`](SyntaxKind::SettingsClause),
-/// with the list up to `ends`.
+/// with items that end at `ends`.
 pub(crate) fn settings_clause(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<CompletedMarker> {
     let m = p.start();
     p.expect_kw(K::Settings)?;
@@ -99,7 +99,8 @@ pub(crate) fn settings_clause(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<Comp
 }
 
 /// `a = 1, b = 'x', c = DEFAULT` as a
-/// [`SettingsList`](SyntaxKind::SettingsList), up to `ends`. Values are
+/// [`SettingsList`](SyntaxKind::SettingsList), with items that end at
+/// `ends`. Values are
 /// expressions, or maps of strings (`{'k': 'v'}`); setting names keep their
 /// case.
 pub(crate) fn settings_list(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<CompletedMarker> {

@@ -171,10 +171,11 @@ fn clauses(p: &mut Parser<'_>, mut context: Context) {
 /// Whether the current token starts one of the clauses of `CREATE TABLE`
 /// or `CREATE MATERIALIZED VIEW`.
 ///
-/// This is also where lists inside clauses (`TTL`, `SETTINGS`) end, so a
-/// word that starts a clause only does so when what follows cannot continue
-/// an expression: `ttl + 1` and `engine = 1` are not clauses, nor is
-/// `empty(s)`.
+/// This is also where an item of a list inside a clause (`TTL`,
+/// `SETTINGS`) may end, so a word that starts a clause only does so when
+/// what follows cannot continue an expression: `ttl + 1` and `engine = 1`
+/// are not clauses, nor is `empty(s)`. An item after a comma is read
+/// whatever word starts it (see [`fallback::comma_separated`]).
 fn at_clause(p: &Parser<'_>) -> bool {
     if storage::at_storage_clause(p) || storage::at_view_target(p).is_some() {
         return true;
@@ -222,9 +223,13 @@ fn at_operand(p: &Parser<'_>, n: usize) -> bool {
 }
 
 /// Whether the current token starts a view's `TO [db.]table` or `TO INNER
-/// UUID '…'`, which `TO DISK` and `TO VOLUME` in a TTL rule do not.
+/// UUID '…'`, which `TO DISK '…'` and `TO VOLUME IF EXISTS '…'` of a TTL
+/// rule do not; `TO disk` names a table.
 fn at_to(p: &Parser<'_>) -> bool {
-    p.at_kw(K::To) && names::at_name(p, 1) && !matches!(p.nth_keyword(1), Some(K::Disk | K::Volume))
+    p.at_kw(K::To)
+        && names::at_name(p, 1)
+        && !(matches!(p.nth_keyword(1), Some(K::Disk | K::Volume))
+            && (p.nth_at(2, T::StringLiteral) || p.nth_at_kw(2, K::If)))
 }
 
 /// The clause at the current token, after what `context` says.

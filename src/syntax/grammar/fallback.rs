@@ -136,9 +136,14 @@ pub(crate) struct ListShape {
 }
 
 /// Items separated by commas, each parsed by `item` with [`list_item`]'s
-/// fallback, up to the end of the list: a closing bracket, `ends`, or the
-/// end of the statement. A trailing comma and empty items are accepted.
-/// The caller opens and closes the list's node and its brackets.
+/// fallback, up to the end of the list: a closing bracket, the end of the
+/// statement, or an item that no comma follows. An item is read first and
+/// after every comma, whatever word it starts with, as ClickHouse's
+/// `ParserList` does, so in `SETTINGS a = 1, definer = 2` the second
+/// setting is named `definer`; `ends` says where an item may end, and
+/// where one that does not parse is cut, which consumes nothing there. A
+/// trailing comma and empty items are accepted. The caller opens and closes
+/// the list's node and its brackets.
 pub(crate) fn comma_separated(
     p: &mut Parser<'_>,
     ends: Stop<'_>,
@@ -146,7 +151,7 @@ pub(crate) fn comma_separated(
 ) -> ListShape {
     let mut shape = ListShape::default();
     loop {
-        if p.at_end() || p.at_closer() || ends(p) {
+        if p.at_end() || p.at_closer() {
             break;
         }
         if p.at(TokenKind::Comma) {

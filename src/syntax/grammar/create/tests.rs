@@ -396,6 +396,26 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
         "create table t (ttl Date) engine = MergeTree order by ttl ttl ttl, ttl + 1",
         "CREATE TABLE t (ttl Date) ENGINE = MergeTree ORDER BY ttl TTL ttl, ttl + 1",
     ),
+    // A list reads an item after every comma, and a TTL rule's keys are
+    // expressions up to `SET`, whatever words they are.
+    (
+        "create table t (a Int8) engine = Kafka settings definer = 'x', engine = 'y'",
+        "CREATE TABLE t (a Int8) ENGINE = Kafka SETTINGS definer = 'x', engine = 'y'",
+    ),
+    (
+        "create table t (d Date, engine Int8, x Int8) engine = MergeTree order by d \
+         ttl d group by engine set x = max(x), d + 1 group by definer, tags set x = 1",
+        "CREATE TABLE t (d Date, engine Int8, x Int8) ENGINE = MergeTree ORDER BY d \
+         TTL d GROUP BY engine SET x = max(x), d + 1 GROUP BY definer, tags SET x = 1",
+    ),
+    (
+        "create table t (d Date) engine = MergeTree order by d ttl d, empty, clone, populate",
+        "CREATE TABLE t (d Date) ENGINE = MergeTree ORDER BY d TTL d, empty, clone, populate",
+    ),
+    (
+        "create materialized view v refresh every 1 hour settings append = 1 append to disk as SELECT 1",
+        "CREATE MATERIALIZED VIEW v REFRESH EVERY 1 HOUR SETTINGS append = 1 APPEND TO disk AS SELECT 1",
+    ),
     (
         "create table {{ db }}.t_{{ s }} (a Int8) engine = {{ engine }} settings a = {{ a }}",
         "CREATE TABLE {{ db }}.t_{{ s }} (a Int8) ENGINE = {{ engine }} SETTINGS a = {{ a }}",
