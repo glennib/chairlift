@@ -169,8 +169,10 @@ pub(crate) fn conditions(w: &mut Writer<'_>, node: &Node, indent: bool) {
     let Some((first, rest)) = parts.split_first() else {
         return;
     };
-    w.el(&first.el);
+    // The first operand is in the scope too: an `OR` group in brackets
+    // there breaks one level deeper than the `AND`s after it.
     let scope = indent.then(|| w.b.open_indent());
+    w.el(&first.el);
     for part in rest {
         // The operators are tokens, the operands nodes.
         let sep = match part.el {

@@ -189,6 +189,20 @@ fn or_inside_parentheses_hangs_one_level_deeper() {
         ),
         "SELECT 1\nWHERE (a = 1 OR b = 2)\n    AND c = 3\n    AND (dddd = 4\n        OR eeee = 5)\n"
     );
+    // As the first operand, too: deeper than the `AND`s.
+    assert_eq!(
+        fmt_in("select 1 where (aaaa = 1 or bbbb = 2) and c = 3", false, 25),
+        "SELECT 1\nWHERE (aaaa = 1\n        OR bbbb = 2)\n    AND c = 3\n"
+    );
+    // In a join's condition, which hangs under `ON`.
+    assert_eq!(
+        fmt_in(
+            "select 1 from t join u on (aaaa = 1 or bbbb = 2) and c = 3",
+            false,
+            25
+        ),
+        "SELECT 1\nFROM t\nJOIN u\n    ON (aaaa = 1\n        OR bbbb = 2)\n    AND c = 3\n"
+    );
 }
 
 /// After an operand whose last line starts with its closer (`)`, `END`),
