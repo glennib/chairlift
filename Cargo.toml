@@ -66,9 +66,13 @@ cli = ["oracle", "dep:clap", "dep:ignore", "dep:miette", "dep:rayon", "dep:simil
 # `chairlift::oracle`, which runs `clickhouse-format` to check formatting kept
 # a text's meaning, for the binary's `--verify`. No dependencies.
 oracle = []
+# `chairlift::template`, which renders templates once per combination of
+# their branches, as chum does, to check that formatting kept every render.
+# A development and test harness; it adds minijinja.
+template = ["dep:minijinja"]
 # The `corpus` binary, a development tool that formats, verifies and checks
 # whole directory trees. Not part of the published binary.
-corpus-tool = ["cli", "oracle"]
+corpus-tool = ["cli", "oracle", "template"]
 
 [dependencies]
 # The concrete syntax tree.
@@ -82,6 +86,8 @@ ignore = { version = "0.4.34", optional = true }
 miette = { version = "7.6", default-features = false, features = ["fancy-no-syscall"], optional = true }
 rayon = { version = "1.12", optional = true }
 similar = { version = "2.7", optional = true }
+# The renderer behind the `template` feature, at the version chum pins.
+minijinja = { version = "~3.1.0", default-features = false, features = ["builtins", "macros", "loop_controls", "fuel"], optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }

@@ -33,6 +33,8 @@ mod options;
 pub mod oracle;
 pub mod split;
 pub mod syntax;
+#[cfg(feature = "template")]
+pub mod template;
 pub mod verify;
 
 use std::fmt;

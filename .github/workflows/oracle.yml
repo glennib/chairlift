@@ -58,7 +58,8 @@ jobs:
       - name: Check that clickhouse-format runs
         run: mise run oracle:smoke
 
-      # Every input and output of every corpus through clickhouse-format;
+      # Every input and output of every corpus through clickhouse-format,
+      # and every render of every template per combination of its branches;
       # fails on any difference that tests/oracle-allowlist.txt does not list.
       - name: Run the oracle sweep
         env:

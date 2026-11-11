@@ -314,6 +314,61 @@ fn excerpt(text: &str) -> &str {
     &text[..text.char_indices().nth(60).map_or(text.len(), |(i, _)| i)]
 }
 
+/// Every template that formats renders the same SQL before and after, in
+/// every combination of its branches and loop count (see
+/// `chairlift::template`).
+#[cfg(feature = "template")]
+#[test]
+fn every_corpus_template_renders_the_same_sql() {
+    use chairlift::template::compare_sql;
+    use chairlift::template::render;
+
+    let mut failures = Vec::new();
+    for corpus in corpora() {
+        let (mut templates, mut variants, mut rendered) = (0, 0, 0);
+        for path in &corpus.files {
+            if corpus.mode(path) != Mode::Jinja {
+                continue;
+            }
+            let Some(source) = read(path) else {
+                continue;
+            };
+            let Ok(output) = chairlift::format(&source, &Options::default().with_jinja(true))
+            else {
+                continue;
+            };
+            templates += 1;
+            let (before, after) = (render(&source), render(&output));
+            if before.branches != after.branches {
+                failures.push(format!("{}: the branches differ", path.display()));
+                continue;
+            }
+            for (a, b) in before.variants.iter().zip(&after.variants) {
+                variants += 1;
+                match (&a.text, &b.text) {
+                    (Ok(x), Ok(y)) => {
+                        rendered += 1;
+                        if let Err(e) = compare_sql(x, y) {
+                            failures.push(format!("{} {}: {e}", path.display(), a.label));
+                        }
+                    }
+                    (Err(_), Err(_)) => {}
+                    _ => failures.push(format!(
+                        "{} {}: only one side renders",
+                        path.display(),
+                        a.label
+                    )),
+                }
+            }
+        }
+        eprintln!(
+            "{}: {templates} templates, {variants} variants, {rendered} rendered on both sides",
+            corpus.name
+        );
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// The splitter's tokens cover every file, and the counts of statements and
 /// of inline data are reported per corpus.
 #[test]

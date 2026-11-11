@@ -64,8 +64,12 @@ description = "Format every corpus, checking verification and idempotence (relea
 run = "cargo run --release --features corpus-tool --bin corpus -- --default"
 
 [tasks."corpus:oracle"]
-description = "Like corpus, and run clickhouse-format on every input and output, statement by statement where it rejects a whole file; fails on any difference not in tests/oracle-allowlist.txt"
+description = "Like corpus, and run clickhouse-format on every input and output, statement by statement where it rejects a whole file, and on every render of every template; fails on any difference not in tests/oracle-allowlist.txt"
 run = "cargo run --release --features corpus-tool --bin corpus -- --default --oracle --allowlist tests/oracle-allowlist.txt"
+
+[tasks."corpus:templates"]
+description = "Render every template of the corpora, input and output, once per combination of its branches and loop count, and compare the SQL of each pair token by token and with clickhouse-format (release build)"
+run = "cargo run --release --features corpus-tool --bin corpus -- --default --only-templates --oracle --allowlist tests/oracle-allowlist.txt"
 
 [tasks."corpus:recase"]
 description = "Re-case the keyword slots the parser finds in every corpus file, and check that with verify and clickhouse-format"

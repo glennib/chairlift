@@ -6,6 +6,11 @@
 //! source text (strings, and the literal left of `::`). The verifier itself
 //! checks only the render with every branch taken.
 //!
+//! With the `template` feature, each template is also rendered as the
+//! corpus tool renders templates (`chairlift::template`): once per
+//! combination of its branches, with each loop run 0, 1 and 3 times, and
+//! every name it does not define a stub.
+//!
 //! `CHAIRLIFT_TEMPLATE_CASES` sets how many texts of each kind are tried
 //! (`mise run test:templates` runs many), and `CHAIRLIFT_TEMPLATE_SEED`
 //! another sequence of them.
@@ -426,6 +431,7 @@ fn every_render_of_a_formatted_template_keeps_its_sql() {
                 ),
             }
         }
+        harness_renders_agree(&source, &once);
     }
     eprintln!("{left_alone} of {n} templates were left as they are");
     let share = f64::from(left_alone) / f64::from(u32::try_from(n).unwrap_or(u32::MAX));
@@ -434,6 +440,41 @@ fn every_render_of_a_formatted_template_keeps_its_sql() {
         "{left_alone} of {n} templates were left as they are"
     );
 }
+
+/// Every variant of the render harness holds the same SQL for `source` and
+/// `once`, formatted from it.
+#[cfg(feature = "template")]
+fn harness_renders_agree(source: &str, once: &str) {
+    let (before, after) = (
+        chairlift::template::render(source),
+        chairlift::template::render(once),
+    );
+    assert_eq!(
+        before.branches, after.branches,
+        "the branches differ\n--- input:\n{source}\n--- output:\n{once}"
+    );
+    for (a, b) in before.variants.iter().zip(&after.variants) {
+        match (&a.text, &b.text) {
+            (Ok(x), Ok(y)) => {
+                if let Err(e) = chairlift::template::compare_sql(x, y) {
+                    panic!(
+                        "{}: {e}\n--- input:\n{source}\n--- output:\n{once}\n\
+                         --- input rendered:\n{x}\n--- output rendered:\n{y}",
+                        a.label
+                    );
+                }
+            }
+            (Err(_), Err(_)) => {}
+            _ => panic!(
+                "{}: only one side renders\n--- input:\n{source}\n--- output:\n{once}",
+                a.label
+            ),
+        }
+    }
+}
+
+#[cfg(not(feature = "template"))]
+fn harness_renders_agree(_: &str, _: &str) {}
 
 #[test]
 fn generated_queries_format_idempotently() {

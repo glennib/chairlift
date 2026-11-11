@@ -32,7 +32,16 @@
 //! counts statements, which shows how much of each corpus the oracle
 //! actually judged. The `oracle_*` CSV columns hold the statement counts per
 //! file.
+//!
+//! Every template that formats is rendered, input and output, once per
+//! combination of its branches and loop count (see `chairlift::template`),
+//! and the SQL of each pair of renders compared token by token; with
+//! `--oracle`, each distinct pair is judged by the oracle too. The templates
+//! table counts the variants, how many rendered, and the differences. A
+//! difference, or a variant only one side renders, is a chairlift bug.
+//! `--only-templates` leaves out the files that are not templates.
 
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::fs;
@@ -124,6 +133,10 @@ struct Cli {
     /// Files formatted at once [default: the number of CPUs].
     #[arg(long, value_name = "N")]
     jobs: Option<usize>,
+
+    /// Only the files read as templates.
+    #[arg(long)]
+    only_templates: bool,
 }
 
 struct Corpus {
@@ -239,6 +252,53 @@ struct Record {
     parse_panic: Option<String>,
     /// What the layout did with each statement, when the file formatted.
     layout: Vec<Decision>,
+    /// For a template that formatted, what its renders showed.
+    renders: Option<Renders>,
+    /// The renders of a template's input and output that the oracle judges,
+    /// each with its label, without repeats; kept for the oracle.
+    rendered: Vec<(String, String, String)>,
+}
+
+/// What rendering a template's input and output showed.
+#[derive(Clone, Debug, Default)]
+struct Renders {
+    /// The variants of the input.
+    variants: usize,
+    /// The variants both texts rendered.
+    rendered: usize,
+    /// Whether the branch combinations are a sample.
+    sampled: bool,
+    /// Differences between a render of the input and the output's, a
+    /// variant only one of them renders, or branches that differ: bugs.
+    differences: Vec<String>,
+    /// The oracle's verdicts on the rendered variants.
+    oracle: VariantVerdicts,
+}
+
+/// The oracle's verdicts on the rendered variants of templates.
+#[derive(Clone, Copy, Debug, Default)]
+struct VariantVerdicts {
+    /// Variants judged.
+    judged: usize,
+    /// Variants whose rendered input the oracle accepts as a whole.
+    accepted: usize,
+    /// Of those, the ones whose output it prints the same.
+    same: usize,
+    /// Variants with a statement or a whole text that differs, or an output
+    /// it rejects.
+    differs: usize,
+    /// Statements of the variants judged one by one.
+    statements_judged: usize,
+}
+
+impl VariantVerdicts {
+    fn add(&mut self, other: &VariantVerdicts) {
+        self.judged += other.judged;
+        self.accepted += other.accepted;
+        self.same += other.same;
+        self.differs += other.differs;
+        self.statements_judged += other.statements_judged;
+    }
 }
 
 /// What the parse of one file says.
@@ -292,6 +352,10 @@ impl Record {
             || self.parse_panic.is_some()
             || self.parse.as_ref().is_some_and(|p| !p.round_trip)
             || self.idempotent == Some(false)
+            || self
+                .renders
+                .as_ref()
+                .is_some_and(|r| !r.differences.is_empty())
             || matches!(
                 self.oracle,
                 Some(
@@ -348,10 +412,14 @@ fn run(cli: &Cli) -> Result<bool, String> {
     let mut files = Vec::new();
     for (i, corpus) in corpora.iter().enumerate() {
         for path in sql_files(&corpus.root) {
+            if cli.only_templates && !(corpus.all_templates || Mode::for_path(&path) == Mode::Jinja)
+            {
+                continue;
+            }
             files.push((i, path));
         }
     }
-    let mut records = format_all(&corpora, &files, jobs, transform);
+    let mut records = format_all(&corpora, &files, jobs, transform, cli.oracle);
     let format_time = started.elapsed();
 
     let oracle_time = if cli.oracle {
@@ -391,6 +459,17 @@ fn run(cli: &Cli) -> Result<bool, String> {
             eprintln!("bug: {name}: the syntax tree's text is not the input");
         } else if record.findings.is_empty() {
             eprintln!("bug: {name}: {}", record.detail);
+        }
+        if let Some(renders) = &record.renders {
+            for difference in renders.differences.iter().take(FINDINGS_SHOWN) {
+                eprintln!("bug: {name}: {difference}");
+            }
+            if renders.differences.len() > FINDINGS_SHOWN {
+                eprintln!(
+                    "bug: {name}: and {} more render differences",
+                    renders.differences.len() - FINDINGS_SHOWN
+                );
+            }
         }
         for finding in record.findings.iter().take(FINDINGS_SHOWN) {
             eprintln!("bug: {name}: {finding}");
@@ -554,6 +633,7 @@ fn format_all(
     files: &[(usize, PathBuf)],
     jobs: usize,
     transform: Transform,
+    keep_renders: bool,
 ) -> Vec<Record> {
     let next = AtomicUsize::new(0);
     let records = Mutex::new(Vec::with_capacity(files.len()));
@@ -565,7 +645,8 @@ fn format_all(
                     let Some((corpus, path)) = files.get(i) else {
                         break;
                     };
-                    let record = format_file(*corpus, &corpora[*corpus], path, transform);
+                    let record =
+                        format_file(*corpus, &corpora[*corpus], path, transform, keep_renders);
                     records
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -581,7 +662,13 @@ fn format_all(
     records.into_iter().map(|(_, r)| r).collect()
 }
 
-fn format_file(index: usize, corpus: &Corpus, path: &Path, transform: Transform) -> Record {
+fn format_file(
+    index: usize,
+    corpus: &Corpus,
+    path: &Path,
+    transform: Transform,
+    keep_renders: bool,
+) -> Record {
     let relative = path.strip_prefix(&corpus.root).unwrap_or(path);
     let mode = if corpus.all_templates {
         Mode::Jinja
@@ -607,6 +694,8 @@ fn format_file(index: usize, corpus: &Corpus, path: &Path, transform: Transform)
         parse: None,
         parse_panic: None,
         layout: Vec::new(),
+        renders: None,
+        rendered: Vec::new(),
     };
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
@@ -673,6 +762,11 @@ fn format_file(index: usize, corpus: &Corpus, path: &Path, transform: Transform)
                     record.detail = format!("formatting the output fails: {e}");
                 }
             }
+            if mode == Mode::Jinja && transform == Transform::Format {
+                let (renders, rendered) = compare_renders(&source, &output, keep_renders);
+                record.renders = Some(renders);
+                record.rendered = rendered;
+            }
             record.texts = Some((source, output));
         }
         Err(e) => {
@@ -686,6 +780,71 @@ fn format_file(index: usize, corpus: &Corpus, path: &Path, transform: Transform)
         }
     }
     record
+}
+
+/// The texts the oracle judges for a file: [`oracle::variants`], and for a
+/// template each distinct pair of renders of its input and output, in
+/// [`Mode::Sql`] and labelled with its branches.
+fn variants<'a>(
+    input: &'a str,
+    output: &'a str,
+    mode: Mode,
+    rendered: &'a [(String, String, String)],
+) -> Vec<oracle::Variant<'a>> {
+    let mut out = oracle::variants(input, output, mode);
+    out.extend(rendered.iter().map(|(label, input, output)| oracle::Variant {
+        rendering: Some(label.clone()),
+        input: Cow::Borrowed(input),
+        output: Cow::Borrowed(output),
+        mode: Mode::Sql,
+    }));
+    out
+}
+
+/// Renders template `input` and its formatted `output` in every variant and
+/// compares the SQL of each pair; with `keep`, also returns the distinct
+/// pairs, for the oracle.
+fn compare_renders(
+    input: &str,
+    output: &str,
+    keep: bool,
+) -> (Renders, Vec<(String, String, String)>) {
+    let before = chairlift::template::render(input);
+    let after = chairlift::template::render(output);
+    let mut renders = Renders {
+        variants: before.variants.len(),
+        sampled: before.sampled,
+        ..Renders::default()
+    };
+    let mut kept = Vec::new();
+    if before.branches != after.branches {
+        renders.differences.push(format!(
+            "the output's branches and loops are {:?}, the input's {:?}",
+            after.branches, before.branches
+        ));
+        return (renders, kept);
+    }
+    let mut seen = std::collections::HashSet::new();
+    for (a, b) in before.variants.iter().zip(&after.variants) {
+        match (&a.text, &b.text) {
+            (Ok(x), Ok(y)) => {
+                renders.rendered += 1;
+                if let Err(e) = chairlift::template::compare_sql(x, y) {
+                    renders.differences.push(format!("render {}: {e}", a.label));
+                } else if keep && seen.insert((x.clone(), y.clone())) {
+                    kept.push((format!("render {}", a.label), x.clone(), y.clone()));
+                }
+            }
+            (Err(_), Err(_)) => {}
+            (Ok(_), Err(e)) => renders
+                .differences
+                .push(format!("render {}: only the input renders: {e}", a.label)),
+            (Err(e), Ok(_)) => renders
+                .differences
+                .push(format!("render {}: only the output renders: {e}", a.label)),
+        }
+    }
+    (renders, kept)
 }
 
 /// `transform` applied to `source`: formatted, with what the layout did
@@ -817,7 +976,7 @@ fn judge_all(
     let mut texts = Vec::new();
     for (r, record) in records.iter().enumerate() {
         if let Some((input, output)) = &record.texts {
-            for variant in oracle::variants(input, output, record.mode) {
+            for variant in variants(input, output, record.mode, &record.rendered) {
                 owners.push(r);
                 labels.push(variant.rendering.unwrap_or_default());
                 texts.push((variant.input, variant.output, variant.mode));
@@ -842,13 +1001,20 @@ fn judge_all(
     }
     for (record, reports) in records.iter_mut().zip(by_record) {
         record.texts = None;
+        record.rendered = Vec::new();
         if reports.is_empty() {
             continue;
         }
         let key = format!("{}/{}", corpora[record.corpus].name, record.path);
+        // The counts are the file's own; the rendered variants are counted
+        // apart.
         let mut counts = Counts::default();
-        for (_, report) in &reports {
-            counts.add(&report.counts());
+        for (label, report) in &reports {
+            if label.is_empty() {
+                counts.add(&report.counts());
+            } else if let Some(renders) = &mut record.renders {
+                renders.oracle.add(&verdicts(report));
+            }
         }
         record.oracle_counts = Some(counts);
         record.findings = reports
@@ -883,6 +1049,28 @@ fn judge_all(
             first.clone_into(&mut record.detail);
         }
         record.oracle = Some(outcome);
+    }
+}
+
+/// The oracle's verdicts on one rendered variant.
+fn verdicts(report: &Report) -> VariantVerdicts {
+    let accepted = !matches!(report.whole, Judgement::Unjudgeable(_));
+    let differs = matches!(
+        report.whole,
+        Judgement::Differs { .. } | Judgement::OutputRejected(_)
+    ) || report.mismatch.is_some()
+        || report.statements.iter().any(|s| {
+            matches!(
+                s.judgement,
+                Judgement::Differs { .. } | Judgement::OutputRejected(_)
+            )
+        });
+    VariantVerdicts {
+        judged: 1,
+        accepted: usize::from(accepted),
+        same: usize::from(accepted && matches!(report.whole, Judgement::Same)),
+        differs: usize::from(differs),
+        statements_judged: report.counts().judged(),
     }
 }
 
@@ -1039,12 +1227,87 @@ fn summary(corpora: &[Corpus], records: &[Record], with_oracle: bool) -> String 
         statement_rows.push(row);
     }
     let mut out = table(&rows);
+    out.push_str(&templates_summary(corpora, records, with_oracle));
     if with_oracle {
         out.push_str("\nfiles, by the oracle's verdict on the whole text\n");
         out.push_str(&table(&file_rows));
         out.push_str("\nstatements, by the oracle's verdict on each\n");
         out.push_str(&table(&statement_rows));
     }
+    out
+}
+
+/// The renders of templates per corpus: how many variants rendered, how many
+/// differ, and with the oracle what it made of them.
+fn templates_summary(corpora: &[Corpus], records: &[Record], with_oracle: bool) -> String {
+    let mut rows = vec![
+        [
+            "corpus",
+            "templates",
+            "sampled",
+            "variants",
+            "rendered",
+            "render failures",
+            "differences",
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+    ];
+    if with_oracle {
+        rows[0].extend(
+            [
+                "oracle judged",
+                "accepted whole",
+                "same",
+                "differing",
+                "statements judged",
+            ]
+            .map(str::to_owned),
+        );
+    }
+    for (i, corpus) in corpora.iter().enumerate() {
+        let renders: Vec<&Renders> = records
+            .iter()
+            .filter(|r| r.corpus == i)
+            .filter_map(|r| r.renders.as_ref())
+            .collect();
+        if renders.is_empty() {
+            continue;
+        }
+        let sum = |f: fn(&Renders) -> usize| renders.iter().map(|r| f(r)).sum::<usize>();
+        let mut oracle = VariantVerdicts::default();
+        for r in &renders {
+            oracle.add(&r.oracle);
+        }
+        let mut row = vec![
+            corpus.name.clone(),
+            renders.len().to_string(),
+            sum(|r| usize::from(r.sampled)).to_string(),
+            sum(|r| r.variants).to_string(),
+            sum(|r| r.rendered).to_string(),
+            sum(|r| r.variants - r.rendered).to_string(),
+            sum(|r| r.differences.len()).to_string(),
+        ];
+        if with_oracle {
+            row.extend(
+                [
+                    oracle.judged,
+                    oracle.accepted,
+                    oracle.same,
+                    oracle.differs,
+                    oracle.statements_judged,
+                ]
+                .map(|n| n.to_string()),
+            );
+        }
+        rows.push(row);
+    }
+    if rows.len() == 1 {
+        return String::new();
+    }
+    let mut out =
+        String::from("\ntemplates, rendered per combination of branches and loop count\n");
+    out.push_str(&table(&rows));
     out
 }
 
