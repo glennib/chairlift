@@ -58,7 +58,7 @@ harness = false
 default = ["cli"]
 # The `chairlift` binary. The library needs none of these; a consumer that only
 # uses the library can disable default features.
-cli = ["dep:clap", "dep:ignore", "dep:similar"]
+cli = ["dep:clap", "dep:ignore", "dep:miette", "dep:rayon", "dep:similar"]
 # `chairlift::oracle`, which runs `clickhouse-format` to check formatting kept
 # a text's meaning. No dependencies.
 oracle = []
@@ -73,6 +73,10 @@ thiserror = "2"
 # CLI-only dependencies (gated behind the `cli` feature).
 clap = { version = "4.6", features = ["derive"], optional = true }
 ignore = { version = "0.4.34", optional = true }
+# Per-file diagnostics with source snippets. `fancy-no-syscall` leaves out
+# miette's own terminal detection: the CLI decides about colour itself.
+miette = { version = "7.6", default-features = false, features = ["fancy-no-syscall"], optional = true }
+rayon = { version = "1.12", optional = true }
 similar = { version = "2.7", optional = true }
 
 [dev-dependencies]

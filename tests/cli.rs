@@ -100,7 +100,7 @@ fn help() {
     // does not survive in a snapshot.
     let help = stdout(&output);
     let help: Vec<&str> = help.lines().map(str::trim_end).collect();
-    insta::assert_snapshot!(help.join("\n"), @r"
+    insta::assert_snapshot!(help.join("\n"), @"
     Format ClickHouse SQL and Jinja-templated SQL files.
 
     Files are formatted in place. Directories are searched for `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files and whatever `.gitignore` and `.ignore` files exclude.
@@ -129,13 +129,29 @@ fn help() {
               [default: auto]
               [possible values: auto, on, off]
 
+      -q, --quiet
+              Print only errors, besides the formatted text, the list of files or the diff that is asked for: no summary, warnings or notes
+
+      -v, --verbose
+              Also print what happened to each file, and how long it all took
+
+          --color <WHEN>
+              When to colour diagnostics; `auto` colours them when stderr is a terminal and `NO_COLOR` is not set
+
+              Possible values:
+              - auto:   On a terminal, unless `NO_COLOR` is set to a non-empty value
+              - always: Always, also when stderr is a file or a pipe
+              - never:  Never
+
+              [default: auto]
+
       -h, --help
               Print help (see a summary with '-h')
 
       -V, --version
               Print version
 
-    Exit status: 0 when done, 1 when --check or --diff found files that would change, 2 when a file could not be formatted (unreadable, not UTF-8, a lexer error, or a failed verification) or the arguments are wrong.
+    Exit status: 0 when done, 1 when --check or --diff found files that would change, 2 when a file could not be formatted (unreadable, not UTF-8, a lexer error, a failed verification, or a template refused because its rendering decides where a line comment ends) or the arguments are wrong.
     ");
 }
 
@@ -193,12 +209,20 @@ fn stdin_errors() {
     let output = run(&["-"], Some(b"SELECT 1;\nSELECT 'x"), None);
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(stdout(&output), "");
-    assert_eq!(
-        stderr(&output),
-        "error: <stdin>:2:8: Single quoted string is not closed; the file is left unchanged\n"
-    );
+    insta::assert_snapshot!(stderr(&output), @"
+    chairlift::lex
+
+      × <stdin>:2:8: Single quoted string is not closed; the file is left unchanged
+       ╭─[<stdin>:2:8]
+     1 │ SELECT 1;
+     2 │ SELECT 'x
+       ·        ┬
+       ·        ╰── here
+       ╰────
+    ");
     // A template whose line comment the rendering can make run on is left as
-    // it is, as one with a lexer error is.
+    // it is, as one with a lexer error is, and the diagnostic says what to
+    // change rather than asking for a bug report.
     let output = run(
         &["--jinja", "on", "-"],
         Some(b"select a -- c\n{%- if x %}\n, b\n{% endif %} from t\n"),
@@ -206,20 +230,31 @@ fn stdin_errors() {
     );
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(stdout(&output), "");
-    assert_eq!(
-        stderr(&output),
-        "error: <stdin>:1:10: where this line comment ends depends on the rendering: the `-` \
-         marker of the tag after it strips the line break after it, and the comment can run on \
-         into text that follows a tag on its line; remove the marker, or end the lines of the \
-         tags there; the file is left unchanged\n"
+    let errors = stderr(&output);
+    assert!(
+        errors.contains(
+            "× <stdin>:1:10: where this line comment ends depends on the rendering, so the file \
+             is left unchanged"
+        ),
+        "{errors}"
     );
+    assert!(
+        errors.contains("help: the `-` marker of the tag after it strips the line break"),
+        "{errors}"
+    );
+    assert!(!errors.contains("bug"), "{errors}");
     let output = run(&["-"], Some(b"SELECT '\xff'"), None);
     assert_eq!(output.status.code(), Some(2));
-    assert!(
-        stderr(&output).contains("not UTF-8 (at byte 8)"),
-        "{}",
-        stderr(&output)
-    );
+    insta::assert_snapshot!(stderr(&output), @"
+    chairlift::not_utf8
+
+      × <stdin>:1:9: not UTF-8 (at byte 8); the file is left unchanged
+       ╭─[<stdin>:1:9]
+     1 │ SELECT '�'
+       ·         ┬
+       ·         ╰── not UTF-8
+       ╰────
+    ");
 }
 
 #[test]
@@ -293,10 +328,11 @@ fn a_read_only_file_is_an_error() {
     fs::set_permissions(&file, fs::Permissions::from_mode(0o444)).unwrap();
     let output = run(&["ro.sql"], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    let errors = stderr(&output);
+    assert!(errors.contains("× ro.sql: cannot be written: "), "{errors}");
     assert!(
-        stderr(&output).starts_with("error: ro.sql: cannot be written: "),
-        "{}",
-        stderr(&output)
+        errors.contains("help: make the file writable, or use --check or --diff"),
+        "{errors}"
     );
     assert_eq!(read(&file), MESSY);
     let mode = fs::metadata(&file).unwrap().permissions().mode();
@@ -441,12 +477,26 @@ fn errors_leave_files_alone_and_exit_with_2() {
     // The other files are still formatted.
     assert_eq!(read(&messy), CLEAN);
     let errors = stderr(&output).replace('\\', "/");
-    assert_eq!(
-        errors,
-        "error: ./broken.sql:2:8: Single quoted string is not closed; the file is left unchanged\n\
-         error: ./latin1.sql: not UTF-8 (at byte 11); the file is left unchanged\n\
-         1 file reformatted, 0 files already formatted, 2 errors\n"
-    );
+    insta::assert_snapshot!(errors, @"
+    chairlift::lex
+
+      × ./broken.sql:2:8: Single quoted string is not closed; the file is left unchanged
+       ╭─[./broken.sql:2:8]
+     1 │ SELECT 1;  
+     2 │ SELECT 'x
+       ·        ┬
+       ·        ╰── here
+       ╰────
+    chairlift::not_utf8
+
+      × ./latin1.sql:1:12: not UTF-8 (at byte 11); the file is left unchanged
+       ╭─[./latin1.sql:1:12]
+     1 │ SELECT 'caf�';  
+       ·            ┬
+       ·            ╰── not UTF-8
+       ╰────
+    1 file reformatted, 0 files already formatted, 2 errors
+    ");
     // An error wins over differences found by `--check`.
     fs::write(&messy, MESSY).unwrap();
     assert_eq!(
@@ -455,14 +505,126 @@ fn errors_leave_files_alone_and_exit_with_2() {
     );
 }
 
+/// A refused template is its own outcome in the summary, and the run exits
+/// with 2; the other files are handled as usual.
+#[test]
+fn refused_templates_are_counted_apart() {
+    let dir = temp_dir("refused");
+    let unsafe_template = "select a -- c\n{%- if x %}\n, b\n{% endif %} from t\n";
+    let refused = write(&dir, "m.sql.j2", unsafe_template);
+    let messy = write(&dir, "q.sql", MESSY);
+    for args in [&["--check", "."][..], &["--diff", "."], &["."]] {
+        let output = run(args, None, Some(&*dir));
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        let errors = stderr(&output);
+        assert!(errors.contains("chairlift::template"), "{errors}");
+        assert!(
+            errors.ends_with(" already formatted, 1 template refused\n"),
+            "{errors}"
+        );
+        assert_eq!(read(&refused), unsafe_template);
+    }
+    assert_eq!(read(&messy), CLEAN);
+}
+
 #[test]
 fn a_missing_path_is_an_error() {
     let dir = temp_dir("missing");
     let output = run(&["nope.sql"], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(2));
     assert!(
-        stderr(&output).starts_with("error: nope.sql: cannot be read: "),
+        stderr(&output).contains("× nope.sql: cannot be read: "),
         "{}",
         stderr(&output)
     );
+}
+
+#[test]
+fn quiet_prints_only_errors_and_the_result() {
+    let dir = temp_dir("quiet");
+    write(&dir, "messy.sql", MESSY);
+    write(&dir, "clean.sql", CLEAN);
+    let output = run(&["--check", "-q", "."], None, Some(&*dir));
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        stdout(&output).replace('\\', "/"),
+        "Would reformat: ./messy.sql\n"
+    );
+    assert_eq!(stderr(&output), "");
+    write(&dir, "broken.sql", "SELECT 'x");
+    let output = run(&["--quiet", "."], None, Some(&*dir));
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("Single quoted string is not closed"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(!stderr(&output).contains("files"), "{}", stderr(&output));
+    assert_eq!(read(&dir.join("messy.sql")), CLEAN);
+    assert_eq!(
+        chairlift(&["-q", "-v", "x.sql"]).status.code(),
+        Some(2),
+        "--quiet and --verbose conflict"
+    );
+}
+
+#[test]
+fn verbose_says_what_happened_to_each_file() {
+    let dir = temp_dir("verbose");
+    write(&dir, "messy.sql", MESSY);
+    write(&dir, "clean.sql", CLEAN);
+    let output = run(&["--check", "-v", "."], None, Some(&*dir));
+    assert_eq!(output.status.code(), Some(1));
+    let errors = stderr(&output).replace('\\', "/");
+    let lines: Vec<&str> = errors.lines().collect();
+    assert_eq!(
+        lines[..2],
+        [
+            "./clean.sql: already formatted",
+            "./messy.sql: would be reformatted"
+        ]
+    );
+    assert!(
+        lines[2].starts_with("1 file would be reformatted, 1 file already formatted in "),
+        "{errors}"
+    );
+    assert!(lines[2].ends_with(" s"), "{errors}");
+    let output = run(&["-v", "."], None, Some(&*dir));
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        stderr(&output)
+            .replace('\\', "/")
+            .contains("./messy.sql: reformatted\n"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+/// Colour only where asked for: `NO_COLOR` and a pipe turn it off, and
+/// `--color always` turns it on.
+#[test]
+fn colour() {
+    let has_escape = |output: &Output| stderr(output).contains('\u{1b}');
+    let output = Command::new(env!("CARGO_BIN_EXE_chairlift"))
+        .args(["--color", "always", "nope.sql"])
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(has_escape(&output), "{}", stderr(&output));
+    let output = Command::new(env!("CARGO_BIN_EXE_chairlift"))
+        .args(["--color", "auto", "nope.sql"])
+        .env_remove("NO_COLOR")
+        .output()
+        .unwrap();
+    assert!(
+        !has_escape(&output),
+        "stderr is a pipe: {}",
+        stderr(&output)
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_chairlift"))
+        .args(["--color", "never", "nope.sql"])
+        .output()
+        .unwrap();
+    assert!(!has_escape(&output), "{}", stderr(&output));
 }

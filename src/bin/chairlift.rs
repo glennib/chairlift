@@ -4,7 +4,9 @@
 //! (unless checking) writes it and returns an [`Outcome`] or a [`FileError`];
 //! reporting and the exit code are worked out from those afterwards.
 
-use std::fmt;
+#[path = "chairlift/diagnostic.rs"]
+mod diagnostic;
+
 use std::fs;
 use std::io;
 use std::io::Read as _;
@@ -13,11 +15,16 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::LazyLock;
+use std::time::Instant;
 
 use chairlift::Options;
 use chairlift::lexer::Mode;
 use clap::Parser;
 use clap::ValueEnum;
+use diagnostic::Color;
+use diagnostic::Diagnostic;
+use diagnostic::Reporter;
+use diagnostic::Verbosity;
 
 /// Format ClickHouse SQL and Jinja-templated SQL files.
 ///
@@ -25,11 +32,13 @@ use clap::ValueEnum;
 /// `*.sql.j2` and `*.j2.sql` files, skipping hidden files and whatever
 /// `.gitignore` and `.ignore` files exclude.
 #[derive(Debug, Parser)]
+#[allow(clippy::struct_excessive_bools, reason = "each is a flag")]
 #[command(
     version = VERSION.as_str(),
     after_help = "Exit status: 0 when done, 1 when --check or --diff found files that would \
                   change, 2 when a file could not be formatted (unreadable, not UTF-8, a lexer \
-                  error, or a failed verification) or the arguments are wrong."
+                  error, a failed verification, or a template refused because its rendering \
+                  decides where a line comment ends) or the arguments are wrong."
 )]
 struct Cli {
     /// Files or directories to format; `-` reads stdin and writes stdout.
@@ -55,6 +64,20 @@ struct Cli {
     /// and `*.j2.sql` are), and stdin is not.
     #[arg(long, value_enum, value_name = "WHEN", default_value_t = Jinja::Auto)]
     jinja: Jinja,
+
+    /// Print only errors, besides the formatted text, the list of files or
+    /// the diff that is asked for: no summary, warnings or notes.
+    #[arg(short, long, conflicts_with = "verbose")]
+    quiet: bool,
+
+    /// Also print what happened to each file, and how long it all took.
+    #[arg(short, long)]
+    verbose: bool,
+
+    /// When to colour diagnostics; `auto` colours them when stderr is a
+    /// terminal and `NO_COLOR` is not set.
+    #[arg(long, value_enum, value_name = "WHEN", default_value_t = Color::Auto)]
+    color: Color,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -72,8 +95,6 @@ static VERSION: LazyLock<String> = LazyLock::new(|| {
         chairlift::CLICKHOUSE_VERSION
     )
 });
-
-const ISSUES: &str = "https://github.com/glennib/chairlift/issues";
 
 /// What to do with a formatted file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,54 +142,128 @@ struct Changed {
 #[derive(Debug)]
 enum FileError {
     Read(io::Error),
-    NotUtf8 { valid_up_to: usize },
-    Format(chairlift::Error),
+    /// `text` is the file read lossily, for the snippet.
+    NotUtf8 {
+        valid_up_to: usize,
+        text: String,
+    },
+    Format {
+        error: chairlift::Error,
+        text: String,
+    },
     Write(io::Error),
 }
 
 impl FileError {
-    /// The error report for the file called `name`.
-    fn report(&self, name: impl fmt::Display) -> String {
+    /// Whether this is a template that chairlift leaves as it is because the
+    /// rendering decides where one of its line comments ends: the file is
+    /// fine, but cannot be formatted safely.
+    fn is_refused_template(&self) -> bool {
+        matches!(
+            self,
+            FileError::Format {
+                error: chairlift::Error::Template(_),
+                ..
+            }
+        )
+    }
+
+    /// The diagnostic for the file called `name`.
+    fn diagnostic(self, name: &str) -> Diagnostic {
         match self {
-            FileError::Read(e) => format!("{name}: cannot be read: {e}"),
-            FileError::NotUtf8 { valid_up_to } => {
-                format!("{name}: not UTF-8 (at byte {valid_up_to}); the file is left unchanged")
+            FileError::Read(e) => {
+                Diagnostic::error("chairlift::read", format!("{name}: cannot be read: {e}"))
             }
-            FileError::Format(chairlift::Error::Lex(e)) => {
-                format!("{name}:{e}; the file is left unchanged")
+            FileError::NotUtf8 { valid_up_to, text } => {
+                let at = chairlift::Position::new(&text, valid_up_to);
+                Diagnostic::error(
+                    "chairlift::not_utf8",
+                    format!(
+                        "{name}:{at}: not UTF-8 (at byte {valid_up_to}); the file is left \
+                         unchanged"
+                    ),
+                )
+                .with_snippet(name, text, valid_up_to, "not UTF-8")
             }
-            FileError::Format(chairlift::Error::Verify(e)) => {
-                bug_report(&name, "chairlift's output failed verification", e)
-            }
-            FileError::Format(chairlift::Error::Layout(e)) => bug_report(
-                &name,
-                "chairlift's layout lost or repeated a token of it",
-                e,
+            FileError::Format {
+                error: chairlift::Error::Lex(e),
+                text,
+            } => Diagnostic::error(
+                "chairlift::lex",
+                format!("{name}:{e}; the file is left unchanged"),
+            )
+            .with_snippet(name, text, e.position.offset, "here"),
+            FileError::Format {
+                error: chairlift::Error::Template(e),
+                text,
+            } => Diagnostic::error(
+                "chairlift::template",
+                format!(
+                    "{name}:{}: where this line comment ends depends on the rendering, so the \
+                     file is left unchanged",
+                    e.position
+                ),
+            )
+            .with_snippet(name, text, e.position.offset, "this comment")
+            .with_help(e.reason.to_string()),
+            FileError::Format {
+                error: chairlift::Error::Verify(e),
+                text,
+            } => Diagnostic::error(
+                "chairlift::verify",
+                format!(
+                    "{name}: chairlift's output failed verification, so the file is left \
+                     unchanged: {e}"
+                ),
+            )
+            .with_snippet(name, text, e.input.offset, "the output differs here")
+            .with_help(diagnostic::bug_report_help()),
+            FileError::Format {
+                error: chairlift::Error::Layout(e),
+                text,
+            } => Diagnostic::error(
+                "chairlift::layout",
+                format!(
+                    "{name}: chairlift's layout lost or repeated a token of it, so the file is \
+                     left unchanged: {}",
+                    e.detail
+                ),
+            )
+            .with_snippet(name, text, e.position.offset, "this token")
+            .with_help(diagnostic::bug_report_help()),
+            FileError::Format { error, .. } => Diagnostic::error(
+                "chairlift::format",
+                format!("{name}: {error}; the file is left unchanged"),
             ),
-            FileError::Format(chairlift::Error::Template(e)) => {
-                format!("{name}:{e}; the file is left unchanged")
-            }
-            FileError::Format(e) => format!("{name}: {e}; the file is left unchanged"),
             FileError::Write(e) => {
-                format!("{name}: cannot be written: {e}; the file is left as it was")
+                let diagnostic = Diagnostic::error(
+                    "chairlift::write",
+                    format!("{name}: cannot be written: {e}; the file is left as it was"),
+                );
+                if e.kind() == io::ErrorKind::PermissionDenied {
+                    diagnostic.with_help(
+                        "make the file writable, or use --check or --diff, which only read it",
+                    )
+                } else {
+                    diagnostic
+                }
             }
         }
     }
 }
 
-/// The report for a file whose formatting failed a check that only a bug
-/// in chairlift can fail.
-fn bug_report(name: impl fmt::Display, what: &str, e: &dyn fmt::Display) -> String {
-    format!(
-        "{name}: {what}, so the file is left \
-         unchanged.\nThis is a bug in chairlift. Please report it at {ISSUES} with the \
-         file, or the smallest part of it that shows the problem, and the output of \
-         `chairlift --version`.\n  {e}"
-    )
-}
-
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    let reporter = Reporter {
+        verbosity: if cli.quiet {
+            Verbosity::Quiet
+        } else if cli.verbose {
+            Verbosity::Verbose
+        } else {
+            Verbosity::Normal
+        },
+        color: cli.color.for_stderr(),
+    };
     let settings = Settings {
         action: if cli.diff {
             Action::Diff
@@ -185,22 +280,27 @@ fn main() -> ExitCode {
             eprintln!("error: `-` (stdin) cannot be combined with other paths");
             return ExitCode::from(2);
         }
-        return stdin(&settings);
+        return stdin(&settings, reporter);
     }
-    files(&cli.paths, &settings)
+    files(&cli.paths, &settings, reporter)
 }
 
 /// Formats stdin to stdout, or checks or diffs it.
-fn stdin(settings: &Settings) -> ExitCode {
-    let result = read_stdin().and_then(|source| {
-        chairlift::format(&source, &settings.options(None))
-            .map(|after| (source, after))
-            .map_err(FileError::Format)
-    });
+fn stdin(settings: &Settings, reporter: Reporter) -> ExitCode {
+    let result =
+        read_stdin().and_then(
+            |source| match chairlift::format(&source, &settings.options(None)) {
+                Ok(after) => Ok((source, after)),
+                Err(error) => Err(FileError::Format {
+                    error,
+                    text: source,
+                }),
+            },
+        );
     let (before, after) = match result {
         Ok(texts) => texts,
         Err(e) => {
-            eprintln!("error: {}", e.report("<stdin>"));
+            report(reporter, &e.diagnostic("<stdin>"));
             return ExitCode::from(2);
         }
     };
@@ -229,25 +329,53 @@ fn read_stdin() -> Result<String, FileError> {
     io::stdin()
         .read_to_end(&mut bytes)
         .map_err(FileError::Read)?;
-    String::from_utf8(bytes).map_err(|e| FileError::NotUtf8 {
-        valid_up_to: e.utf8_error().valid_up_to(),
-    })
+    String::from_utf8(bytes).map_err(not_utf8)
+}
+
+fn not_utf8(e: std::string::FromUtf8Error) -> FileError {
+    let valid_up_to = e.utf8_error().valid_up_to();
+    FileError::NotUtf8 {
+        valid_up_to,
+        text: String::from_utf8_lossy(&e.into_bytes()).into_owned(),
+    }
+}
+
+/// Prints `diagnostic` to stderr, unless the verbosity leaves it out.
+fn report(reporter: Reporter, diagnostic: &Diagnostic) {
+    if let Some(text) = reporter.render(diagnostic) {
+        eprint!("{text}");
+    }
 }
 
 /// Formats, checks or diffs the files under `paths`.
-fn files(paths: &[PathBuf], settings: &Settings) -> ExitCode {
-    let (files, mut errors) = discover(paths);
+fn files(paths: &[PathBuf], settings: &Settings, reporter: Reporter) -> ExitCode {
+    let started = Instant::now();
+    let (files, mut errors) = discover(paths, reporter);
     let mut changed = 0;
     let mut unchanged = 0;
+    let mut refused = 0;
     let mut stdout = io::stdout().lock();
     for path in &files {
+        let shown = path.display().to_string();
         match process(path, settings) {
-            Ok(Outcome { changed: None }) => unchanged += 1,
+            Ok(Outcome { changed: None }) => {
+                unchanged += 1;
+                if reporter.verbosity == Verbosity::Verbose {
+                    eprintln!("{shown}: already formatted");
+                }
+            }
             Ok(Outcome {
                 changed: Some(Changed { before, after }),
             }) => {
                 changed += 1;
-                let shown = path.display().to_string();
+                if reporter.verbosity == Verbosity::Verbose {
+                    match settings.action {
+                        Action::Write => eprintln!("{shown}: reformatted"),
+                        Action::Check | Action::Diff => {
+                            eprintln!("{shown}: would be reformatted");
+                        }
+                    }
+                }
                 let written = match settings.action {
                     Action::Write => Ok(()),
                     Action::Check => writeln!(stdout, "Would reformat: {shown}"),
@@ -261,14 +389,23 @@ fn files(paths: &[PathBuf], settings: &Settings) -> ExitCode {
                 }
             }
             Err(e) => {
-                eprintln!("error: {}", e.report(path.display()));
-                errors += 1;
+                if e.is_refused_template() {
+                    refused += 1;
+                } else {
+                    errors += 1;
+                }
+                report(reporter, &e.diagnostic(&shown));
             }
         }
     }
     drop(stdout);
-    eprintln!("{}", summary(settings.action, changed, unchanged, errors));
-    if errors > 0 {
+    let summary = summary(settings.action, changed, unchanged, refused, errors);
+    match reporter.verbosity {
+        Verbosity::Quiet => {}
+        Verbosity::Normal => eprintln!("{summary}"),
+        Verbosity::Verbose => eprintln!("{summary} in {:.2} s", started.elapsed().as_secs_f64()),
+    }
+    if errors > 0 || refused > 0 {
         ExitCode::from(2)
     } else if changed > 0 && settings.action != Action::Write {
         ExitCode::from(1)
@@ -280,7 +417,7 @@ fn files(paths: &[PathBuf], settings: &Settings) -> ExitCode {
 /// The files to format: each path that is a file, and the SQL files under
 /// each path that is a directory, sorted and without duplicates. Paths that
 /// cannot be read are reported, and counted in the second value.
-fn discover(paths: &[PathBuf]) -> (Vec<PathBuf>, usize) {
+fn discover(paths: &[PathBuf], reporter: Reporter) -> (Vec<PathBuf>, usize) {
     let mut files = Vec::new();
     let mut errors = 0;
     for path in paths {
@@ -297,7 +434,10 @@ fn discover(paths: &[PathBuf]) -> (Vec<PathBuf>, usize) {
                             }
                         }
                         Err(e) => {
-                            eprintln!("error: {e}");
+                            report(
+                                reporter,
+                                &Diagnostic::error("chairlift::walk", e.to_string()),
+                            );
                             errors += 1;
                         }
                     }
@@ -305,7 +445,10 @@ fn discover(paths: &[PathBuf]) -> (Vec<PathBuf>, usize) {
             }
             Ok(_) => files.push(path.clone()),
             Err(e) => {
-                eprintln!("error: {}", FileError::Read(e).report(path.display()));
+                report(
+                    reporter,
+                    &FileError::Read(e).diagnostic(&path.display().to_string()),
+                );
                 errors += 1;
             }
         }
@@ -328,11 +471,16 @@ fn is_sql_file(path: &Path) -> bool {
 /// Formats one file, writing it back if that is the action and it changed.
 fn process(path: &Path, settings: &Settings) -> Result<Outcome, FileError> {
     let bytes = fs::read(path).map_err(FileError::Read)?;
-    let before = String::from_utf8(bytes).map_err(|e| FileError::NotUtf8 {
-        valid_up_to: e.utf8_error().valid_up_to(),
-    })?;
-    let after =
-        chairlift::format(&before, &settings.options(Some(path))).map_err(FileError::Format)?;
+    let before = String::from_utf8(bytes).map_err(not_utf8)?;
+    let after = match chairlift::format(&before, &settings.options(Some(path))) {
+        Ok(after) => after,
+        Err(error) => {
+            return Err(FileError::Format {
+                error,
+                text: before,
+            });
+        }
+    };
     if after == before {
         return Ok(Outcome { changed: None });
     }
@@ -389,7 +537,15 @@ fn unified_diff(name: &str, before: &str, after: &str) -> String {
         .to_string()
 }
 
-fn summary(action: Action, changed: usize, unchanged: usize, errors: usize) -> String {
+/// The line that sums up a run: how many files changed or would change,
+/// were already formatted, were templates left as they are, and failed.
+fn summary(
+    action: Action,
+    changed: usize,
+    unchanged: usize,
+    refused: usize,
+    errors: usize,
+) -> String {
     let files = |n: usize| {
         if n == 1 {
             "1 file".to_owned()
@@ -402,6 +558,11 @@ fn summary(action: Action, changed: usize, unchanged: usize, errors: usize) -> S
         Action::Check | Action::Diff => format!("{} would be reformatted", files(changed)),
     }];
     parts.push(format!("{} already formatted", files(unchanged)));
+    match refused {
+        0 => {}
+        1 => parts.push("1 template refused".to_owned()),
+        n => parts.push(format!("{n} templates refused")),
+    }
     match errors {
         0 => {}
         1 => parts.push("1 error".to_owned()),
@@ -414,41 +575,87 @@ fn summary(action: Action, changed: usize, unchanged: usize, errors: usize) -> S
 mod tests {
     use super::*;
 
+    fn render(error: FileError, name: &str) -> String {
+        let reporter = Reporter {
+            verbosity: Verbosity::Normal,
+            color: false,
+        };
+        reporter
+            .render(&error.diagnostic(name))
+            .expect("errors are always shown")
+    }
+
     #[test]
     fn a_verification_failure_asks_for_a_bug_report() {
-        let error = FileError::Format(chairlift::Error::Verify(chairlift::verify::VerifyError {
-            input: chairlift::Position::new("a -1", 2),
-            output: chairlift::Position::new("a--1", 1),
-            detail: "token 2 differs".to_owned(),
-        }));
-        let message = error.report("q.sql");
-        assert!(message.starts_with(
-            "q.sql: chairlift's output failed verification, so the file is left unchanged."
-        ));
-        assert!(message.contains(ISSUES));
-        assert!(message.ends_with("input 1:3, output 1:2: token 2 differs"));
-        let error = FileError::Format(chairlift::Error::Layout(chairlift::doc::TokenCheckError {
-            position: chairlift::Position::new("a b", 2),
-            detail: "token 2 is not printed".to_owned(),
-        }));
-        let message = error.report("q.sql");
-        assert!(message.starts_with(
-            "q.sql: chairlift's layout lost or repeated a token of it, so the file is left \
-             unchanged."
-        ));
-        assert!(message.contains(ISSUES));
+        let error = FileError::Format {
+            error: chairlift::Error::Verify(chairlift::verify::VerifyError {
+                input: chairlift::Position::new("a -1", 2),
+                output: chairlift::Position::new("a--1", 1),
+                detail: "token 2 differs".to_owned(),
+            }),
+            text: "a -1".to_owned(),
+        };
+        insta::assert_snapshot!(render(error, "q.sql"), @"
+        chairlift::verify
+
+          × q.sql: chairlift's output failed verification, so the file is left unchanged: the output differs from the input at input 1:3, output 1:2: token 2 differs
+           ╭─[q.sql:1:3]
+         1 │ a -1
+           ·   ┬
+           ·   ╰── the output differs here
+           ╰────
+          help: this is a bug in chairlift. Please report it at https://github.com/glennib/chairlift/issues with the file, or the smallest part of it that shows the problem, and the output of `chairlift --version`.
+        ");
+    }
+
+    #[test]
+    fn a_line_too_long_to_show_has_no_snippet() {
+        let text = format!("SELECT '{}", "x".repeat(1000));
+        let error = chairlift::format(&text, &Options::default()).unwrap_err();
+        insta::assert_snapshot!(render(FileError::Format { error, text }, "long.sql"), @"
+        chairlift::lex
+
+          × long.sql:1:8: Single quoted string is not closed; the file is left unchanged
+        ");
     }
 
     #[test]
     fn summaries() {
         assert_eq!(
-            summary(Action::Write, 1, 0, 0),
+            summary(Action::Write, 1, 0, 0, 0),
             "1 file reformatted, 0 files already formatted"
         );
         assert_eq!(
-            summary(Action::Check, 2, 3, 1),
+            summary(Action::Check, 2, 3, 0, 1),
             "2 files would be reformatted, 3 files already formatted, \
              1 error"
         );
+        assert_eq!(
+            summary(Action::Diff, 0, 1, 2, 0),
+            "0 files would be reformatted, 1 file already formatted, \
+             2 templates refused"
+        );
+    }
+
+    /// A template the rendering makes unsafe to format is not a bug: the
+    /// diagnostic points at the comment and says what to change.
+    #[test]
+    fn a_refused_template_names_its_comment_and_the_fix() {
+        let text = "select a -- c\n{%- if x %}\n, b\n{% endif %} from t\n".to_owned();
+        let error = chairlift::format(&text, &Options::default().with_jinja(true)).unwrap_err();
+        let error = FileError::Format { error, text };
+        assert!(error.is_refused_template());
+        insta::assert_snapshot!(render(error, "m.sql.j2"), @"
+        chairlift::template
+
+          × m.sql.j2:1:10: where this line comment ends depends on the rendering, so the file is left unchanged
+           ╭─[m.sql.j2:1:10]
+         1 │ select a -- c
+           ·          ┬
+           ·          ╰── this comment
+         2 │ {%- if x %}
+           ╰────
+          help: the `-` marker of the tag after it strips the line break after it, and the comment can run on into text that follows a tag on its line; remove the marker, or end the lines of the tags there
+        ");
     }
 }
