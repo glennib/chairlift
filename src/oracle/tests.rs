@@ -29,6 +29,16 @@ fn texts_in_a_batch_end_their_last_statement() {
     assert_eq!(terminator(""), "\n");
 }
 
+/// A render of a template need not lex on its own: such a text runs alone,
+/// where it cannot pair with a text after it.
+#[test]
+fn texts_that_can_run_into_the_next_run_alone() {
+    assert!(batchable("SELECT $h$ a $h$"));
+    assert!(!batchable("SELECT $h$"));
+    assert!(!batchable("SELECT $$"));
+    assert!(!batchable("SELECT 'a"));
+}
+
 #[test]
 fn batch_output_is_split_at_boundaries() {
     let stdout = format!(

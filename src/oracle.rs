@@ -441,11 +441,17 @@ impl Oracle {
         let mut tasks = Vec::new();
         let mut start = 0;
         while start < texts.len() {
+            if !batchable(texts[start]) {
+                tasks.push(Task::Alone(start));
+                start += 1;
+                continue;
+            }
             let mut end = start;
             let mut bytes = 0;
             while end < texts.len()
                 && end - start < per_batch
                 && (end == start || bytes < self.batch_bytes)
+                && batchable(texts[end])
             {
                 bytes += texts[end].len();
                 end += 1;
@@ -863,6 +869,20 @@ impl Drop for Running<'_> {
         drop(state);
         self.queue.changed.notify_all();
     }
+}
+
+/// Whether `text` can share a run with others: whether its tokens end where
+/// it ends whatever follows it. A text with a lexer error, or with a `$` that
+/// opens no heredoc of its own (`$h$` alone), could run on into the boundary
+/// and the texts after it, or pair with a `$h$` in one of them.
+fn batchable(text: &str) -> bool {
+    let split = split(text, Mode::Sql);
+    split.first_error().is_none()
+        && !split.tokens().iter().any(|t| match t.kind() {
+            TokenKind::DollarSign => true,
+            TokenKind::BareWord => t.text(text).starts_with('$'),
+            _ => false,
+        })
 }
 
 /// What ends a text in a batch so that the boundary after it is a statement
