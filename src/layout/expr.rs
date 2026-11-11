@@ -36,7 +36,7 @@ pub(crate) fn binary(w: &mut Writer<'_>, node: &Node) {
         let indent = w.b.open_indent();
         let trivia = ops[0].trivia.clone();
         let mut on_closer_line = None;
-        if hugs_after(w, ops, operand) {
+        if hugs_after(w, ops, operand) || multiline(w, operand) {
             w.gap(trivia, Sep::Space, 0);
         } else if let Some(closer) = closer.filter(|_| w.only_whitespace(&trivia)) {
             on_closer_line = Some(w.open_after_closer(closer));
@@ -66,13 +66,28 @@ pub(crate) fn binary(w: &mut Writer<'_>, node: &Node) {
 /// line if it fits there with the start of its operand: `) > 0`, `)) = 0`,
 /// `) = g(`. After a closer followed by more code that can break, or one
 /// that ends a line of other code, `(a\n    || b) = c`, the operator breaks
-/// as anywhere else rather than hide in the middle of a line.
+/// as anywhere else rather than hide in the middle of a line. After an
+/// operand that holds a token spanning lines, the operator stays on the
+/// operand's last line in the same way.
 fn closer_line(w: &Writer<'_>, operand: &[Part]) -> Option<CloserLine> {
+    if multiline(w, operand) {
+        return Some(CloserLine::Always);
+    }
     let first = match &operand.first()?.el {
         El::Node(node) => w.range(node).0,
         El::Token { index, .. } => *index,
     };
     w.closer_line(first)
+}
+
+/// Whether `operand` holds a token that spans lines, such as a string: it
+/// breaks every group around it, which must not move the operator before it
+/// to a line of its own.
+fn multiline(w: &Writer<'_>, operand: &[Part]) -> bool {
+    operand.iter().any(|part| match &part.el {
+        El::Node(node) => w.has(node, super::tree::flag::MULTILINE),
+        El::Token { index, .. } => w.text(*index).contains('\n'),
+    })
 }
 
 /// One operand of a binary expression and the operator before it, as

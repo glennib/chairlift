@@ -82,6 +82,8 @@ pub(crate) mod flag {
     /// A token other than a tag with a Jinja block or comment tag inside
     /// it, such as `-- {% if x %}`, whose branches the layout cannot see.
     pub(crate) const HIDDEN_TAG: u16 = 1 << 3;
+    /// A token other than whitespace that spans lines.
+    pub(crate) const MULTILINE: u16 = 1 << 4;
 }
 
 /// Facts about one node.
@@ -219,6 +221,9 @@ fn token_flags(
     joined: &[bool],
 ) -> u16 {
     let mut flags = 0;
+    if kind != SyntaxKind::Whitespace && tokens[i].text(source).contains('\n') {
+        flags |= flag::MULTILINE;
+    }
     if joined.get(i).copied().unwrap_or(false) {
         flags |= flag::RENDER_JOINED;
     }

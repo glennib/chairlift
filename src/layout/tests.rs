@@ -336,6 +336,17 @@ fn operators_after_brackets_at_several_widths() {
     }
 }
 
+/// A token that spans lines breaks every group around it; the operator
+/// before it stays where it is.
+#[test]
+fn an_operator_stays_before_a_multi_line_token() {
+    assert_eq!(
+        fmt("select 1 where x = 'a\nb' and y = 1"),
+        "SELECT 1\nWHERE x = 'a\nb'\n    AND y = 1\n"
+    );
+    assert_eq!(fmt("select 'a\nb' || 'c'"), "SELECT\n    'a\nb' || 'c'\n");
+}
+
 #[test]
 fn between_never_breaks_at_its_and() {
     assert_eq!(
