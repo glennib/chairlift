@@ -124,10 +124,13 @@ fn help() {
               [default: 100]
 
           --jinja <WHEN>
-              Whether files are Jinja templates; `auto` decides by name (`*.sql.j2` and `*.j2.sql` are), and stdin is not
+              Whether files are Jinja templates; `auto` decides by name (`*.sql.j2` and `*.j2.sql` are), and stdin is not unless --stdin-filename names a template
 
               [default: auto]
               [possible values: auto, on, off]
+
+          --stdin-filename <PATH>
+              The name of the file whose text `-` reads from stdin, as an editor passes it: `--jinja auto` decides by it, and messages and diffs show it. The file itself is not read
 
       -j, --jobs <N>
               Files formatted at once [default: the number of CPUs]. Results are reported in path order whatever the number
@@ -588,6 +591,109 @@ fn output_is_in_path_order_under_parallelism() {
         let diff = stdout(&output);
         assert_eq!(*first_diff.get_or_insert_with(|| diff.clone()), diff);
     }
+}
+
+#[test]
+fn select_1_from_stdin() {
+    let output = run(&["-"], Some(b"select 1"), None);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(stdout(&output), "SELECT 1\n");
+    assert_eq!(stderr(&output), "");
+}
+
+#[test]
+fn line_width_is_applied() {
+    let query = "select f(aaaa, bbbb, cccc), x from tbl where a = 1 and b = 2;";
+    let wide = "SELECT\n    f(aaaa, bbbb, cccc),\n    x\nFROM tbl\nWHERE a = 1 AND b = 2;\n";
+    let output = run(&["-"], Some(query.as_bytes()), None);
+    assert_eq!(stdout(&output), wide);
+    let output = run(&["--line-width", "30", "-"], Some(query.as_bytes()), None);
+    assert_eq!(stdout(&output), wide);
+    let output = run(&["--line-width", "20", "-"], Some(query.as_bytes()), None);
+    assert_eq!(
+        stdout(&output),
+        "SELECT\n    f(\n        aaaa,\n        bbbb,\n        cccc\n    ),\n    x\nFROM tbl\n\
+         WHERE a = 1\n    AND b = 2;\n"
+    );
+    let dir = temp_dir("line-width");
+    write(&dir, "q.sql", wide);
+    let output = run(
+        &["--check", "--line-width", "20", "q.sql"],
+        None,
+        Some(&*dir),
+    );
+    assert_eq!(output.status.code(), Some(1));
+    for bad in ["0", "-5", "65536", "wide", ""] {
+        let output = chairlift(&[&format!("--line-width={bad}"), "-"]);
+        assert_eq!(output.status.code(), Some(2), "--line-width {bad:?}");
+        assert!(
+            stderr(&output).contains("--line-width"),
+            "{}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn stdin_filename_decides_jinja_mode_and_names_the_text() {
+    // A string holding a tag with a quote in it: one string in Jinja mode,
+    // an unclosed string in SQL mode.
+    let template = "SELECT '{{ \"'\" }}';\n";
+    for name in ["models/m.sql.j2", "0001_init.up.j2.sql"] {
+        let output = run(
+            &["--stdin-filename", name, "-"],
+            Some(template.as_bytes()),
+            None,
+        );
+        assert_eq!(output.status.code(), Some(0), "{name}: {}", stderr(&output));
+        assert_eq!(stdout(&output), template);
+    }
+    let output = run(
+        &["--stdin-filename", "models/m.sql", "-"],
+        Some(template.as_bytes()),
+        None,
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("× models/m.sql:1:14: Double quoted string is not closed"),
+        "{}",
+        stderr(&output)
+    );
+    // --jinja still wins.
+    let output = run(
+        &["--stdin-filename", "m.sql", "--jinja", "on", "-"],
+        Some(template.as_bytes()),
+        None,
+    );
+    assert_eq!(output.status.code(), Some(0));
+
+    let output = run(
+        &["--check", "--stdin-filename", "q.sql", "-"],
+        Some(MESSY.as_bytes()),
+        None,
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stdout(&output), "Would reformat: q.sql\n");
+    let output = run(
+        &["--diff", "--stdin-filename", "q.sql", "-"],
+        Some(b"SELECT 1;  \n"),
+        None,
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stdout(&output).starts_with("--- a/q.sql\n+++ b/q.sql\n"),
+        "{}",
+        stdout(&output)
+    );
+
+    // The file named is not read: it need not exist.
+    let output = chairlift(&["--stdin-filename", "q.sql", "x.sql"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("--stdin-filename names the file on stdin"),
+        "{}",
+        stderr(&output)
+    );
 }
 
 #[test]

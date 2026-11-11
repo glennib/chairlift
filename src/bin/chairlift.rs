@@ -63,9 +63,16 @@ struct Cli {
     line_width: u16,
 
     /// Whether files are Jinja templates; `auto` decides by name (`*.sql.j2`
-    /// and `*.j2.sql` are), and stdin is not.
+    /// and `*.j2.sql` are), and stdin is not unless --stdin-filename names a
+    /// template.
     #[arg(long, value_enum, value_name = "WHEN", default_value_t = Jinja::Auto)]
     jinja: Jinja,
+
+    /// The name of the file whose text `-` reads from stdin, as an editor
+    /// passes it: `--jinja auto` decides by it, and messages and diffs show
+    /// it. The file itself is not read.
+    #[arg(long, value_name = "PATH")]
+    stdin_filename: Option<PathBuf>,
 
     /// Files formatted at once [default: the number of CPUs]. Results are
     /// reported in path order whatever the number.
@@ -290,31 +297,44 @@ fn main() -> ExitCode {
             eprintln!("error: `-` (stdin) cannot be combined with other paths");
             return ExitCode::from(2);
         }
-        return stdin(&settings, reporter);
+        return stdin(&settings, cli.stdin_filename.as_deref(), reporter);
+    }
+    if cli.stdin_filename.is_some() {
+        eprintln!("error: --stdin-filename names the file on stdin, so it needs `-` as the path");
+        return ExitCode::from(2);
     }
     let jobs = cli.jobs.map_or_else(parallel::default_jobs, usize::from);
     files(&cli.paths, &settings, jobs, reporter)
 }
 
-/// Formats stdin to stdout, or checks or diffs it.
-fn stdin(settings: &Settings, reporter: Reporter) -> ExitCode {
+/// Formats stdin to stdout, or checks or diffs it. `filename` is the name
+/// of the file the text comes from, if `--stdin-filename` gives one.
+fn stdin(settings: &Settings, filename: Option<&Path>, reporter: Reporter) -> ExitCode {
+    let shown = filename.map(|f| f.display().to_string());
     let result = read_stdin()
-        .and_then(|source| format_text(source, &settings.options(None)))
+        .and_then(|source| format_text(source, &settings.options(filename)))
         .and_then(|formatted| {
-            let outcome = finish("-", None, &formatted, settings)?;
+            let outcome = finish(shown.as_deref().unwrap_or("-"), None, &formatted, settings)?;
             Ok((formatted, outcome))
         });
     let (formatted, outcome) = match result {
         Ok(done) => done,
         Err(e) => {
-            report(reporter, &e.diagnostic("<stdin>"));
+            report(
+                reporter,
+                &e.diagnostic(shown.as_deref().unwrap_or("<stdin>")),
+            );
             return ExitCode::from(2);
         }
     };
     let mut stdout = io::stdout().lock();
     let written = match (settings.action, outcome.diff) {
         (Action::Write, _) => stdout.write_all(formatted.after.as_bytes()),
-        (Action::Check, _) if outcome.changed => writeln!(stdout, "Would reformat: -"),
+        (Action::Check, _) if outcome.changed => writeln!(
+            stdout,
+            "Would reformat: {}",
+            shown.as_deref().unwrap_or("-")
+        ),
         (_, Some(diff)) => stdout.write_all(diff.as_bytes()),
         (Action::Check | Action::Diff, None) => Ok(()),
     };
