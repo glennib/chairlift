@@ -15,7 +15,7 @@
 //! | [`insert`] | `INSERT`, with the `WITH` clause before it |
 //! | [`simple`] | `DROP`, `DETACH`, `TRUNCATE`, `UNDROP`, `ATTACH`, `RENAME`, `EXCHANGE`, `OPTIMIZE`, `SET`, `USE` |
 //! | [`alter`] | `ALTER TABLE`, `ALTER DATABASE`, the lightweight `DELETE` and `UPDATE` |
-//! | [`create_other`] | `CREATE DICTIONARY`, `CREATE FUNCTION` |
+//! | [`create_other`] | `CREATE DICTIONARY`, `CREATE FUNCTION`, `CREATE INDEX` |
 //! | [`access`] | `GRANT`, `REVOKE`, `CREATE`/`ALTER`/`DROP` of users, roles, quotas, row policies and settings profiles, `SET ROLE` |
 //! | [`show`] | `SHOW …`, `DESCRIBE` |
 //! | [`probe`] | the `SELECT <list>` expression probe |

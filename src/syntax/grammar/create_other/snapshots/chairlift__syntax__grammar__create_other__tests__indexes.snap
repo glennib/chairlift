@@ -1,0 +1,67 @@
+---
+source: src/syntax/grammar/create_other/tests.rs
+expression: "trees(&[\"CREATE INDEX i ON t (a DESC, b)\",\n\"CREATE UNIQUE INDEX IF NOT EXISTS i ON db.t ON CLUSTER c a + 1 TYPE bloom_filter(0.01) GRANULARITY 4\",])"
+---
+> CREATE INDEX i ON t (a DESC, b)
+CreateIndex
+  Keyword "CREATE"
+  Keyword "INDEX"
+  Name
+    BareWord "i"
+  Keyword "ON"
+  Name
+    BareWord "t"
+  OrderByTuple
+    OpeningRoundBracket "("
+    OrderByList
+      OrderByItem
+        Name
+          BareWord "a"
+        Keyword "DESC"
+      Comma ","
+      OrderByItem
+        Name
+          BareWord "b"
+    ClosingRoundBracket ")"
+
+> CREATE UNIQUE INDEX IF NOT EXISTS i ON db.t ON CLUSTER c a + 1 TYPE bloom_filter(0.01) GRANULARITY 4
+CreateIndex
+  Keyword "CREATE"
+  Keyword "UNIQUE"
+  Keyword "INDEX"
+  IfNotExists
+    Keyword "IF"
+    Keyword "NOT"
+    Keyword "EXISTS"
+  Name
+    BareWord "i"
+  Keyword "ON"
+  QualifiedName
+    Name
+      BareWord "db"
+    Dot "."
+    Name
+      BareWord "t"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+  BinaryExpr
+    Name
+      BareWord "a"
+    Plus "+"
+    Literal
+      Number "1"
+  Keyword "TYPE"
+  FunctionCall
+    Name
+      BareWord "bloom_filter"
+    ArgList
+      OpeningRoundBracket "("
+      Literal
+        Number "0.01"
+      ClosingRoundBracket ")"
+  Keyword "GRANULARITY"
+  Literal
+    Number "4"

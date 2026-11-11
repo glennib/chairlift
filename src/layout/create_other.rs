@@ -1,6 +1,11 @@
-//! `CREATE DATABASE` and the clauses of `CREATE DICTIONARY`; a dictionary's
-//! statement is laid out as a table's (see `create`), and a function's as a
-//! statement of a line or two (see `simple`).
+//! `CREATE DATABASE`, `CREATE INDEX` and the clauses of `CREATE
+//! DICTIONARY`; a dictionary's statement is laid out as a table's (see
+//! `create`), and a function's as a statement of a line or two (see
+//! `simple`).
+//!
+//! An index stays on one line if it fits; otherwise `TYPE` and
+//! `GRANULARITY` each start a line, one level in, as in an index of a
+//! table, and a long bracketed list of expressions goes one per line.
 //!
 //! A database stays on one line if it fits; otherwise each clause starts a
 //! line at the statement's indentation, as a table's do.
@@ -30,6 +35,11 @@ pub(crate) fn database(w: &mut Writer<'_>, node: &Node) {
         w.el(&part.el);
     }
     w.b.close(open);
+}
+
+/// The body of a `CREATE INDEX` statement.
+pub(crate) fn index(w: &mut Writer<'_>, node: &Node) {
+    super::create::index(w, node);
 }
 
 /// `SOURCE(…)`, `LAYOUT(…)`, `LIFETIME(…)`, `RANGE(…)` or `SETTINGS(…)` of a

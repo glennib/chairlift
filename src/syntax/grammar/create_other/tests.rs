@@ -50,6 +50,14 @@ fn functions_views_and_databases() {
     ]));
 }
 
+#[test]
+fn indexes() {
+    insta::assert_snapshot!(trees(&[
+        "CREATE INDEX i ON t (a DESC, b)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS i ON db.t ON CLUSTER c a + 1 TYPE bloom_filter(0.01) GRANULARITY 4",
+    ]));
+}
+
 /// Inside `SOURCE`, `LAYOUT`, `LIFETIME` and `RANGE` every word is a name;
 /// a function's name and parameters are names; the re-cased text passes the
 /// verifier.
@@ -76,6 +84,10 @@ fn keyword_slots() {
             "create database database engine = Atomic",
             "CREATE DATABASE database ENGINE = Atomic",
         ),
+        (
+            "create index index on table (type desc) type set(1) granularity 1",
+            "CREATE INDEX index ON table (type DESC) TYPE set(1) GRANULARITY 1",
+        ),
     ] {
         let out = recased(source, Entry::File);
         assert_eq!(out, expected, "{source}");
@@ -90,6 +102,8 @@ fn what_is_not_parsed_stays_verbatim() {
         "CREATE DICTIONARY d PRIMARY KEY id",
         "CREATE DICTIONARY d (id) PRIMARY KEY id",
         "CREATE FUNCTION f",
+        "CREATE INDEX i ON t () TYPE minmax",
+        "CREATE INDEX i ON t (a) TYPE minmax GRANULARITY x",
     ] {
         assert_ne!(outcome(source), StatementOutcome::Parsed, "{source}");
     }

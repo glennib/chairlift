@@ -1,7 +1,7 @@
-//! `CREATE DICTIONARY` and `CREATE FUNCTION`, as ClickHouse's
-//! `ParserCreateDictionaryQuery` (with `ParserDictionary` and
-//! `ParserDictionaryAttributeDeclaration`) and `ParserCreateFunctionQuery`
-//! read them.
+//! `CREATE DICTIONARY`, `CREATE FUNCTION` and `CREATE INDEX`, as
+//! ClickHouse's `ParserCreateDictionaryQuery` (with `ParserDictionary` and
+//! `ParserDictionaryAttributeDeclaration`), `ParserCreateFunctionQuery` and
+//! `ParserCreateIndexQuery` read them.
 //!
 //! A dictionary is a [`CreateHeader`](SyntaxKind::CreateHeader), its
 //! attributes in brackets, then clauses in any order, each with the clause
@@ -16,6 +16,9 @@
 //! itself. So `SOURCE(clickhouse(table 'x' db 'y'))` keeps its case, as do
 //! `MIN` and `MAX` in `LIFETIME(MIN 0 MAX 10)`. A function's name and its
 //! lambda's parameters are names too.
+//!
+//! An index's name, its table and its type are names: `TYPE minmax`,
+//! `TYPE bloom_filter(0.01)`.
 
 use crate::keyword::Keyword as K;
 use crate::lexer::TokenKind as T;
@@ -24,16 +27,20 @@ use crate::syntax::grammar::common;
 use crate::syntax::grammar::create;
 use crate::syntax::grammar::exprs;
 use crate::syntax::grammar::fallback;
+use crate::syntax::grammar::insert;
 use crate::syntax::grammar::names;
 use crate::syntax::grammar::types;
 use crate::syntax::parser::CompletedMarker;
 use crate::syntax::parser::Parser;
 
 /// Whether the statement at the current token is `CREATE [OR REPLACE]
-/// DICTIONARY` or `CREATE [OR REPLACE] FUNCTION`.
+/// DICTIONARY`, `CREATE [OR REPLACE] FUNCTION` or `CREATE [UNIQUE] INDEX`.
 pub(crate) fn at_statement(p: &Parser<'_>) -> bool {
     if !p.at_kw(K::Create) {
         return false;
+    }
+    if at_index(p) {
+        return true;
     }
     let n = if p.nth_at_kw(1, K::Or) && p.nth_at_kw(2, K::Replace) {
         3
@@ -45,7 +52,9 @@ pub(crate) fn at_statement(p: &Parser<'_>) -> bool {
 
 /// A statement of this module's, up to the end of the statement.
 pub(crate) fn statement(p: &mut Parser<'_>) -> Option<()> {
-    if p.at_kws(&[K::Create, K::Dictionary])
+    if at_index(p) {
+        index(p)
+    } else if p.at_kws(&[K::Create, K::Dictionary])
         || p.at_kws(&[K::Create, K::Or, K::Replace, K::Dictionary])
     {
         dictionary(p)
@@ -253,6 +262,49 @@ fn function(p: &mut Parser<'_>) -> Option<()> {
         fallback::opaque_until(p, &fallback::never)?;
     }
     m.complete(p, SyntaxKind::CreateFunction);
+    Some(())
+}
+
+/// Whether the statement at the current token is `CREATE [UNIQUE] INDEX`.
+fn at_index(p: &Parser<'_>) -> bool {
+    p.at_kws(&[K::Create, K::Index]) || p.at_kws(&[K::Create, K::Unique, K::Index])
+}
+
+/// A [`CreateIndex`](SyntaxKind::CreateIndex) (`ParserCreateIndexQuery`,
+/// `ParserCreateIndexDeclaration`). In brackets, the indexed expressions
+/// are `ORDER BY` items, whose directions ClickHouse accepts and ignores;
+/// without, one expression.
+fn index(p: &mut Parser<'_>) -> Option<()> {
+    let m = p.start();
+    p.bump_keyword();
+    p.eat_kw(K::Unique);
+    p.expect_kw(K::Index)?;
+    common::if_not_exists(p);
+    names::name(p)?;
+    p.expect_kw(K::On)?;
+    insert::table_name(p)?;
+    if p.at_kw(K::On) {
+        common::on_cluster(p)?;
+    }
+    if p.at(T::OpeningRoundBracket) {
+        let tuple = p.start();
+        p.bump();
+        common::order_by_list(p, &fallback::never)?;
+        p.expect(T::ClosingRoundBracket)?;
+        tuple.complete(p, SyntaxKind::OrderByTuple);
+    } else {
+        exprs::expr(p)?;
+    }
+    if p.eat_kw(K::Type) {
+        create::name_with_args(p)?;
+    }
+    if p.eat_kw(K::Granularity) {
+        if !p.at(T::Number) {
+            return p.expected("a number");
+        }
+        exprs::literal(p)?;
+    }
+    m.complete(p, SyntaxKind::CreateIndex);
     Some(())
 }
 

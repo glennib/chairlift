@@ -753,7 +753,8 @@ syntax_kinds! {
         /// `SAMPLE BY expr`.
         SampleByClause: Clause,
         /// `( … )` or `tuple( … )` of a table's `ORDER BY` whose keys have a
-        /// direction: an optional [`Name`](Self::Name) `tuple`, `(`, an
+        /// direction, or `( … )` of `CREATE INDEX`: an optional
+        /// [`Name`](Self::Name) `tuple`, `(`, an
         /// [`OrderByList`](Self::OrderByList), `)`. Without directions the
         /// keys are an ordinary expression, a [`TupleExpr`](Self::TupleExpr)
         /// or a [`FunctionCall`](Self::FunctionCall).
@@ -1020,6 +1021,13 @@ syntax_kinds! {
         /// what follows the name kept [`Opaque`](Self::Opaque) for the
         /// `ENGINE` and `LANGUAGE` forms.
         CreateFunction: Statement,
+        /// `CREATE [UNIQUE] INDEX [IF NOT EXISTS]`, the index's
+        /// [`Name`](Self::Name), `ON` and the table, any
+        /// [`OnCluster`](Self::OnCluster), then the indexed expression or an
+        /// [`OrderByTuple`](Self::OrderByTuple) of them, and any `TYPE` and a
+        /// type (as for [`IndexDef`](Self::IndexDef)) and `GRANULARITY` and
+        /// a number.
+        CreateIndex: Statement,
 
         // ---- Access control -----------------------------------------------
         // Grammar in `grammar/access.rs`. `DROP` of an access entity is a

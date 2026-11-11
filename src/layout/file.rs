@@ -43,6 +43,7 @@ pub(crate) fn rule_for(kind: SyntaxKind) -> Option<Rule> {
         SyntaxKind::SetRoleQuery | SyntaxKind::ShowQuery | SyntaxKind::DescribeQuery => {
             Some(super::simple::statement)
         }
+        SyntaxKind::CreateIndex => Some(super::create_other::index),
         _ => None,
     }
 }

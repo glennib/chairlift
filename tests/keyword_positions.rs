@@ -525,6 +525,10 @@ const STATEMENTS: &[&str] = &[
     "DESCRIBE {n}('x')",
     "DESCRIBE t SETTINGS {n} = 1",
     "DESCRIBE t FORMAT {n}",
+    // `CREATE INDEX`.
+    "CREATE INDEX {n} ON {n}.{n} (a DESC, {w})",
+    "CREATE UNIQUE INDEX IF NOT EXISTS {n} ON {n} ON CLUSTER {n} {w} TYPE {n}(1) GRANULARITY 2",
+    "CREATE INDEX i ON t a TYPE {n}",
 ];
 
 /// Statements with their keywords in lower case, so that each is re-cased

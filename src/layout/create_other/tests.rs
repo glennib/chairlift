@@ -122,3 +122,37 @@ COMMENT 'Analytics'
         80,
     );
 }
+
+#[test]
+fn an_index_is_a_one_liner() {
+    check(
+        "create unique index if not exists idx on db.t on cluster c (a desc, b) type minmax granularity 1;\n\
+         create index idx on t a + b;",
+        "
+CREATE UNIQUE INDEX IF NOT EXISTS idx ON db.t ON CLUSTER c (a DESC, b) TYPE minmax GRANULARITY 1;
+CREATE INDEX idx ON t a + b;
+",
+    );
+    check_at(
+        "create index idx_events on analytics.events (event_date desc, user_id) type bloom_filter(0.01) granularity 4",
+        "
+CREATE INDEX idx_events ON analytics.events (event_date DESC, user_id)
+    TYPE bloom_filter(0.01)
+    GRANULARITY 4
+",
+        80,
+    );
+    check_at(
+        "create index idx_events on analytics.events (event_date desc, user_id, session_id, site_id) type minmax",
+        "
+CREATE INDEX idx_events ON analytics.events (
+    event_date DESC,
+    user_id,
+    session_id,
+    site_id
+)
+    TYPE minmax
+",
+        60,
+    );
+}
