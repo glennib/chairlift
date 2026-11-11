@@ -231,7 +231,14 @@ impl Search<'_> {
                     continue;
                 };
                 let spaced = n.abs_diff(r) > 1;
-                if spaced && !strips {
+                // A tag beyond the whitespace, or a `{{ }}` there, can strip it
+                // from its side.
+                let stripped = strips
+                    || match side {
+                        Side::After => self.strips_before(n),
+                        Side::Before => self.strips_after(n),
+                    };
+                if spaced && !stripped {
                     continue;
                 }
                 if is_tag(self.tokens[n]) {
@@ -350,6 +357,16 @@ mod tests {
         );
         // A loop run twice joins the end of its body to its start.
         assert_eq!(joined("{% for i in xs -%} a {%- endfor %} b"), ["a"]);
+        // The marker of the tag beyond the whitespace strips it: with `x`
+        // false and `y` true this renders `aor c`.
+        assert_eq!(
+            joined("a {%- if x %} b {% endif -%} {% if y -%} or c {% endif %}"),
+            ["a", "or"]
+        );
+        assert_eq!(
+            joined("{% if x %} {{ v -}} {% else %} b {% endif -%} where c"),
+            ["where"]
+        );
     }
 
     #[test]
