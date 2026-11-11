@@ -14,7 +14,7 @@ M9 (chum integration) is not part of this run.
 | M4. Formatting rules and printer | done | acceptance measured; reviews' fixes on `main`; style readings await the project owner |
 | M5. Jinja templates | implemented, unmerged | complete on its own stack; to be rebased onto `main`; not yet reviewed |
 | M6. CLI polish and performance | done | acceptance measured; the CI benchmark check's sensitivity is unproven |
-| M7. Remaining statement kinds | implemented | parts 1–3 on `main`; `CREATE INDEX` and small gaps in progress; not yet reviewed |
+| M7. Remaining statement kinds | implemented | on `main`; acceptance met; not yet reviewed |
 | M8. Hardening and first release | not started | |
 
 ## Resuming the work
@@ -681,3 +681,12 @@ M7 acceptance so far, with parts 1 to 3 together:
   By leading keyword: `SYSTEM` 3,887, `EXPLAIN` 2,941, `PRINT` 1,454, other `CREATE` kinds 1,219, `{{` 252, `LET` 145.
 - Every statement in the fixtures and the local corpora parses without statement-level fallback.
 - The oracle finds no differing statement in any corpus.
+
+Mop-up: `CREATE INDEX`, a view's column aliases, and `DEFINER` before `VIEW`.
+Only the tip was checked with `mise run ci` (513 tests).
+
+- 1,014 of 1,016 `CREATE INDEX` statements parse and are formatted; ClickHouse rejects the other two.
+- Statements verbatim at statement level on the stateless corpus: 10,336 of 275,515 (3.75%; the target is 5%).
+  By leading keyword: `SYSTEM` 3,887, `EXPLAIN` 2,941, `PRINT` 1,454, `{{` 252, `CREATE` 204
+  (`WORKLOAD`, `NAMED COLLECTION`, `HANDLER`, `RESOURCE` and hypothetical indexes).
+- Verify and idempotence hold on every corpus file; the oracle judges 270,251 statements, none differing.
