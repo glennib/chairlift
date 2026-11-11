@@ -16,6 +16,7 @@
 //! | [`simple`] | `DROP`, `DETACH`, `TRUNCATE`, `UNDROP`, `ATTACH`, `RENAME`, `EXCHANGE`, `OPTIMIZE`, `SET`, `USE` |
 //! | [`alter`] | `ALTER TABLE`, `ALTER DATABASE`, the lightweight `DELETE` and `UPDATE` |
 //! | [`create_other`] | `CREATE DICTIONARY`, `CREATE FUNCTION` |
+//! | [`access`] | `GRANT`, `REVOKE`, `CREATE`/`ALTER`/`DROP` of users, roles, quotas, row policies and settings profiles, `SET ROLE` |
 //! | [`probe`] | the `SELECT <list>` expression probe |
 //!
 //! # Writing grammar
@@ -142,6 +143,7 @@
 //!    `mise run corpus` and `mise run corpus:recase` for the statistics and
 //!    the oracle's view of the keyword slots.
 
+pub(crate) mod access;
 pub(crate) mod alter;
 pub(crate) mod common;
 pub(crate) mod create;
@@ -186,6 +188,8 @@ pub(crate) fn statement(p: &mut Parser<'_>, entry: Entry) {
                 fallback::statement(p, alter::statement);
             } else if create_other::at_statement(p) {
                 fallback::statement(p, create_other::statement);
+            } else if access::at_statement(p) {
+                fallback::statement(p, access::statement);
             } else {
                 fallback::verbatim_statement(p);
             }

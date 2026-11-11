@@ -1020,6 +1020,119 @@ syntax_kinds! {
         /// what follows the name kept [`Opaque`](Self::Opaque) for the
         /// `ENGINE` and `LANGUAGE` forms.
         CreateFunction: Statement,
+
+        // ---- Access control -----------------------------------------------
+        // Grammar in `grammar/access.rs`. `DROP` of an access entity is a
+        // `DropQuery` whose names are a `NameList` of `UserName`s, `Name`s
+        // and string `Literal`s, or a `RowPolicyNameList`.
+        /// `GRANT` or `REVOKE`: the keyword, any
+        /// [`OnCluster`](Self::OnCluster), `GRANT OPTION FOR` or `ADMIN
+        /// OPTION FOR` after `REVOKE`, what is granted (an
+        /// [`AccessList`](Self::AccessList), a
+        /// [`CurrentGrants`](Self::CurrentGrants) or a
+        /// [`RoleSet`](Self::RoleSet) of roles), a
+        /// [`GranteesClause`](Self::GranteesClause), and any
+        /// [`GrantOptionClause`](Self::GrantOptionClause)s, with an
+        /// `OnCluster` at any of the places ClickHouse takes one.
+        GrantQuery: Statement,
+        /// [`AccessElement`](Self::AccessElement)s separated by commas.
+        AccessList: List,
+        /// Privileges on one object: a
+        /// [`PrivilegeList`](Self::PrivilegeList) and a
+        /// [`GrantOn`](Self::GrantOn).
+        AccessElement: Node,
+        /// [`Privilege`](Self::Privilege)s separated by commas.
+        PrivilegeList: List,
+        /// One privilege: its words (`SELECT`, `ALTER UPDATE`, `dictGet`),
+        /// then any [`ParenList`](Self::ParenList) of columns. The words are
+        /// keywords when every one of them is a keyword word, and names
+        /// otherwise, since ClickHouse matches them as one phrase.
+        Privilege: Node,
+        /// `ON` and the [`GrantTarget`](Self::GrantTarget) of privileges.
+        GrantOn: Clause,
+        /// What privileges or a row policy apply to: `*`, `*.*`, `db.*`,
+        /// `db.table`, `table`, or a parameter (`S3`), each name with any
+        /// `*` after it.
+        GrantTarget: Node,
+        /// `CURRENT GRANTS` and an [`AccessList`](Self::AccessList) in
+        /// brackets, or a [`GrantOn`](Self::GrantOn).
+        CurrentGrants: Node,
+        /// `TO` or `FROM` and a [`RoleSet`](Self::RoleSet): who is granted.
+        GranteesClause: Clause,
+        /// `WITH GRANT OPTION`, `WITH ADMIN OPTION` or `WITH REPLACE OPTION`.
+        GrantOptionClause: Clause,
+        /// Users and roles: a [`RoleList`](Self::RoleList), then any `EXCEPT`
+        /// and another `RoleList`.
+        RoleSet: Node,
+        /// [`UserName`](Self::UserName)s and
+        /// [`RoleKeyword`](Self::RoleKeyword)s separated by commas.
+        RoleList: List,
+        /// `NONE`, `ALL`, `ANY` or `CURRENT_USER` (with any `()`) in a
+        /// [`RoleList`](Self::RoleList). `currentUser` keeps its case.
+        RoleKeyword: Node,
+        /// A user or role: a [`Name`](Self::Name), a
+        /// [`QueryParameter`](Self::QueryParameter) or a string
+        /// [`Literal`](Self::Literal); a name may have `@` and a host
+        /// pattern after it, a `Name` or a string `Literal`.
+        UserName: Node,
+        /// `CREATE` or `ALTER` of a `USER`, `ROLE`, `QUOTA`, `[ROW] POLICY` or
+        /// `[SETTINGS] PROFILE`: the keywords; any
+        /// [`IfNotExists`](Self::IfNotExists), `OR REPLACE` or
+        /// [`IfExists`](Self::IfExists); the names, a
+        /// [`NameList`](Self::NameList) or a
+        /// [`RowPolicyNameList`](Self::RowPolicyNameList); then its
+        /// [`AccessClause`](Self::AccessClause)s and
+        /// [`OnCluster`](Self::OnCluster)s in the order written, which may be
+        /// any order.
+        AccessEntityQuery: Statement,
+        /// A clause of an access entity: its keywords, then its body, such as
+        /// a [`RoleSet`](Self::RoleSet), a
+        /// [`ProfileSettingList`](Self::ProfileSettingList), a
+        /// [`HostList`](Self::HostList), a
+        /// [`QuotaIntervalList`](Self::QuotaIntervalList), a name, a string
+        /// or an expression. What chairlift does not model in a clause
+        /// (`IDENTIFIED WITH ssh_key BY KEY …`, `ADD HOST …` in `ALTER USER`)
+        /// is [`Opaque`](Self::Opaque).
+        AccessClause: Clause,
+        /// [`HostItem`](Self::HostItem)s separated by commas.
+        HostList: List,
+        /// A host of `HOST`: `LOCAL`, `ANY` or `NONE`, `NAME`, `REGEXP`, `IP`
+        /// or `LIKE` and a string [`Literal`](Self::Literal), or a string
+        /// alone.
+        HostItem: Node,
+        /// [`ProfileSetting`](Self::ProfileSetting)s separated by commas.
+        ProfileSettingList: List,
+        /// One element of a settings profile: a setting's
+        /// [`Name`](Self::Name) or [`QualifiedName`](Self::QualifiedName) and
+        /// any of `= value`, `MIN [=] value`, `MAX [=] value` and `CONST`,
+        /// `READONLY`, `WRITABLE` or `CHANGEABLE_IN_READONLY`; `PROFILE`,
+        /// `PROFILES` or `INHERIT` and a profile's name; a profile's name
+        /// alone; or `NONE`. Any `SETTINGS` before it is a token of its own.
+        ProfileSetting: Node,
+        /// [`QuotaInterval`](Self::QuotaInterval)s separated by commas.
+        QuotaIntervalList: List,
+        /// `FOR [RANDOMIZED] [INTERVAL] n` and an
+        /// [`IntervalUnit`](Self::IntervalUnit), then `NO LIMITS`, `TRACKING
+        /// ONLY` or a [`QuotaLimitList`](Self::QuotaLimitList).
+        QuotaInterval: Node,
+        /// [`QuotaLimit`](Self::QuotaLimit)s separated by commas.
+        QuotaLimitList: List,
+        /// A quota's limit: `MAX`, the resource's words, which keep their case,
+        /// any `=`, and a number or string [`Literal`](Self::Literal); or the
+        /// words, `MAX` and the value.
+        QuotaLimit: Node,
+        /// [`RowPolicyName`](Self::RowPolicyName)s separated by commas.
+        RowPolicyNameList: List,
+        /// Row policies: their names ([`Name`](Self::Name)s or string
+        /// [`Literal`](Self::Literal)s separated by commas), any
+        /// [`OnCluster`](Self::OnCluster), `ON` and the tables
+        /// ([`GrantTarget`](Self::GrantTarget)s separated by commas), and any
+        /// `OnCluster`.
+        RowPolicyName: Node,
+        /// `SET ROLE` and a [`RoleSet`](Self::RoleSet) or `DEFAULT`; or `SET
+        /// DEFAULT ROLE`, any [`OnCluster`](Self::OnCluster), a `RoleSet`,
+        /// `TO`, a `RoleSet` of users, and any `OnCluster`.
+        SetRoleQuery: Statement,
     }
 }
 

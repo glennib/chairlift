@@ -1,0 +1,280 @@
+---
+source: src/syntax/grammar/access/tests.rs
+expression: "trees(&[\"GRANT SELECT, INSERT, ALTER UPDATE ON db.t TO a, b WITH GRANT OPTION\",\n\"grant select(a, b), dictGet on *.* to u with replace option\",\n\"GRANT ON CLUSTER c ALL ON db.* TO CURRENT_USER, u@'%'\",\n\"GRANT SELECT ON db.t, INSERT ON db.x TO {{ role }}\",\n\"GRANT r1, r2 TO u WITH ADMIN OPTION\",\n\"GRANT CURRENT GRANTS(SELECT ON db.*) TO u\",\n\"REVOKE GRANT OPTION FOR SELECT ON db.* FROM ALL EXCEPT u\",\n\"REVOKE ADMIN OPTION FOR r ON CLUSTER c FROM u\",\n\"GRANT system reload dictionary ON *.* TO u\",])"
+---
+> GRANT SELECT, INSERT, ALTER UPDATE ON db.t TO a, b WITH GRANT OPTION
+GrantQuery
+  Keyword "GRANT"
+  AccessList
+    AccessElement
+      PrivilegeList
+        Privilege
+          Keyword "SELECT"
+        Comma ","
+        Privilege
+          Keyword "INSERT"
+        Comma ","
+        Privilege
+          Keyword "ALTER"
+          Keyword "UPDATE"
+      GrantOn
+        Keyword "ON"
+        GrantTarget
+          Name
+            BareWord "db"
+          Dot "."
+          Name
+            BareWord "t"
+  GranteesClause
+    Keyword "TO"
+    RoleSet
+      RoleList
+        UserName
+          Name
+            BareWord "a"
+        Comma ","
+        UserName
+          Name
+            BareWord "b"
+  GrantOptionClause
+    Keyword "WITH"
+    Keyword "GRANT"
+    Keyword "OPTION"
+
+> grant select(a, b), dictGet on *.* to u with replace option
+GrantQuery
+  Keyword "grant"
+  AccessList
+    AccessElement
+      PrivilegeList
+        Privilege
+          Keyword "select"
+          ParenList
+            OpeningRoundBracket "("
+            Name
+              BareWord "a"
+            Comma ","
+            Name
+              BareWord "b"
+            ClosingRoundBracket ")"
+        Comma ","
+        Privilege
+          BareWord "dictGet"
+      GrantOn
+        Keyword "on"
+        GrantTarget
+          Asterisk "*"
+          Dot "."
+          Asterisk "*"
+  GranteesClause
+    Keyword "to"
+    RoleSet
+      RoleList
+        UserName
+          Name
+            BareWord "u"
+  GrantOptionClause
+    Keyword "with"
+    Keyword "replace"
+    Keyword "option"
+
+> GRANT ON CLUSTER c ALL ON db.* TO CURRENT_USER, u@'%'
+GrantQuery
+  Keyword "GRANT"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+  AccessList
+    AccessElement
+      PrivilegeList
+        Privilege
+          Keyword "ALL"
+      GrantOn
+        Keyword "ON"
+        GrantTarget
+          Name
+            BareWord "db"
+          Dot "."
+          Asterisk "*"
+  GranteesClause
+    Keyword "TO"
+    RoleSet
+      RoleList
+        RoleKeyword
+          Keyword "CURRENT_USER"
+        Comma ","
+        UserName
+          Name
+            BareWord "u"
+          At "@"
+          Literal
+            StringLiteral "'%'"
+
+> GRANT SELECT ON db.t, INSERT ON db.x TO {{ role }}
+GrantQuery
+  Keyword "GRANT"
+  AccessList
+    AccessElement
+      PrivilegeList
+        Privilege
+          Keyword "SELECT"
+      GrantOn
+        Keyword "ON"
+        GrantTarget
+          Name
+            BareWord "db"
+          Dot "."
+          Name
+            BareWord "t"
+    Comma ","
+    AccessElement
+      PrivilegeList
+        Privilege
+          Keyword "INSERT"
+      GrantOn
+        Keyword "ON"
+        GrantTarget
+          Name
+            BareWord "db"
+          Dot "."
+          Name
+            BareWord "x"
+  GranteesClause
+    Keyword "TO"
+    RoleSet
+      RoleList
+        UserName
+          Name
+            JinjaExpr "{{ role }}"
+
+> GRANT r1, r2 TO u WITH ADMIN OPTION
+GrantQuery
+  Keyword "GRANT"
+  RoleSet
+    RoleList
+      UserName
+        Name
+          BareWord "r1"
+      Comma ","
+      UserName
+        Name
+          BareWord "r2"
+  GranteesClause
+    Keyword "TO"
+    RoleSet
+      RoleList
+        UserName
+          Name
+            BareWord "u"
+  GrantOptionClause
+    Keyword "WITH"
+    Keyword "ADMIN"
+    Keyword "OPTION"
+
+> GRANT CURRENT GRANTS(SELECT ON db.*) TO u
+GrantQuery
+  Keyword "GRANT"
+  CurrentGrants
+    Keyword "CURRENT"
+    Keyword "GRANTS"
+    OpeningRoundBracket "("
+    AccessList
+      AccessElement
+        PrivilegeList
+          Privilege
+            Keyword "SELECT"
+        GrantOn
+          Keyword "ON"
+          GrantTarget
+            Name
+              BareWord "db"
+            Dot "."
+            Asterisk "*"
+    ClosingRoundBracket ")"
+  GranteesClause
+    Keyword "TO"
+    RoleSet
+      RoleList
+        UserName
+          Name
+            BareWord "u"
+
+> REVOKE GRANT OPTION FOR SELECT ON db.* FROM ALL EXCEPT u
+GrantQuery
+  Keyword "REVOKE"
+  Keyword "GRANT"
+  Keyword "OPTION"
+  Keyword "FOR"
+  AccessList
+    AccessElement
+      PrivilegeList
+        Privilege
+          Keyword "SELECT"
+      GrantOn
+        Keyword "ON"
+        GrantTarget
+          Name
+            BareWord "db"
+          Dot "."
+          Asterisk "*"
+  GranteesClause
+    Keyword "FROM"
+    RoleSet
+      RoleList
+        RoleKeyword
+          Keyword "ALL"
+      Keyword "EXCEPT"
+      RoleList
+        UserName
+          Name
+            BareWord "u"
+
+> REVOKE ADMIN OPTION FOR r ON CLUSTER c FROM u
+GrantQuery
+  Keyword "REVOKE"
+  Keyword "ADMIN"
+  Keyword "OPTION"
+  Keyword "FOR"
+  RoleSet
+    RoleList
+      UserName
+        Name
+          BareWord "r"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+  GranteesClause
+    Keyword "FROM"
+    RoleSet
+      RoleList
+        UserName
+          Name
+            BareWord "u"
+
+> GRANT system reload dictionary ON *.* TO u
+GrantQuery
+  Keyword "GRANT"
+  AccessList
+    AccessElement
+      PrivilegeList
+        Privilege
+          BareWord "system"
+          BareWord "reload"
+          BareWord "dictionary"
+      GrantOn
+        Keyword "ON"
+        GrantTarget
+          Asterisk "*"
+          Dot "."
+          Asterisk "*"
+  GranteesClause
+    Keyword "TO"
+    RoleSet
+      RoleList
+        UserName
+          Name
+            BareWord "u"

@@ -76,11 +76,11 @@ pub(crate) fn at_statement(p: &Parser<'_>) -> bool {
             ) || (p.nth_at_kw(1, K::Materialized) && p.nth_at_kw(2, K::View))
         }
         // `SET ROLE …` and `SET DEFAULT ROLE …` (`ParserSetRoleQuery`, tried
-        // first) set roles unless `=` makes `role` a setting; `SET
-        // TRANSACTION` is never a setting.
+        // first) set roles unless `role` is a setting: before `=`, `,` or the
+        // end. `SET TRANSACTION` is never a setting.
         Some(K::Set) => match p.nth_keyword(1) {
             Some(K::Transaction) => false,
-            Some(K::Role) => p.nth_at(2, T::Equals),
+            Some(K::Role) => p.nth_at(2, T::Equals) || p.nth_at(2, T::Comma) || p.nth(2).is_none(),
             Some(K::Default) => !p.nth_at_kw(2, K::Role),
             _ => true,
         },

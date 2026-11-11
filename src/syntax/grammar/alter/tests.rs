@@ -186,8 +186,6 @@ fn keyword_slots() {
 #[test]
 fn what_is_not_parsed_stays_verbatim() {
     for source in [
-        "ALTER USER u DEFAULT ROLE ALL",
-        "ALTER ROLE r RENAME TO s",
         "ALTER TABLE t",
         "ALTER TABLE t ADD COLUMN a",
         "ALTER TABLE t RENAME COLUMN a b",

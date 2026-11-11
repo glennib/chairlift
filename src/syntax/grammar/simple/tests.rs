@@ -139,10 +139,6 @@ fn keyword_slots() {
 #[test]
 fn what_is_not_parsed_stays_verbatim() {
     for source in [
-        "DROP USER u",
-        "DROP ROW POLICY p ON t",
-        "SET ROLE r",
-        "SET DEFAULT ROLE r TO u",
         "SET TRANSACTION SNAPSHOT 1",
         "ATTACH PARTITION 1",
         "OPTIMIZE t",

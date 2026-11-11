@@ -1,0 +1,263 @@
+---
+source: src/syntax/grammar/access/tests.rs
+expression: "trees(&[\"CREATE QUOTA q KEYED BY user_name FOR INTERVAL 1 hour MAX queries = 10, errors = 2, \\\n         FOR RANDOMIZED INTERVAL 2 DAY NO LIMITS TO r\",\n\"ALTER QUOTA IF EXISTS q FOR INTERVAL 1 MONTH TRACKING ONLY NOT KEYED\",\n\"CREATE ROW POLICY p ON db.t AS RESTRICTIVE FOR SELECT USING a = 1 AND b TO ALL EXCEPT r\",\n\"CREATE POLICY p1, p2 ON db.t, db.u USING NONE\",\n\"DROP ROW POLICY IF EXISTS p ON db.t, q ON db.u ON CLUSTER c\",\n\"CREATE SETTINGS PROFILE p SETTINGS max_threads = 1 READONLY INHERIT 'default' TO r\",\n\"ALTER PROFILE p ADD SETTING a = 1\", \"DROP SETTINGS PROFILE IF EXISTS p, 'q'\",\n\"DROP QUOTA q\",])"
+---
+> CREATE QUOTA q KEYED BY user_name FOR INTERVAL 1 hour MAX queries = 10, errors = 2, FOR RANDOMIZED INTERVAL 2 DAY NO LIMITS TO r
+AccessEntityQuery
+  Keyword "CREATE"
+  Keyword "QUOTA"
+  NameList
+    Name
+      BareWord "q"
+  AccessClause
+    Keyword "KEYED"
+    Keyword "BY"
+    NameList
+      Name
+        BareWord "user_name"
+  AccessClause
+    QuotaIntervalList
+      QuotaInterval
+        Keyword "FOR"
+        Keyword "INTERVAL"
+        Literal
+          Number "1"
+        IntervalUnit
+          Keyword "hour"
+        QuotaLimitList
+          QuotaLimit
+            Keyword "MAX"
+            BareWord "queries"
+            Equals "="
+            Literal
+              Number "10"
+          Comma ","
+          QuotaLimit
+            BareWord "errors"
+            Equals "="
+            Literal
+              Number "2"
+      Comma ","
+      QuotaInterval
+        Keyword "FOR"
+        Keyword "RANDOMIZED"
+        Keyword "INTERVAL"
+        Literal
+          Number "2"
+        IntervalUnit
+          Keyword "DAY"
+        Keyword "NO"
+        Keyword "LIMITS"
+  AccessClause
+    Keyword "TO"
+    RoleSet
+      RoleList
+        UserName
+          Name
+            BareWord "r"
+
+> ALTER QUOTA IF EXISTS q FOR INTERVAL 1 MONTH TRACKING ONLY NOT KEYED
+AccessEntityQuery
+  Keyword "ALTER"
+  Keyword "QUOTA"
+  IfExists
+    Keyword "IF"
+    Keyword "EXISTS"
+  NameList
+    Name
+      BareWord "q"
+  AccessClause
+    QuotaIntervalList
+      QuotaInterval
+        Keyword "FOR"
+        Keyword "INTERVAL"
+        Literal
+          Number "1"
+        IntervalUnit
+          Keyword "MONTH"
+        Keyword "TRACKING"
+        Keyword "ONLY"
+  AccessClause
+    Keyword "NOT"
+    Keyword "KEYED"
+
+> CREATE ROW POLICY p ON db.t AS RESTRICTIVE FOR SELECT USING a = 1 AND b TO ALL EXCEPT r
+AccessEntityQuery
+  Keyword "CREATE"
+  Keyword "ROW"
+  Keyword "POLICY"
+  RowPolicyNameList
+    RowPolicyName
+      Name
+        BareWord "p"
+      Keyword "ON"
+      GrantTarget
+        Name
+          BareWord "db"
+        Dot "."
+        Name
+          BareWord "t"
+  AccessClause
+    Keyword "AS"
+    Keyword "RESTRICTIVE"
+  AccessClause
+    Keyword "FOR"
+    Keyword "SELECT"
+  AccessClause
+    Keyword "USING"
+    AndExpr
+      BinaryExpr
+        Name
+          BareWord "a"
+        Equals "="
+        Literal
+          Number "1"
+      Keyword "AND"
+      Name
+        BareWord "b"
+  AccessClause
+    Keyword "TO"
+    RoleSet
+      RoleList
+        RoleKeyword
+          Keyword "ALL"
+      Keyword "EXCEPT"
+      RoleList
+        UserName
+          Name
+            BareWord "r"
+
+> CREATE POLICY p1, p2 ON db.t, db.u USING NONE
+AccessEntityQuery
+  Keyword "CREATE"
+  Keyword "POLICY"
+  RowPolicyNameList
+    RowPolicyName
+      Name
+        BareWord "p1"
+      Comma ","
+      Name
+        BareWord "p2"
+      Keyword "ON"
+      GrantTarget
+        Name
+          BareWord "db"
+        Dot "."
+        Name
+          BareWord "t"
+      Comma ","
+      GrantTarget
+        Name
+          BareWord "db"
+        Dot "."
+        Name
+          BareWord "u"
+  AccessClause
+    Keyword "USING"
+    Keyword "NONE"
+
+> DROP ROW POLICY IF EXISTS p ON db.t, q ON db.u ON CLUSTER c
+DropQuery
+  Keyword "DROP"
+  Keyword "ROW"
+  Keyword "POLICY"
+  IfExists
+    Keyword "IF"
+    Keyword "EXISTS"
+  RowPolicyNameList
+    RowPolicyName
+      Name
+        BareWord "p"
+      Keyword "ON"
+      GrantTarget
+        Name
+          BareWord "db"
+        Dot "."
+        Name
+          BareWord "t"
+    Comma ","
+    RowPolicyName
+      Name
+        BareWord "q"
+      Keyword "ON"
+      GrantTarget
+        Name
+          BareWord "db"
+        Dot "."
+        Name
+          BareWord "u"
+      OnCluster
+        Keyword "ON"
+        Keyword "CLUSTER"
+        Name
+          BareWord "c"
+
+> CREATE SETTINGS PROFILE p SETTINGS max_threads = 1 READONLY INHERIT 'default' TO r
+AccessEntityQuery
+  Keyword "CREATE"
+  Keyword "SETTINGS"
+  Keyword "PROFILE"
+  NameList
+    Name
+      BareWord "p"
+  AccessClause
+    Keyword "SETTINGS"
+    ProfileSettingList
+      ProfileSetting
+        Name
+          BareWord "max_threads"
+        Equals "="
+        Literal
+          Number "1"
+        Keyword "READONLY"
+  AccessClause
+    ProfileSettingList
+      ProfileSetting
+        Keyword "INHERIT"
+        Literal
+          StringLiteral "'default'"
+  AccessClause
+    Keyword "TO"
+    RoleSet
+      RoleList
+        UserName
+          Name
+            BareWord "r"
+
+> ALTER PROFILE p ADD SETTING a = 1
+AccessEntityQuery
+  Keyword "ALTER"
+  Keyword "PROFILE"
+  NameList
+    Name
+      BareWord "p"
+  AccessClause
+    Keyword "ADD"
+    Opaque
+      BareWord "SETTING"
+      BareWord "a"
+      Equals "="
+      Number "1"
+
+> DROP SETTINGS PROFILE IF EXISTS p, 'q'
+DropQuery
+  Keyword "DROP"
+  Keyword "SETTINGS"
+  Keyword "PROFILE"
+  IfExists
+    Keyword "IF"
+    Keyword "EXISTS"
+  NameList
+    Name
+      BareWord "p"
+    Comma ","
+    Literal
+      StringLiteral "'q'"
+
+> DROP QUOTA q
+DropQuery
+  Keyword "DROP"
+  Keyword "QUOTA"
+  NameList
+    Name
+      BareWord "q"

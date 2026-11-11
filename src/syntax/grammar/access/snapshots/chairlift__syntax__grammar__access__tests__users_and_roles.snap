@@ -1,0 +1,289 @@
+---
+source: src/syntax/grammar/access/tests.rs
+expression: "trees(&[\"CREATE USER IF NOT EXISTS u1, u2@'%' ON CLUSTER c IDENTIFIED WITH plaintext_password BY 'secret'\",\n\"CREATE USER u IDENTIFIED BY 'x' HOST IP '127.0.0.1', LOCAL DEFAULT ROLE ALL EXCEPT r \\\n         DEFAULT DATABASE db GRANTEES ANY EXCEPT v SETTINGS max_memory_usage = 1 READONLY\",\n\"CREATE USER u IDENTIFIED WITH ldap SERVER 'srv' VALID UNTIL '2030-01-01' IN local_directory\",\n\"ALTER USER IF EXISTS u RENAME TO v DROP HOST LOCAL\",\n\"ALTER USER u DEFAULT ROLE NONE\",\n\"CREATE ROLE OR REPLACE admin SETTINGS PROFILE 'readonly', max_threads = 1 MIN 1 MAX 8 CONST\",\n\"ALTER ROLE r ON CLUSTER c RENAME TO s\",\n\"DROP USER IF EXISTS u, v@'%' ON CLUSTER c\",\n\"DROP ROLE r FROM local_directory\", \"SET ROLE ALL EXCEPT r\",\n\"SET ROLE DEFAULT\", \"SET DEFAULT ROLE NONE TO u, CURRENT_USER\",])"
+---
+> CREATE USER IF NOT EXISTS u1, u2@'%' ON CLUSTER c IDENTIFIED WITH plaintext_password BY 'secret'
+AccessEntityQuery
+  Keyword "CREATE"
+  Keyword "USER"
+  IfNotExists
+    Keyword "IF"
+    Keyword "NOT"
+    Keyword "EXISTS"
+  NameList
+    UserName
+      Name
+        BareWord "u1"
+    Comma ","
+    UserName
+      Name
+        BareWord "u2"
+      At "@"
+      Literal
+        StringLiteral "'%'"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+  AccessClause
+    Keyword "IDENTIFIED"
+    Keyword "WITH"
+    Name
+      BareWord "plaintext_password"
+    Keyword "BY"
+    Literal
+      StringLiteral "'secret'"
+
+> CREATE USER u IDENTIFIED BY 'x' HOST IP '127.0.0.1', LOCAL DEFAULT ROLE ALL EXCEPT r DEFAULT DATABASE db GRANTEES ANY EXCEPT v SETTINGS max_memory_usage = 1 READONLY
+AccessEntityQuery
+  Keyword "CREATE"
+  Keyword "USER"
+  NameList
+    UserName
+      Name
+        BareWord "u"
+  AccessClause
+    Keyword "IDENTIFIED"
+    Keyword "BY"
+    Literal
+      StringLiteral "'x'"
+  AccessClause
+    Keyword "HOST"
+    HostList
+      HostItem
+        Keyword "IP"
+        Literal
+          StringLiteral "'127.0.0.1'"
+      Comma ","
+      HostItem
+        Keyword "LOCAL"
+  AccessClause
+    Keyword "DEFAULT"
+    Keyword "ROLE"
+    RoleSet
+      RoleList
+        RoleKeyword
+          Keyword "ALL"
+      Keyword "EXCEPT"
+      RoleList
+        UserName
+          Name
+            BareWord "r"
+  AccessClause
+    Keyword "DEFAULT"
+    Keyword "DATABASE"
+    Name
+      BareWord "db"
+  AccessClause
+    Keyword "GRANTEES"
+    RoleSet
+      RoleList
+        RoleKeyword
+          Keyword "ANY"
+      Keyword "EXCEPT"
+      RoleList
+        UserName
+          Name
+            BareWord "v"
+  AccessClause
+    Keyword "SETTINGS"
+    ProfileSettingList
+      ProfileSetting
+        Name
+          BareWord "max_memory_usage"
+        Equals "="
+        Literal
+          Number "1"
+        Keyword "READONLY"
+
+> CREATE USER u IDENTIFIED WITH ldap SERVER 'srv' VALID UNTIL '2030-01-01' IN local_directory
+AccessEntityQuery
+  Keyword "CREATE"
+  Keyword "USER"
+  NameList
+    UserName
+      Name
+        BareWord "u"
+  AccessClause
+    Keyword "IDENTIFIED"
+    Keyword "WITH"
+    Name
+      BareWord "ldap"
+    Opaque
+      BareWord "SERVER"
+      StringLiteral "'srv'"
+  AccessClause
+    Keyword "VALID"
+    Keyword "UNTIL"
+    Literal
+      StringLiteral "'2030-01-01'"
+  AccessClause
+    Keyword "IN"
+    Name
+      BareWord "local_directory"
+
+> ALTER USER IF EXISTS u RENAME TO v DROP HOST LOCAL
+AccessEntityQuery
+  Keyword "ALTER"
+  Keyword "USER"
+  IfExists
+    Keyword "IF"
+    Keyword "EXISTS"
+  NameList
+    UserName
+      Name
+        BareWord "u"
+  AccessClause
+    Keyword "RENAME"
+    Keyword "TO"
+    UserName
+      Name
+        BareWord "v"
+  AccessClause
+    Keyword "DROP"
+    Opaque
+      BareWord "HOST"
+      BareWord "LOCAL"
+
+> ALTER USER u DEFAULT ROLE NONE
+AccessEntityQuery
+  Keyword "ALTER"
+  Keyword "USER"
+  NameList
+    UserName
+      Name
+        BareWord "u"
+  AccessClause
+    Keyword "DEFAULT"
+    Keyword "ROLE"
+    RoleSet
+      RoleList
+        RoleKeyword
+          Keyword "NONE"
+
+> CREATE ROLE OR REPLACE admin SETTINGS PROFILE 'readonly', max_threads = 1 MIN 1 MAX 8 CONST
+AccessEntityQuery
+  Keyword "CREATE"
+  Keyword "ROLE"
+  Keyword "OR"
+  Keyword "REPLACE"
+  NameList
+    UserName
+      Name
+        BareWord "admin"
+  AccessClause
+    Keyword "SETTINGS"
+    ProfileSettingList
+      ProfileSetting
+        Keyword "PROFILE"
+        Literal
+          StringLiteral "'readonly'"
+      Comma ","
+      ProfileSetting
+        Name
+          BareWord "max_threads"
+        Equals "="
+        Literal
+          Number "1"
+        Keyword "MIN"
+        Literal
+          Number "1"
+        Keyword "MAX"
+        Literal
+          Number "8"
+        Keyword "CONST"
+
+> ALTER ROLE r ON CLUSTER c RENAME TO s
+AccessEntityQuery
+  Keyword "ALTER"
+  Keyword "ROLE"
+  NameList
+    UserName
+      Name
+        BareWord "r"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+  AccessClause
+    Keyword "RENAME"
+    Keyword "TO"
+    Name
+      BareWord "s"
+
+> DROP USER IF EXISTS u, v@'%' ON CLUSTER c
+DropQuery
+  Keyword "DROP"
+  Keyword "USER"
+  IfExists
+    Keyword "IF"
+    Keyword "EXISTS"
+  NameList
+    UserName
+      Name
+        BareWord "u"
+    Comma ","
+    UserName
+      Name
+        BareWord "v"
+      At "@"
+      Literal
+        StringLiteral "'%'"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+
+> DROP ROLE r FROM local_directory
+DropQuery
+  Keyword "DROP"
+  Keyword "ROLE"
+  NameList
+    UserName
+      Name
+        BareWord "r"
+  Keyword "FROM"
+  Name
+    BareWord "local_directory"
+
+> SET ROLE ALL EXCEPT r
+SetRoleQuery
+  Keyword "SET"
+  Keyword "ROLE"
+  RoleSet
+    RoleList
+      RoleKeyword
+        Keyword "ALL"
+    Keyword "EXCEPT"
+    RoleList
+      UserName
+        Name
+          BareWord "r"
+
+> SET ROLE DEFAULT
+SetRoleQuery
+  Keyword "SET"
+  Keyword "ROLE"
+  Keyword "DEFAULT"
+
+> SET DEFAULT ROLE NONE TO u, CURRENT_USER
+SetRoleQuery
+  Keyword "SET"
+  Keyword "DEFAULT"
+  Keyword "ROLE"
+  RoleSet
+    RoleList
+      RoleKeyword
+        Keyword "NONE"
+  Keyword "TO"
+  RoleSet
+    RoleList
+      UserName
+        Name
+          BareWord "u"
+      Comma ","
+      RoleKeyword
+        Keyword "CURRENT_USER"
