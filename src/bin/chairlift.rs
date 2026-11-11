@@ -137,8 +137,14 @@ impl FileError {
             FileError::Format(chairlift::Error::Lex(e)) => {
                 format!("{name}:{e}; the file is left unchanged")
             }
-            FileError::Format(chairlift::Error::Verify(e)) => bug_report(&name, e),
-            FileError::Format(chairlift::Error::Layout(e)) => bug_report(&name, e),
+            FileError::Format(chairlift::Error::Verify(e)) => {
+                bug_report(&name, "chairlift's output failed verification", e)
+            }
+            FileError::Format(chairlift::Error::Layout(e)) => bug_report(
+                &name,
+                "chairlift's layout lost or repeated a token of it",
+                e,
+            ),
             FileError::Format(chairlift::Error::Template(e)) => {
                 format!("{name}:{e}; the file is left unchanged")
             }
@@ -152,9 +158,9 @@ impl FileError {
 
 /// The report for a file whose formatting failed a check that only a bug
 /// in chairlift can fail.
-fn bug_report(name: impl fmt::Display, e: &dyn fmt::Display) -> String {
+fn bug_report(name: impl fmt::Display, what: &str, e: &dyn fmt::Display) -> String {
     format!(
-        "{name}: chairlift's output failed verification, so the file is left \
+        "{name}: {what}, so the file is left \
          unchanged.\nThis is a bug in chairlift. Please report it at {ISSUES} with the \
          file, or the smallest part of it that shows the problem, and the output of \
          `chairlift --version`.\n  {e}"
@@ -421,6 +427,16 @@ mod tests {
         ));
         assert!(message.contains(ISSUES));
         assert!(message.ends_with("input 1:3, output 1:2: token 2 differs"));
+        let error = FileError::Format(chairlift::Error::Layout(chairlift::doc::TokenCheckError {
+            position: chairlift::Position::new("a b", 2),
+            detail: "token 2 is not printed".to_owned(),
+        }));
+        let message = error.report("q.sql");
+        assert!(message.starts_with(
+            "q.sql: chairlift's layout lost or repeated a token of it, so the file is left \
+             unchanged."
+        ));
+        assert!(message.contains(ISSUES));
     }
 
     #[test]
