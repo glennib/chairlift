@@ -5,9 +5,10 @@
 //! removes, reorders or rewrites tokens, and [`format`] checks every result
 //! against its input with the [verifier](verify) before returning it.
 //!
-//! The crate is pre-release: [`format`](fn@format) lays out `SELECT` queries and keeps
+//! The crate is pre-release: [`format`](fn@format) lays out `SELECT` and
+//! `WITH` queries, `CREATE TABLE` and `CREATE MATERIALIZED VIEW`, and keeps
 //! every other statement as written, with only the safe cleanup of its
-//! whitespace, and `docs/MILESTONES.md` in the repository lays out what comes
+//! whitespace; `docs/MILESTONES.md` in the repository lays out what comes
 //! next. The [parser](syntax) turns the text into a lossless syntax tree, the
 //! [layout] turns that into a [document](doc), and the document's printer
 //! chooses the line breaks.
