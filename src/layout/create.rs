@@ -31,12 +31,13 @@ pub(crate) fn statement(w: &mut Writer<'_>, node: &Node) {
         return;
     };
     let header = w.b.open_group();
+    // What follows a comment inside the header continues it, one level in.
+    let indent = w.b.open_indent();
     w.el(&first.el);
     let on_line = rest
         .iter()
         .take_while(|part| on_header_line(w, part))
         .count();
-    let indent = w.b.open_indent();
     for part in &rest[..on_line] {
         w.gap(part.trivia.clone(), Sep::Line, 0);
         w.el(&part.el);

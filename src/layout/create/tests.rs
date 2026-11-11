@@ -430,6 +430,27 @@ METRICS INNER UUID '1'
     );
 }
 
+/// After a comment inside the header, the header goes on one level in.
+#[test]
+fn a_comment_inside_the_header_continues_it_one_level_in() {
+    check(
+        "create table if not exists\n-- own\ndb.t on cluster c (a UInt8) engine = Memory",
+        "
+CREATE TABLE IF NOT EXISTS
+    -- own
+    db.t ON CLUSTER c
+(
+    a UInt8
+)
+ENGINE = Memory
+",
+    );
+    check(
+        "create materialized view v -- c\nto t as select 1",
+        "CREATE MATERIALIZED VIEW v  -- c\n    TO t AS\nSELECT 1\n",
+    );
+}
+
 #[test]
 fn comments_and_blank_lines_where_the_author_put_them() {
     check(
