@@ -113,7 +113,7 @@ pub(crate) fn expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 pub(crate) fn expr_with_alias(p: &mut Parser<'_>, mode: AliasMode) -> Option<CompletedMarker> {
     // `SELECT x, y, z, FROM tbl`: a lone `from` takes no alias without `AS`
     // (`ParserWithOptionalAlias`).
-    let lone_from = p.at_kw(K::From) && p.nth(1).is_some();
+    let lone_from = names::at_from(p, 0) && p.nth(1).is_some();
     let start = p.position();
     // Inside brackets, ClickHouse attaches an `AS` alias to the expression
     // so far and goes on: `f(a + b AS x * 2)` is `f((a + b AS x) * 2)`.

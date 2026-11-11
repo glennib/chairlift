@@ -22,6 +22,23 @@ pub(crate) fn at_name(p: &Parser<'_>, n: usize) -> bool {
     }
 }
 
+/// Whether the `n`th token is the identifier `from`, bare or quoted, which
+/// ClickHouse gives no alias without `AS` (`ParserWithOptionalAlias`), so
+/// that `SELECT x, from t` is not `from AS t`.
+pub(crate) fn at_from(p: &Parser<'_>, n: usize) -> bool {
+    match p.nth(n) {
+        Some(TokenKind::BareWord) => p.nth_text(n).eq_ignore_ascii_case("from"),
+        Some(TokenKind::QuotedIdentifier) => {
+            let text = p.nth_text(n);
+            text.len() == 6
+                && text
+                    .get(1..5)
+                    .is_some_and(|w| w.eq_ignore_ascii_case("from"))
+        }
+        _ => false,
+    }
+}
+
 /// How many tokens the name at the `n`th token spans, if one is there: one,
 /// or the five of a `{name:Identifier}` parameter.
 pub(crate) fn name_tokens(p: &Parser<'_>, n: usize) -> Option<usize> {

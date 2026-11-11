@@ -40,7 +40,10 @@
 //!   `NEXT`, and a join's words only when `JOIN` follows them.
 //! - An alias without `AS` cannot be one of the restricted words, so in
 //!   `FROM t FINAL` the `FINAL` is a keyword; it can be `LOCAL`, so `FROM t
-//!   LOCAL JOIN u` joins `t AS LOCAL`, as ClickHouse reads it.
+//!   LOCAL JOIN u` joins `t AS LOCAL`, as ClickHouse reads it. It can be
+//!   `select` too, but for a table of the `FROM`-first form only where the
+//!   tables go on after it (see [`tables::Aliases`]); the tables of joins in
+//!   brackets take none.
 //! - `ALL`, `DISTINCT` and `TOP n` right after `SELECT`, `ALL`, `ROLLUP(`,
 //!   `CUBE(` and `GROUPING SETS (` right after `GROUP BY`, and `ALL` after
 //!   `ORDER BY` unless a comma follows it, are keywords.
@@ -368,7 +371,7 @@ fn clause_at(p: &Parser<'_>) -> Option<Clause> {
         Some(K::Settings) if common::at_settings(p) => Clause::Settings,
         Some(K::Format) if names::at_name(p, 1) => Clause::Format,
         Some(K::Into) if p.nth_at_kw(1, K::Outfile) => Clause::IntoOutfile,
-        _ if tables::at_array_join(p) => Clause::ArrayJoin,
+        _ if tables::at_array_join(p, 0) => Clause::ArrayJoin,
         _ if tables::at_join(p) => Clause::Join,
         _ => return None,
     })
@@ -395,6 +398,7 @@ fn at_clause_or_comma(p: &Parser<'_>) -> bool {
 fn clauses(p: &mut Parser<'_>, form: Form) -> bool {
     let mut after_join = false;
     let mut first = true;
+    let mut selected = false;
     let mut selects = false;
     loop {
         let mut clause = clause_at(p);
@@ -409,6 +413,13 @@ fn clauses(p: &mut Parser<'_>, form: Form) -> bool {
         }
         selects |=
             clause == Some(Clause::Select) || (form == Form::Query && clause == Some(Clause::From));
+        // Tables before the `SELECT` clause are the `FROM`-first form's.
+        let aliases = if selected {
+            tables::Aliases::Implicit
+        } else {
+            tables::Aliases::FromFirst
+        };
+        selected |= clause == Some(Clause::Select);
         let join = comma_join || matches!(clause, Some(Clause::Join));
         // A clause that does not parse is verbatim up to the next clause,
         // which cannot start among its own keywords: the `JOIN` of `LEFT
@@ -423,8 +434,8 @@ fn clauses(p: &mut Parser<'_>, form: Form) -> bool {
                 }
         };
         fallback::clause(p, &ends, |p| match clause {
-            None => tables::comma_join(p),
-            Some(clause) => parse_clause(p, clause, form),
+            None => tables::comma_join(p, aliases),
+            Some(clause) => parse_clause(p, clause, form, aliases),
         });
         after_join = join;
     }
@@ -439,17 +450,24 @@ fn keyword_count(p: &Parser<'_>, clause: Clause) -> usize {
         | Clause::Fetch
         | Clause::IntoOutfile => 2,
         Clause::ArrayJoin => 2 + usize::from(!p.at_kw(K::Array)),
-        Clause::Join => tables::join_keywords(p).unwrap_or(1),
+        Clause::Join => tables::join_keywords(p, 0).unwrap_or(1),
         _ => 1,
     }
 }
 
-fn parse_clause(p: &mut Parser<'_>, clause: Clause, form: Form) -> Option<()> {
+/// The clause `clause` at the current token, whose tables take aliases as
+/// `aliases` allows.
+fn parse_clause(
+    p: &mut Parser<'_>,
+    clause: Clause,
+    form: Form,
+    aliases: tables::Aliases,
+) -> Option<()> {
     match clause {
         Clause::With => with_clause(p, form),
         Clause::Select => select_clause(p, form),
-        Clause::From => tables::from_clause(p),
-        Clause::Join => tables::join_clause(p),
+        Clause::From => tables::from_clause(p, aliases),
+        Clause::Join => tables::join_clause(p, aliases),
         Clause::ArrayJoin => tables::array_join_clause(p),
         Clause::Prewhere => expression_clause(p, SyntaxKind::PrewhereClause),
         Clause::Where => expression_clause(p, SyntaxKind::WhereClause),

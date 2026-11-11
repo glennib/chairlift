@@ -12,32 +12,56 @@ use crate::syntax::grammar::select;
 use crate::syntax::parser::CompletedMarker;
 use crate::syntax::parser::Parser;
 
+/// Which aliases without `AS` the tables take.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Aliases {
+    /// Any word but the restricted ones ([`exprs::RESTRICTED_ALIASES`]),
+    /// `select` included: `FROM t select WHERE 1` names `t` `select`.
+    Implicit,
+    /// As [`Implicit`](Self::Implicit), but `select` only where it cannot
+    /// start the `SELECT` clause, as in the `FROM`-first form ClickHouse
+    /// settles it (`ParserSelectQuery`): it parses the tables again without
+    /// such aliases if they end with a bare `select` alias and no `SELECT`
+    /// follows. So `FROM t select x` selects `x` from `t`, while in `FROM t
+    /// select FINAL` and `FROM t select SELECT x` the alias stands.
+    FromFirst,
+    /// None: the tables of joins in brackets, which ClickHouse parses with
+    /// `ParserTablesInSelectQuery(false)`.
+    None,
+}
+
 /// `FROM` and a [`TableList`](SyntaxKind::TableList).
-pub(super) fn from_clause(p: &mut Parser<'_>) -> Option<()> {
+pub(super) fn from_clause(p: &mut Parser<'_>, aliases: Aliases) -> Option<()> {
     let m = p.start();
     p.bump_keyword();
-    table_list(p)?;
+    super::list(p, SyntaxKind::TableList, &mut |p| {
+        table_expr(p, aliases, false).map(drop)
+    })?;
     m.complete(p, SyntaxKind::FromClause);
     Some(())
 }
 
-fn table_list(p: &mut Parser<'_>) -> Option<CompletedMarker> {
-    super::list(p, SyntaxKind::TableList, &mut |p| table_expr(p).map(drop))
-}
-
-/// A [`TableExpr`](SyntaxKind::TableExpr) (`ParserTableExpression`).
-fn table_expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+/// A [`TableExpr`](SyntaxKind::TableExpr) (`ParserTableExpression`), with
+/// aliases as `aliases` allows; `condition` says whether the table is joined
+/// with `ON` or `USING`.
+fn table_expr(p: &mut Parser<'_>, aliases: Aliases, condition: bool) -> Option<CompletedMarker> {
     let m = p.start();
+    // A table named `from` takes no alias without `AS`, as in
+    // `ParserWithOptionalAlias`.
+    let lone_from =
+        names::at_from(p, 0) && !matches!(p.nth(1), Some(T::Dot | T::OpeningRoundBracket));
     let table = table(p)?;
-    // `FROM t SELECT x` is the `FROM`-first form, not `t` with the alias
-    // `select`, which ClickHouse settles by parsing again; a join's
-    // condition or another `SELECT` after it makes it an alias.
-    let mode =
-        if p.at_kw(K::Select) && !matches!(p.nth_keyword(1), Some(K::On | K::Using | K::Select)) {
-            AliasMode::As
-        } else {
-            AliasMode::Implicit
+    let implicit = !lone_from
+        && match aliases {
+            Aliases::None => false,
+            Aliases::FromFirst if p.at_kw(K::Select) => tables_go_on(p, 1, condition),
+            Aliases::Implicit | Aliases::FromFirst => true,
         };
+    let mode = if implicit {
+        AliasMode::Implicit
+    } else {
+        AliasMode::As
+    };
     exprs::alias(p, table, mode)?;
     // `t (a, b)` is a table function, so column aliases can only follow an
     // alias, a table function or a subquery.
@@ -56,6 +80,11 @@ fn table_expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     }
     if p.at_kw(K::Stream) {
         stream(p)?;
+    }
+    // The query's column aliases, which `ParserSelectQuery` reads after the
+    // tables: `FROM t FINAL (a, b)`.
+    if p.at(T::OpeningRoundBracket) {
+        super::name_list(p)?;
     }
     Some(m.complete(p, SyntaxKind::TableExpr))
 }
@@ -212,7 +241,7 @@ fn paren_join(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     let tables = p.start();
     let mut count = 0;
     loop {
-        table_expr(p)?;
+        table_expr(p, Aliases::None, false)?;
         count += 1;
         if !p.eat(T::Comma) {
             break;
@@ -222,12 +251,12 @@ fn paren_join(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     let mut joined = count > 1;
     let mut after_join = false;
     loop {
-        if at_array_join(p) {
+        if at_array_join(p, 0) {
             array_join_clause(p)?;
         } else if at_join(p) {
-            join_clause(p)?;
+            join_clause(p, Aliases::None)?;
         } else if after_join && p.at(T::Comma) {
-            comma_join(p)?;
+            comma_join(p, Aliases::None)?;
         } else {
             break;
         }
@@ -283,16 +312,16 @@ fn cursor(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 }
 
 /// The number of tokens of a join's keywords up to `JOIN`, if a join starts
-/// at the current token: `[GLOBAL|LOCAL] [NATURAL] [ANY|ALL|ASOF|SEMI|ANTI|
-/// ONLY] [INNER|LEFT|RIGHT|FULL|CROSS|PASTE] [ANY|…] [OUTER] JOIN`.
-pub(super) fn join_keywords(p: &Parser<'_>) -> Option<usize> {
+/// at the `start`th token: `[GLOBAL|LOCAL] [NATURAL] [ANY|ALL|ASOF|SEMI|
+/// ANTI|ONLY] [INNER|LEFT|RIGHT|FULL|CROSS|PASTE] [ANY|…] [OUTER] JOIN`.
+pub(super) fn join_keywords(p: &Parser<'_>, start: usize) -> Option<usize> {
     let strictness = |k| {
         matches!(
             k,
             Some(K::Any | K::All | K::Asof | K::Semi | K::Anti | K::Only)
         )
     };
-    let mut n = 0;
+    let mut n = start;
     if matches!(p.nth_keyword(n), Some(K::Global | K::Local)) {
         n += 1;
     }
@@ -314,19 +343,40 @@ pub(super) fn join_keywords(p: &Parser<'_>) -> Option<usize> {
     if p.nth_at_kw(n, K::Outer) {
         n += 1;
     }
-    p.nth_at_kw(n, K::Join).then_some(n + 1)
+    p.nth_at_kw(n, K::Join).then_some(n + 1 - start)
 }
 
 /// Whether a join starts at the current token.
 pub(super) fn at_join(p: &Parser<'_>) -> bool {
-    join_keywords(p).is_some()
+    join_keywords(p, 0).is_some()
+}
+
+/// Whether the tables go on at the `n`th token, after a table's alias: with
+/// column aliases, `FINAL`, `SAMPLE`, `STREAM`, another table or join, or,
+/// if `condition` is set, the join's `ON` or `USING`; or whether `SELECT`
+/// follows.
+fn tables_go_on(p: &Parser<'_>, n: usize, condition: bool) -> bool {
+    p.nth_at(n, T::Comma)
+        || (p.nth_at(n, T::OpeningRoundBracket)
+            && names::at_name(p, n + 1)
+            && matches!(p.nth(n + 2), Some(T::Comma | T::ClosingRoundBracket)))
+        || matches!(p.nth_keyword(n), Some(K::Select | K::Final | K::Stream))
+        || (p.nth_at_kw(n, K::Sample) && p.nth_at(n + 1, T::Number))
+        || (condition && matches!(p.nth_keyword(n), Some(K::On | K::Using)))
+        || join_keywords(p, n).is_some()
+        || at_array_join(p, n)
 }
 
 /// A [`JoinClause`](SyntaxKind::JoinClause): its keywords, any `LATERAL`, a
-/// table, and an `ON` or `USING` condition if one follows.
-pub(super) fn join_clause(p: &mut Parser<'_>) -> Option<()> {
+/// table with aliases as `aliases` allows, and an `ON` or `USING` condition
+/// if one follows.
+pub(super) fn join_clause(p: &mut Parser<'_>, aliases: Aliases) -> Option<()> {
     let m = p.start();
-    for _ in 0..join_keywords(p)? {
+    let keywords = join_keywords(p, 0)?;
+    // `CROSS`, `PASTE` and `NATURAL` joins take no condition.
+    let condition =
+        !(0..keywords).any(|n| matches!(p.nth_keyword(n), Some(K::Cross | K::Paste | K::Natural)));
+    for _ in 0..keywords {
         p.bump_keyword();
     }
     // `LATERAL` is a keyword only before a subquery; `JOIN lateral ON …`
@@ -334,7 +384,7 @@ pub(super) fn join_clause(p: &mut Parser<'_>) -> Option<()> {
     if p.at_kw(K::Lateral) && select::at_subquery(p, 1) {
         p.bump_keyword();
     }
-    table_expr(p)?;
+    table_expr(p, aliases, condition)?;
     if p.at_kw(K::On) {
         let on = p.start();
         p.bump_keyword();
@@ -355,17 +405,17 @@ pub(super) fn join_clause(p: &mut Parser<'_>) -> Option<()> {
 }
 
 /// `, table` after a join, as a [`JoinClause`](SyntaxKind::JoinClause).
-pub(super) fn comma_join(p: &mut Parser<'_>) -> Option<()> {
+pub(super) fn comma_join(p: &mut Parser<'_>, aliases: Aliases) -> Option<()> {
     let m = p.start();
     p.expect(T::Comma)?;
-    table_expr(p)?;
+    table_expr(p, aliases, false)?;
     m.complete(p, SyntaxKind::JoinClause);
     Some(())
 }
 
-/// Whether `[LEFT | INNER] ARRAY JOIN` starts at the current token.
-pub(super) fn at_array_join(p: &Parser<'_>) -> bool {
-    let n = usize::from(p.at_kw(K::Left) || p.at_kw(K::Inner));
+/// Whether `[LEFT | INNER] ARRAY JOIN` starts at the `n`th token.
+pub(super) fn at_array_join(p: &Parser<'_>, n: usize) -> bool {
+    let n = n + usize::from(matches!(p.nth_keyword(n), Some(K::Left | K::Inner)));
     p.nth_at_kw(n, K::Array) && p.nth_at_kw(n + 1, K::Join)
 }
 

@@ -53,6 +53,8 @@ fn with_clauses() {
         "WITH x AS materialized SELECT materialized",
         "WITH a AS (SELECT 1), SELECT * FROM a",
         "WITH 1 AS x FROM t",
+        // Run together, the branches read as ClickHouse would read them: the
+        // first branch's table takes the second's `select` as its alias.
         "WITH x AS (SELECT 1)\n{% if a %}\nSELECT a FROM x\n{% else %}\nSELECT b FROM x\n{% endif %}",
     ]));
     // ClickHouse reads no query without `SELECT` or `FROM` after `WITH`.
@@ -307,6 +309,45 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
         "WITH x AS (SELECT 1) SELECT * FROM x",
     ),
     ("from t select x", "FROM t SELECT x"),
+    // `select` after a table is its alias but where it starts the `SELECT`
+    // clause of the `FROM`-first form.
+    (
+        "select * from t select final",
+        "SELECT * FROM t select FINAL",
+    ),
+    (
+        "select * from t select where 1",
+        "SELECT * FROM t select WHERE 1",
+    ),
+    ("select * from t select", "SELECT * FROM t select"),
+    (
+        "select * from t select join u on 1",
+        "SELECT * FROM t select JOIN u ON 1",
+    ),
+    (
+        "select 1 from t select except select 1",
+        "SELECT 1 FROM t select EXCEPT SELECT 1",
+    ),
+    ("from t select final", "FROM t select FINAL"),
+    ("from t select, u", "FROM t select, u"),
+    ("from t select select x", "FROM t select SELECT x"),
+    (
+        "from a join b select on a.x = select.x",
+        "FROM a JOIN b select ON a.x = select.x",
+    ),
+    ("from t select on", "FROM t SELECT on"),
+    (
+        "from a cross join b select x",
+        "FROM a CROSS JOIN b SELECT x",
+    ),
+    (
+        "select * from t final (final)",
+        "SELECT * FROM t FINAL (final)",
+    ),
+    (
+        "select * from (a join b on 1) j",
+        "SELECT * FROM (a JOIN b ON 1) j",
+    ),
     (
         "select * from t group by all order by all desc",
         "SELECT * FROM t GROUP BY ALL ORDER BY ALL DESC",

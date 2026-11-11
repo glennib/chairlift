@@ -378,9 +378,8 @@ SelectQuery
   FromClause
     Keyword "FROM"
     TableList
-      TableExpr
-        Name
-          BareWord "x"
+      VerbatimItem
+        BareWord "x"
   JinjaBlock "{% else %}"
   SelectClause
     Keyword "SELECT"
