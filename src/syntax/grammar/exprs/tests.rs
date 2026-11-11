@@ -77,6 +77,7 @@ fn operators() {
         "x AT LOCAL",
         "a <=> b",
         "a MOD b DIV c",
+        "a - b + c * d - e",
         "a || b",
         "f | g",
         "a NOT BETWEEN 1 AND 2",
@@ -347,6 +348,11 @@ fn in_is_an_operator_again_after_a_failed_position() {
 const PRECEDENCE: &[(&str, &str)] = &[
     ("a + b * c", "(a + (b * c))"),
     ("a - b - c", "((a - b) - c)"),
+    ("a - b + c - d", "(((a - b) + c) - d)"),
+    ("a * b / c % d", "(((a * b) / c) % d)"),
+    ("a * b + c * d - e", "(((a * b) + (c * d)) - e)"),
+    ("a = b < c", "((a = b) < c)"),
+    ("a LIKE b ESCAPE '!' = c", "((a LIKE b ESCAPE '!') = c)"),
     ("NOT a = b", "(NOT (a = b))"),
     ("NOT a AND b", "((NOT a) AND b)"),
     ("NOT a IS NULL", "(NOT (a IS NULL))"),
@@ -657,12 +663,23 @@ fn deep_nesting_becomes_verbatim_without_overflowing() {
 }
 
 #[test]
-fn long_operator_chains_are_bounded() {
-    let source = vec!["a"; 5000].join(" + ");
+fn a_run_of_one_priority_is_one_node_however_long() {
+    for operator in [" + ", " - ", " || ", " = ", " LIKE ", " AND ", " OR "] {
+        let source = vec!["a"; 5000].join(operator);
+        let parse = crate::syntax::parse_as(&source, crate::lexer::Mode::Sql, Entry::Expression);
+        assert_eq!(parse.fallbacks(), &[], "{operator}");
+        let body = parse
+            .syntax()
+            .children()
+            .find(|n| n.kind() == crate::syntax::SyntaxKind::Statement)
+            .and_then(|s| s.first_child())
+            .expect("a body");
+        assert_eq!(body.children().count(), 5000, "{operator}");
+    }
+    // Each postfix operator wraps the expression so far, so a long chain of
+    // them meets the depth limit and is kept verbatim.
+    let source = format!("x{}", "::Int8".repeat(5000));
     let parse = crate::syntax::parse_as(&source, crate::lexer::Mode::Sql, Entry::Expression);
     assert_eq!(parse.syntax().text().to_string(), source);
-    let and_chain = vec!["a"; 5000].join(" AND ");
-    let parse = crate::syntax::parse_as(&and_chain, crate::lexer::Mode::Sql, Entry::Expression);
-    // A run of `AND` is one node however long, so it parses.
-    assert_eq!(parse.fallbacks(), &[]);
+    assert_eq!(parse.fallbacks().len(), 1);
 }

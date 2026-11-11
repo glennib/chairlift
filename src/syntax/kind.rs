@@ -321,10 +321,12 @@ syntax_kinds! {
         MapExpr: List,
         /// `'key': value` in a [`MapExpr`](Self::MapExpr).
         MapEntry: Node,
-        /// A binary operator and its operands, for every binary operator but
-        /// `AND` and `OR`; the operator may be several tokens (`NOT LIKE`,
+        /// Operands and the binary operators between them, for every binary
+        /// operator but `AND` and `OR`: one node for a run of operators of
+        /// one priority, which group from the left (`a - b + c` is
+        /// `(a - b) + c`). An operator may be several tokens (`NOT LIKE`,
         /// `IS NOT DISTINCT FROM`, `AT TIME ZONE`), and `LIKE` and its
-        /// relatives may end in `ESCAPE 'c'`.
+        /// relatives may have `ESCAPE 'c'` after their right operand.
         BinaryExpr: Node,
         /// `a AND b AND c`: one node for a run of `AND`s.
         AndExpr: Node,

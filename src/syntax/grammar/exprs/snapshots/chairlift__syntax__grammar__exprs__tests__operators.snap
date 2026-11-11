@@ -1,6 +1,6 @@
 ---
 source: src/syntax/grammar/exprs/tests.rs
-expression: "trees(&[\"a NOT LIKE 'x%' ESCAPE '!'\", \"a ILIKE b\", \"a SIMILAR TO 'x'\",\n\"a NOT SIMILAR TO 'x'\", \"a REGEXP 'x'\", \"a !~* 'x'\", \"a GLOBAL NOT IN (1, 2)\",\n\"a IS NOT DISTINCT FROM b\", \"a IS TRUE\", \"x AT TIME ZONE 'UTC'\", \"x AT LOCAL\",\n\"a <=> b\", \"a MOD b DIV c\", \"a || b\", \"f | g\", \"a NOT BETWEEN 1 AND 2\",\n\"c ? a : b\",])"
+expression: "trees(&[\"a NOT LIKE 'x%' ESCAPE '!'\", \"a ILIKE b\", \"a SIMILAR TO 'x'\",\n\"a NOT SIMILAR TO 'x'\", \"a REGEXP 'x'\", \"a !~* 'x'\", \"a GLOBAL NOT IN (1, 2)\",\n\"a IS NOT DISTINCT FROM b\", \"a IS TRUE\", \"x AT TIME ZONE 'UTC'\", \"x AT LOCAL\",\n\"a <=> b\", \"a MOD b DIV c\", \"a - b + c * d - e\", \"a || b\", \"f | g\",\n\"a NOT BETWEEN 1 AND 2\", \"c ? a : b\",])"
 ---
 > a NOT LIKE 'x%' ESCAPE '!'
 BinaryExpr
@@ -118,15 +118,32 @@ BinaryExpr
 
 > a MOD b DIV c
 BinaryExpr
-  BinaryExpr
-    Name
-      BareWord "a"
-    Keyword "MOD"
-    Name
-      BareWord "b"
+  Name
+    BareWord "a"
+  Keyword "MOD"
+  Name
+    BareWord "b"
   Keyword "DIV"
   Name
     BareWord "c"
+
+> a - b + c * d - e
+BinaryExpr
+  Name
+    BareWord "a"
+  Minus "-"
+  Name
+    BareWord "b"
+  Plus "+"
+  BinaryExpr
+    Name
+      BareWord "c"
+    Asterisk "*"
+    Name
+      BareWord "d"
+  Minus "-"
+  Name
+    BareWord "e"
 
 > a || b
 BinaryExpr

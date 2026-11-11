@@ -115,6 +115,9 @@ pub(crate) fn parenthesized(source: &str) -> String {
 }
 
 fn render(node: &SyntaxNode) -> String {
+    if node.kind() == SyntaxKind::BinaryExpr {
+        return render_binary(node);
+    }
     let parts: Vec<String> = node
         .children_with_tokens()
         .filter(|e| !e.kind().is_trivia())
@@ -133,8 +136,7 @@ fn render(node: &SyntaxNode) -> String {
         // Its text is what ClickHouse reads; parentheses would change it.
         SyntaxKind::LiteralAsText => node.text().to_string(),
         SyntaxKind::PrefixExpr if negative_literal => joined,
-        SyntaxKind::BinaryExpr
-        | SyntaxKind::AndExpr
+        SyntaxKind::AndExpr
         | SyntaxKind::OrExpr
         | SyntaxKind::PrefixExpr
         | SyntaxKind::PostfixExpr
@@ -147,4 +149,40 @@ fn render(node: &SyntaxNode) -> String {
         | SyntaxKind::IntervalExpr => format!("({joined})"),
         _ => joined,
     }
+}
+
+/// A [`BinaryExpr`](SyntaxKind::BinaryExpr), which may hold a run of
+/// operators of one priority, with each operator in parentheses from the
+/// left: `a - b + c` is `((a - b) + c)`.
+fn render_binary(node: &SyntaxNode) -> String {
+    let mut acc: Option<String> = None;
+    let mut ops: Vec<String> = Vec::new();
+    let mut escape = false;
+    for element in node
+        .children_with_tokens()
+        .filter(|e| !e.kind().is_trivia())
+    {
+        match element {
+            NodeOrToken::Token(t) if t.text().eq_ignore_ascii_case("ESCAPE") && ops.is_empty() => {
+                // `ESCAPE 'c'` belongs to the operator just applied.
+                escape = true;
+            }
+            NodeOrToken::Token(t) => ops.push(t.text().to_owned()),
+            NodeOrToken::Node(n) => {
+                let operand = render(&n);
+                acc = Some(match acc.take() {
+                    None => operand,
+                    Some(lhs) if escape => {
+                        escape = false;
+                        let open = lhs.strip_suffix(')').unwrap_or(&lhs);
+                        format!("{open} ESCAPE {operand})")
+                    }
+                    Some(lhs) => {
+                        format!("({lhs} {} {operand})", std::mem::take(&mut ops).join(" "))
+                    }
+                });
+            }
+        }
+    }
+    acc.unwrap_or_default()
 }

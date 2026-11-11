@@ -194,8 +194,10 @@ pub(crate) fn expr_bp(p: &mut Parser<'_>, min_bp: u8) -> Option<CompletedMarker>
 /// follows wraps the expression so far, and operators may follow it.
 fn expr_bp_inner(p: &mut Parser<'_>, min_bp: u8, inline_alias: bool) -> Option<CompletedMarker> {
     let mut lhs = prefix(p)?;
-    // Each operator applied nests the tree one level deeper, except a run of
-    // `AND`s or `OR`s, which is one node.
+    // Each node an operator wraps around the expression so far nests the
+    // tree one level deeper. A run of binary operators of one priority is
+    // one node, as is a run of `AND`s or `OR`s, so only postfix chains
+    // (`x::T::T`, `a[1][2]`, `x IS NULL IS NULL`) nest deeply.
     let mut chain = 0;
     let mut aliased = false;
     loop {
@@ -214,9 +216,7 @@ fn expr_bp_inner(p: &mut Parser<'_>, min_bp: u8, inline_alias: bool) -> Option<C
             break;
         }
         lhs = p.deeper(chain, |p| apply(p, lhs, op))?;
-        if !matches!(op.kind, OpKind::And | OpKind::Or) {
-            chain += 1;
-        }
+        chain += 1;
     }
     Some(lhs)
 }
@@ -357,15 +357,23 @@ fn bump_operator(p: &mut Parser<'_>, tokens: u8) {
 
 fn apply(p: &mut Parser<'_>, lhs: CompletedMarker, op: Op) -> Option<CompletedMarker> {
     match op.kind {
-        OpKind::Binary { quantified, escape } => {
+        OpKind::Binary { .. } => {
             let m = lhs.precede(p);
-            bump_operator(p, op.tokens);
-            if !quantifier(p, quantified)? {
-                expr_bp(p, op.bp + 1)?;
-            }
-            if escape && p.at_kw(K::Escape) && p.nth_at(1, T::StringLiteral) {
-                p.bump_keyword();
-                literal(p);
+            let mut op = op;
+            // The operators of one priority that follow join this node.
+            while let OpKind::Binary { quantified, escape } = op.kind {
+                bump_operator(p, op.tokens);
+                if !quantifier(p, quantified)? {
+                    expr_bp(p, op.bp + 1)?;
+                }
+                if escape && p.at_kw(K::Escape) && p.nth_at(1, T::StringLiteral) {
+                    p.bump_keyword();
+                    literal(p);
+                }
+                match infix(p) {
+                    Some(next) if next.bp == op.bp => op = next,
+                    _ => break,
+                }
             }
             Some(m.complete(p, SyntaxKind::BinaryExpr))
         }
