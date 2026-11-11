@@ -48,8 +48,9 @@ use verify::Verifier;
 /// Format ClickHouse SQL and Jinja-templated SQL files.
 ///
 /// Files are formatted in place. Directories are searched for `*.sql`,
-/// `*.sql.j2` and `*.j2.sql` files, skipping hidden files and whatever
-/// `.gitignore` and `.ignore` files exclude.
+/// `*.sql.j2` and `*.j2.sql` files, skipping hidden files, symbolic links
+/// and whatever `.gitignore` and `.ignore` files exclude. A file named on
+/// the command line is formatted whatever its name.
 #[derive(Debug, Parser)]
 #[allow(clippy::struct_excessive_bools, reason = "each is a flag")]
 #[command(
@@ -71,7 +72,8 @@ struct Cli {
     check: bool,
 
     /// Write nothing; print a unified diff of the changes and exit with 1 if
-    /// there are any.
+    /// there are any. With --check too, the diff is printed instead of the
+    /// list.
     #[arg(long)]
     diff: bool,
 
@@ -102,9 +104,9 @@ struct Cli {
           value_parser = clap::value_parser!(u16).range(1..))]
     line_width: u16,
 
-    /// Whether files are Jinja templates; `auto` decides by name (`*.sql.j2`
-    /// and `*.j2.sql` are), and stdin is not unless --stdin-filename names a
-    /// template.
+    /// Whether files are Jinja templates; `auto` decides by name (`*.j2`,
+    /// such as `*.sql.j2`, and `*.j2.sql` are), and stdin is not unless
+    /// --stdin-filename names a template.
     #[arg(long, value_enum, value_name = "WHEN", default_value_t = Jinja::Auto)]
     jinja: Jinja,
 
@@ -731,6 +733,7 @@ fn discover(paths: &[PathBuf], reporter: Reporter) -> (Vec<PathBuf>, usize) {
     for path in paths {
         match fs::metadata(path) {
             Ok(meta) if meta.is_dir() => {
+                let before = files.len();
                 let walk = ignore::WalkBuilder::new(path).require_git(false).build();
                 for entry in walk {
                     match entry {
@@ -749,6 +752,22 @@ fn discover(paths: &[PathBuf], reporter: Reporter) -> (Vec<PathBuf>, usize) {
                             errors += 1;
                         }
                     }
+                }
+                // Most likely a mistyped path, or files under other names.
+                // With this, a run that finds no file at all says why for
+                // each of its paths.
+                if files.len() == before {
+                    report(
+                        reporter,
+                        &Diagnostic::warning(
+                            "chairlift::walk::empty",
+                            format!(
+                                "{}: no SQL files found in this directory (`*.sql`, `*.sql.j2`, \
+                                 `*.j2.sql`, not hidden or ignored)",
+                                path.display()
+                            ),
+                        ),
+                    );
                 }
             }
             Ok(_) => files.push(path.clone()),

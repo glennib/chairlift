@@ -103,7 +103,7 @@ fn help() {
     insta::assert_snapshot!(help.join("\n"), @"
     Format ClickHouse SQL and Jinja-templated SQL files.
 
-    Files are formatted in place. Directories are searched for `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files and whatever `.gitignore` and `.ignore` files exclude.
+    Files are formatted in place. Directories are searched for `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files, symbolic links and whatever `.gitignore` and `.ignore` files exclude. A file named on the command line is formatted whatever its name.
 
     Usage: chairlift [OPTIONS] <PATHS>...
 
@@ -116,7 +116,7 @@ fn help() {
               Write nothing; list the files that would change and exit with 1 if there are any
 
           --diff
-              Write nothing; print a unified diff of the changes and exit with 1 if there are any
+              Write nothing; print a unified diff of the changes and exit with 1 if there are any. With --check too, the diff is printed instead of the list
 
           --verify
               Also check with ClickHouse's own formatter, `clickhouse-format`, that ClickHouse reads each changed file as before. A file it reads differently is an error and is not written, and so is a file of which it judges nothing because it crashes, times out or prints too much on it; where that happens to only some statements of a file, a warning that --quiet does not hide says so. Files that formatting leaves unchanged are not judged, as there is nothing to compare; neither are statements it cannot parse, nor template statements that hold Jinja
@@ -130,7 +130,7 @@ fn help() {
               [default: 100]
 
           --jinja <WHEN>
-              Whether files are Jinja templates; `auto` decides by name (`*.sql.j2` and `*.j2.sql` are), and stdin is not unless --stdin-filename names a template
+              Whether files are Jinja templates; `auto` decides by name (`*.j2`, such as `*.sql.j2`, and `*.j2.sql` are), and stdin is not unless --stdin-filename names a template
 
               [default: auto]
               [possible values: auto, on, off]
@@ -481,6 +481,26 @@ fn directories_are_searched_for_sql_files() {
         stdout(&output),
         "Would reformat: ignored.sql\nWould reformat: notes.txt\n"
     );
+}
+
+/// A directory with no SQL file in it is worth a warning, which does not
+/// change the exit status.
+#[test]
+fn a_directory_without_sql_files_is_warned_about() {
+    let dir = temp_dir("no-sql");
+    write(&dir, "empty/notes.txt", "select 1");
+    write(&dir, "full/a.sql", "SELECT 1;\n");
+    let output = run(&["--check", "empty", "full"], None, Some(&*dir));
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        stderr(&output),
+        "chairlift::walk::empty\n\n  ⚠ empty: no SQL files found in this directory (`*.sql`, \
+         `*.sql.j2`, `*.j2.sql`, not hidden or ignored)\n\
+         0 files would be reformatted, 1 file already formatted\n"
+    );
+    let output = run(&["--check", "-q", "empty"], None, Some(&*dir));
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(stderr(&output), "");
 }
 
 /// A file reached by two spellings, or through a directory and by name, is
@@ -963,6 +983,24 @@ fn verify_needs_clickhouse_format() {
         "{}",
         stderr(&output)
     );
+
+    // A directory, named with or without a `/`.
+    fs::create_dir(dir.join("bin")).unwrap();
+    for binary in ["bin", "./bin"] {
+        let output = run(
+            &["--verify", "--clickhouse-binary", binary, "q.sql"],
+            None,
+            Some(&*dir),
+        );
+        assert_eq!(output.status.code(), Some(2));
+        assert!(
+            stderr(&output).contains(&format!(
+                "`{binary}` is a directory, not an executable file"
+            )),
+            "{}",
+            stderr(&output)
+        );
+    }
 
     // --clickhouse-binary means nothing without --verify.
     let output = chairlift(&["--clickhouse-binary", "clickhouse-format", "q.sql"]);
