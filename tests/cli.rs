@@ -129,6 +129,9 @@ fn help() {
               [default: auto]
               [possible values: auto, on, off]
 
+      -j, --jobs <N>
+              Files formatted at once [default: the number of CPUs]. Results are reported in path order whatever the number
+
       -q, --quiet
               Print only errors, besides the formatted text, the list of files or the diff that is asked for: no summary, warnings or notes
 
@@ -537,6 +540,62 @@ fn a_missing_path_is_an_error() {
         "{}",
         stderr(&output)
     );
+}
+
+/// Files are formatted in parallel, and reported in path order whatever the
+/// number of jobs: the list, the diffs and the diagnostics.
+#[test]
+fn output_is_in_path_order_under_parallelism() {
+    let dir = temp_dir("parallel");
+    let mut expected = String::new();
+    let mut expected_errors = Vec::new();
+    for i in 0..60 {
+        let name = format!("f{i:02}.sql");
+        match i % 3 {
+            0 => {
+                write(&dir, &name, MESSY);
+                expected.extend(["Would reformat: ./", &name, "\n"]);
+            }
+            1 => {
+                write(&dir, &name, CLEAN);
+            }
+            _ => {
+                write(&dir, &name, "SELECT 'x");
+                expected_errors.push(format!("./{name}:1:8: Single quoted string"));
+            }
+        }
+    }
+    let mut first_diff = None;
+    for jobs in ["1", "3", "16"] {
+        let output = run(&["--check", "-j", jobs, "."], None, Some(&*dir));
+        assert_eq!(output.status.code(), Some(2));
+        assert_eq!(stdout(&output).replace('\\', "/"), expected, "-j {jobs}");
+        let errors = stderr(&output).replace('\\', "/");
+        let mut at = 0;
+        for error in &expected_errors {
+            let found = errors[at..]
+                .find(error.as_str())
+                .unwrap_or_else(|| panic!("-j {jobs}: {error} out of order in {errors}"));
+            at += found + error.len();
+        }
+        assert!(
+            errors.ends_with(
+                "20 files would be reformatted, 20 files already formatted, 20 errors\n"
+            ),
+            "{errors}"
+        );
+        let output = run(&["--diff", "--jobs", jobs, "."], None, Some(&*dir));
+        let diff = stdout(&output);
+        assert_eq!(*first_diff.get_or_insert_with(|| diff.clone()), diff);
+    }
+}
+
+#[test]
+fn jobs_must_be_a_positive_number() {
+    for bad in ["0", "-1", "many"] {
+        let output = chairlift(&["-j", bad, "x.sql"]);
+        assert_eq!(output.status.code(), Some(2), "-j {bad}");
+    }
 }
 
 #[test]

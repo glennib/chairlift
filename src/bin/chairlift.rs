@@ -6,6 +6,8 @@
 
 #[path = "chairlift/diagnostic.rs"]
 mod diagnostic;
+#[path = "chairlift/parallel.rs"]
+mod parallel;
 
 use std::fs;
 use std::io;
@@ -64,6 +66,11 @@ struct Cli {
     /// and `*.j2.sql` are), and stdin is not.
     #[arg(long, value_enum, value_name = "WHEN", default_value_t = Jinja::Auto)]
     jinja: Jinja,
+
+    /// Files formatted at once [default: the number of CPUs]. Results are
+    /// reported in path order whatever the number.
+    #[arg(short, long, value_name = "N", value_parser = clap::value_parser!(u16).range(1..))]
+    jobs: Option<u16>,
 
     /// Print only errors, besides the formatted text, the list of files or
     /// the diff that is asked for: no summary, warnings or notes.
@@ -125,17 +132,20 @@ impl Settings {
     }
 }
 
+/// A file's text and its formatted text.
+#[derive(Debug)]
+struct Formatted {
+    before: String,
+    after: String,
+}
+
 /// A file that was formatted.
 #[derive(Debug)]
 struct Outcome {
-    /// The file's text, when formatting changed it.
-    changed: Option<Changed>,
-}
-
-#[derive(Debug)]
-struct Changed {
-    before: String,
-    after: String,
+    /// Whether formatting changed it.
+    changed: bool,
+    /// The unified diff, when that is the action and the file changed.
+    diff: Option<String>,
 }
 
 /// Why a file was left as it was.
@@ -282,42 +292,37 @@ fn main() -> ExitCode {
         }
         return stdin(&settings, reporter);
     }
-    files(&cli.paths, &settings, reporter)
+    let jobs = cli.jobs.map_or_else(parallel::default_jobs, usize::from);
+    files(&cli.paths, &settings, jobs, reporter)
 }
 
 /// Formats stdin to stdout, or checks or diffs it.
 fn stdin(settings: &Settings, reporter: Reporter) -> ExitCode {
-    let result =
-        read_stdin().and_then(
-            |source| match chairlift::format(&source, &settings.options(None)) {
-                Ok(after) => Ok((source, after)),
-                Err(error) => Err(FileError::Format {
-                    error,
-                    text: source,
-                }),
-            },
-        );
-    let (before, after) = match result {
-        Ok(texts) => texts,
+    let result = read_stdin()
+        .and_then(|source| format_text(source, &settings.options(None)))
+        .and_then(|formatted| {
+            let outcome = finish("-", None, &formatted, settings)?;
+            Ok((formatted, outcome))
+        });
+    let (formatted, outcome) = match result {
+        Ok(done) => done,
         Err(e) => {
             report(reporter, &e.diagnostic("<stdin>"));
             return ExitCode::from(2);
         }
     };
     let mut stdout = io::stdout().lock();
-    let written = match settings.action {
-        Action::Write => stdout.write_all(after.as_bytes()),
-        Action::Check if before != after => writeln!(stdout, "Would reformat: -"),
-        Action::Diff if before != after => {
-            stdout.write_all(unified_diff("-", &before, &after).as_bytes())
-        }
-        Action::Check | Action::Diff => Ok(()),
+    let written = match (settings.action, outcome.diff) {
+        (Action::Write, _) => stdout.write_all(formatted.after.as_bytes()),
+        (Action::Check, _) if outcome.changed => writeln!(stdout, "Would reformat: -"),
+        (_, Some(diff)) => stdout.write_all(diff.as_bytes()),
+        (Action::Check | Action::Diff, None) => Ok(()),
     };
     if let Err(e) = written.and_then(|()| stdout.flush()) {
         eprintln!("error: cannot write to stdout: {e}");
         return ExitCode::from(2);
     }
-    if settings.action != Action::Write && before != after {
+    if settings.action != Action::Write && outcome.changed {
         ExitCode::from(1)
     } else {
         ExitCode::SUCCESS
@@ -348,24 +353,26 @@ fn report(reporter: Reporter, diagnostic: &Diagnostic) {
 }
 
 /// Formats, checks or diffs the files under `paths`.
-fn files(paths: &[PathBuf], settings: &Settings, reporter: Reporter) -> ExitCode {
+fn files(paths: &[PathBuf], settings: &Settings, jobs: usize, reporter: Reporter) -> ExitCode {
     let started = Instant::now();
     let (files, mut errors) = discover(paths, reporter);
+    let outcomes = parallel::map(&files, jobs, |path| process(path, settings));
     let mut changed = 0;
     let mut unchanged = 0;
     let mut refused = 0;
     let mut stdout = io::stdout().lock();
-    for path in &files {
+    for (path, outcome) in files.iter().zip(outcomes) {
         let shown = path.display().to_string();
-        match process(path, settings) {
-            Ok(Outcome { changed: None }) => {
+        match outcome {
+            Ok(Outcome { changed: false, .. }) => {
                 unchanged += 1;
                 if reporter.verbosity == Verbosity::Verbose {
                     eprintln!("{shown}: already formatted");
                 }
             }
             Ok(Outcome {
-                changed: Some(Changed { before, after }),
+                changed: true,
+                diff,
             }) => {
                 changed += 1;
                 if reporter.verbosity == Verbosity::Verbose {
@@ -376,12 +383,10 @@ fn files(paths: &[PathBuf], settings: &Settings, reporter: Reporter) -> ExitCode
                         }
                     }
                 }
-                let written = match settings.action {
-                    Action::Write => Ok(()),
-                    Action::Check => writeln!(stdout, "Would reformat: {shown}"),
-                    Action::Diff => {
-                        stdout.write_all(unified_diff(&shown, &before, &after).as_bytes())
-                    }
+                let written = match (settings.action, diff) {
+                    (Action::Check, _) => writeln!(stdout, "Would reformat: {shown}"),
+                    (_, Some(diff)) => stdout.write_all(diff.as_bytes()),
+                    (_, None) => Ok(()),
                 };
                 if let Err(e) = written {
                     eprintln!("error: cannot write to stdout: {e}");
@@ -470,26 +475,53 @@ fn is_sql_file(path: &Path) -> bool {
 
 /// Formats one file, writing it back if that is the action and it changed.
 fn process(path: &Path, settings: &Settings) -> Result<Outcome, FileError> {
+    let formatted = format_file(path, settings)?;
+    finish(
+        &path.display().to_string(),
+        Some(path),
+        &formatted,
+        settings,
+    )
+}
+
+/// Reads and formats one file.
+fn format_file(path: &Path, settings: &Settings) -> Result<Formatted, FileError> {
     let bytes = fs::read(path).map_err(FileError::Read)?;
     let before = String::from_utf8(bytes).map_err(not_utf8)?;
-    let after = match chairlift::format(&before, &settings.options(Some(path))) {
-        Ok(after) => after,
-        Err(error) => {
-            return Err(FileError::Format {
-                error,
-                text: before,
-            });
+    format_text(before, &settings.options(Some(path)))
+}
+
+fn format_text(before: String, options: &Options) -> Result<Formatted, FileError> {
+    match chairlift::format(&before, options) {
+        Ok(after) => Ok(Formatted { before, after }),
+        Err(error) => Err(FileError::Format {
+            error,
+            text: before,
+        }),
+    }
+}
+
+/// Does what the action asks with a formatted file called `name`: writes it
+/// back to `path`, if it has one, or works out its diff.
+fn finish(
+    name: &str,
+    path: Option<&Path>,
+    formatted: &Formatted,
+    settings: &Settings,
+) -> Result<Outcome, FileError> {
+    let Formatted { before, after } = formatted;
+    let changed = before != after;
+    let mut diff = None;
+    if changed {
+        match (settings.action, path) {
+            (Action::Write, Some(path)) => {
+                write_atomically(path, after).map_err(FileError::Write)?;
+            }
+            (Action::Diff, _) => diff = Some(unified_diff(name, before, after)),
+            (Action::Write | Action::Check, _) => {}
         }
-    };
-    if after == before {
-        return Ok(Outcome { changed: None });
     }
-    if settings.action == Action::Write {
-        write_atomically(path, &after).map_err(FileError::Write)?;
-    }
-    Ok(Outcome {
-        changed: Some(Changed { before, after }),
-    })
+    Ok(Outcome { changed, diff })
 }
 
 /// Replaces the file at `path` with `contents` so that a crash leaves either
