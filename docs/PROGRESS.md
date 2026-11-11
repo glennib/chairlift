@@ -10,12 +10,123 @@ M9 (chum integration) is not part of this run.
 | M0. Repository scaffolding | done | CI green |
 | M1. Lossless lexer | done | reviewed; CI green |
 | M2. Verifier, splitter, safe-cleanup CLI | done | review findings fixed |
-| M3. Parser core | implemented | fixes for the review of the `SELECT` and `CREATE` grammars in progress |
-| M4. Formatting rules and printer | in progress | parts 1 (printer) and 2 (layout framework, `SELECT`) done, part 2 under review; part 3: `CREATE TABLE` and materialized views |
+| M3. Parser core | done on `main`; unmerged fixes | the fixes for the second grammar review are on the branch `wip/layout-fixes` |
+| M4. Formatting rules and printer | parts 1–3 on `main`; unmerged fixes | review fixes on `wip/layout-fixes`, not yet verified commit by commit; acceptance sweep not done |
 | M5. Jinja templates | not started | |
-| M6. CLI polish and performance | not started | |
+| M6. CLI polish and performance | implemented, unmerged | on the branch `wip/m6-cli`; last commit is work in progress |
 | M7. Remaining statement kinds | not started | |
 | M8. Hardening and first release | not started | |
+
+## Resuming the work
+
+The run was paused on 2026-11-11 with M0–M3 and M4 parts 1–3 on `main` and two branches unmerged.
+Nothing is running.
+Pick up in this order.
+
+### State of the branches
+
+| Branch | Based on | Commits | Holds | Verified |
+| --- | --- | --- | --- | --- |
+| `main` | | | M0–M3; M4 printer, `SELECT` layout, `CREATE` layout | every commit passed `mise run ci` when it landed |
+| `wip/layout-fixes` | `main` | 35 | 16 grammar fixes, then 19 layout fixes | tests and clippy pass at the tip; full `mise run ci` ran only on the first two commits |
+| `wip/m6-cli` | `main` | 6 | M6 | full `mise run ci` on the first two; the next three passed clippy and their own tests; the last is `wip:` |
+
+`main` has known defects that `wip/layout-fixes` repairs: two meaning changes in Jinja templates
+(see the M4 notes), a regression on `INSERT … FORMAT` data that ends before `)`, and several layout faults.
+Until that branch lands, do not run `main` on templates you care about.
+
+### Setup
+
+- `mise install`, then `mise run corpus:fetch`.
+  The corpus this run used was in a scratch directory that is gone;
+  set `CHAIRLIFT_CORPUS_DIR` to share one copy between checkouts.
+- `CHAIRLIFT_LOCAL_CORPORA` takes the local-only corpora, `:`-separated.
+  They are never vendored.
+- `CHAIRLIFT_REQUIRE_CORPUS=1` makes a missing corpus fail instead of skip.
+- The comparison with ClickHouse's own lexer needs `clang`.
+- Tasks: `mise run ci`, `test:corpus`, `test:keyword-positions`, `test:templates`, `corpus`, `corpus:oracle`,
+  `corpus:recase`, `corpus:expressions`, `tree -- FILE`, `fuzz:lexer`, `fuzz:parser`, `fuzz:format`, `fuzz:doc`.
+
+### 1. Land `wip/layout-fixes`
+
+1. Check every commit: `git rebase --exec 'mise run ci' main` on the branch, or the equivalent.
+   Expect a few test expectations to need moving between commits; the tip is known to pass.
+2. Two commits were changed last and are the least tested: "fix:
+   keep an operator on the line where a broken operand ends" and "fix:
+   keep an operator before a string that spans lines".
+   The rule was narrowed: an operator stays after an operand only if the operand ends in a bracket or `END`,
+   or spans lines.
+   Read their output on the stateless corpus before trusting it.
+3. At the tip run `mise run test:corpus`, `test:templates`, `corpus` and `corpus:oracle`.
+   Expected: no verify failure, nothing non-idempotent, no statement differing in the oracle.
+   The numbers the implementer saw before it was stopped: `CREATE TABLE` 21,386 of 21,416 formatted,
+   materialized views 541 of 541, `SELECT` 141,755 of 142,013.
+4. Run `mise run fuzz:format -- -max_total_time=1800` and `fuzz:parser` likewise.
+   Only a 30 s run was done.
+5. Measure `--check` over the stateless corpus and a 1 MB file against `main`, under the same load.
+6. Fast-forward `main`.
+
+Left open on that branch: a `TTL … DELETE WHERE` in a `CREATE` has no break before `WHERE`
+and lays out badly at narrow widths;
+three generated templates whose `-` marker glues a keyword onto a number when a loop is empty differ between input
+and output, and both renders are invalid SQL.
+
+### 2. Land `wip/m6-cli`
+
+1. Rebase it onto the landed layout fixes.
+   Expect conflicts in `src/bin/chairlift.rs` and the error type: the layout fixes add `Error::Template`
+   (a template left unchanged, exit 2) and a message of its own for `Error::Layout`, and M6 rewrote the diagnostics.
+2. Finish the last commit ("wip: bench: …"): run `scripts/bench-compare.sh` against a copy of the base,
+   and check that `criterion` accepts `--noplot` and writes its change estimates under `--load-baseline`.
+3. Check every commit with `mise run ci`.
+4. Confirm the 1 MB timing through the binary on a quiet machine.
+   In process it is 62 ms; through the binary 87–91 ms was measured under load.
+
+### 3. Close M4
+
+M4's acceptance has not been measured as a whole.
+On the tip of the landed work:
+
+- every item under "Acceptance" for M4 in `MILESTONES.md`, with numbers;
+- an independent review of the `CREATE` layout, which has had none, and of the layout fixes,
+  aimed at the same things as the review of part 2: rendering templates for every branch combination,
+  idempotence on generated input, reading real output;
+- the style questions below, for the project owner.
+
+### 4. M5, M7, M8
+
+M5 (Jinja templates), in addition to its scope in `MILESTONES.md`:
+
+- The verifier models one render, with every `{% if %}` branch taken.
+  Both template defects found so far were invisible to it.
+  Build the render harness first: minijinja with chum's settings, every branch combination up to 16, loops of 0,
+  1 and 3 iterations, comparing rendered token streams.
+  `mise run test:templates` is a start, and `oracle::variants` is where rendered variants plug into the oracle.
+- An implicit table alias must not cross a block tag.
+  With alternative `SELECT` branches under `{% if %}`/`{% else %}`,
+  the first branch's table takes the next `select` as its alias, which is how ClickHouse reads the unrendered text.
+- A `{{ config() }}` before a statement makes the whole statement verbatim; all dbt models start that way.
+- In a template with block tags, everything from an `INSERT … FORMAT` to the end of the file is left as it is.
+  The rule is broader than it needs to be.
+
+M7 (remaining statement kinds): the grammar and layout guides are the rustdoc at the top of `src/syntax/grammar/mod.rs`
+and `src/layout/mod.rs`.
+Add every new keyword position to `tests/keyword_positions.rs`.
+`WITH … INSERT` and `PARALLEL WITH` are verbatim statements waiting for it.
+
+M8: no release has been made and no release workflow runs.
+`dist generate --mode=ci` creates the cargo-dist workflow, and `release-plz.yml` runs on manual dispatch only.
+
+### How the work was checked
+
+- An implementer's report was never taken as acceptance.
+  A second agent re-measured each milestone and attacked it with generated input, and found defects every time:
+  in the lexer's error handling, the verifier, keyword slots, parsing time, and template rendering.
+- The checks that found the most: comparing with ClickHouse's own lexer and `EXPLAIN AST`,
+  the generated keyword-position test, rendering templates for every branch combination,
+  and fuzz runs of 30 minutes rather than a few.
+- A long-running check should signal its end through its exit or a line in its log.
+  Waiting on `pgrep -f` matches the waiting shell itself and never ends.
 
 ## Sequencing
 
@@ -60,6 +171,9 @@ Those assumptions are used unless the project owner decides otherwise:
 - Snapshot review: `insta` snapshots are committed so that every commit passes its tests.
   They are listed here per milestone until reviewed.
   - M0: the inline snapshot of `--help` in `tests/cli.rs`.
+  - M6, unmerged: new and changed snapshots in `tests/cli.rs` and `src/bin/chairlift.rs`.
+  - M4 part 3: five of the `tests/snapshots/format__*.snap` files changed:
+    the chum migrations lose column alignment and get `(` on its own line, and the design example is re-cased.
   - M4 part 2: 14 formatted-fixture snapshots, `tests/snapshots/format__*.snap`.
   - M4 part 1: the inline snapshot in `doc::tests::a_document_dumps_as_indented_nodes`.
   - M3 part 2: 11 tree-dump snapshots under `src/syntax/grammar/select/snapshots/`.
@@ -84,9 +198,17 @@ None blocks the work.
 - The operator stays on its line before `IN (list)` and before a subquery.
 - A statement kept as written starts at column 0, and a comment trailing it keeps its spacing.
 - `;;` stays on the line of the statement before it.
-- **Open, under review**: whitespace next to a Jinja `-` marker is re-indented like any other,
-  with the rendered check as the safety net.
-  The plan says to treat it as fixed.
+- `CREATE TABLE`, on `main`:
+  - A column definition that does not fit breaks before each modifier
+    (`DEFAULT`, `CODEC`, `TTL`, `COMMENT`), one level in; `NULL` and `COLLATE` stay with the type.
+    The proposal keeps `COMMENT` at the end of the column line, which the printer cannot measure around.
+  - `AS` before a query ends the line before it and the query starts at column 0,
+    which gives `ENGINE = Memory AS` and `ORDER BY x AS`.
+    The alternative is `AS` on a line of its own.
+  - `REFRESH`, `TO`, `EMPTY`/`CLONE`/`POPULATE` and `AS` a table stay on the header line,
+    and break one level in when it does not fit.
+  - The column list is always one element per line, even for one short column.
+  - `CODEC(…)` is glued; `DEFINER = u@'%'` has no spaces around `@`.
 
 ## Deviations from the plan
 
@@ -110,6 +232,15 @@ None blocks the work.
     `TRUE` and `FALSE` after `IS` are literals too, so they print lower case.
   - `NOT` in operand position is always the operator, so `not(x)` is re-cased to `NOT(x)`.
   - chairlift parses `a ? b : c ? d : e` and `x -> y -> z`, which ClickHouse rejects.
+- **Whitespace next to a Jinja `-` marker (M4)** is re-indented like any other whitespace.
+  The plan's style decision treats it as fixed.
+  The review of the layout recommends against freezing it:
+  the renderer strips the whole run next to a marker in every render, and in 120,000 generated templates,
+  each rendered in 12 contexts, the whitespace that changed a meaning was never the whitespace next to a marker.
+  Freezing would also leave `AND …` after a `-%}` at column 0 in the proposal's own section 2g example.
+  The exception: a line comment followed only by whitespace and a left-marker tag has its end decided by the render,
+  so such a file is left unchanged and reported (on `wip/layout-fixes`).
+  **For the project owner to confirm.**
 - **Jinja mode (M2)**: dbt models are templates in files named `.sql`, so the extension alone cannot decide.
   The CLI takes `--jinja auto|on|off`, with `auto` deciding by extension.
 - **Lexer throughput (M1)** is measured per file, not over one concatenated input: concatenated,
@@ -371,3 +502,47 @@ Part 2: the layout framework, expression layout and `SELECT`/`WITH`, wired into 
 - M2's `cleanup()` is gone; a statement kept as written prints through the document builder.
 - Known gaps: a long chain of `+` breaks one operator at a time from the end;
   an alias after an expression that broke can pass the width; trailing comments are not measured.
+
+Part 3: `CREATE TABLE` and `CREATE MATERIALIZED VIEW` layout.
+
+- All layout goldens pass byte for byte from flattened input and from the expected text: the seven `CREATE` examples,
+  the materialized view, and the DESIGN.md example.
+- Stateless corpus: 21,366 of 21,420 `CREATE TABLE` statements (99.7%) and all 541 materialized views are formatted.
+  Verify, idempotence and the token check hold on every file, also at widths 10, 30 and 60.
+  The oracle finds no differing statement in any corpus.
+- 1 MB of `CREATE` statements formats in about 116 ms, linear to 4 MB.
+- Known gaps: `AS (SELECT …)` puts `(` alone on the line after `AS`;
+  `REFERENCES db.p (b)` keeps a space before the bracket; a `CREATE` header has no break point.
+- Not independently reviewed.
+
+Review of part 2 (the layout framework and `SELECT`): safe on plain SQL,
+where the verifier turns the faults found into errors that leave the file alone.
+Fixes are on `wip/layout-fixes` for:
+
+- **A line comment before a left `-` marker**
+  (`{%-`, `{{-`, `{#-`):
+  the layout changed how much the comment swallows in renders where a branch is not taken or a loop runs more than once.
+- **`[{{ x }},2]::String`** gained a space after the comma; `::` reads the literal's source text.
+- Non-idempotence around a comment before a comma, which caused nearly every case the generators found.
+- `INSERT … FORMAT` data that ends before a `)` failed verification, a regression from M2.
+- An operator dropped to a new line after an operand that broke
+  (646 instances in 200 stateless files);
+  a multi-line string broke its operator group; an `OR` group in brackets as the first condition was not indented;
+  an own-line comment after a clause keyword lost its indentation; `LIMIT … BY` lists did not break.
+- A quadratic loop over verbatim regions; JSON path operators printed with a space; blank lines around comments.
+
+The fuzz run of `format` for 30 minutes on part 2 found no crash (339,000 runs).
+
+### M6
+
+Implemented on `wip/m6-cli`; see "Resuming the work" for what is verified.
+
+- `miette` diagnostics with `--quiet`, `--verbose`, `--color`; parallel processing with `-j/--jobs`,
+  output in path order; `--stdin-filename`; `--verify`.
+- `--verify` over the stateless corpus with 8 jobs: 268,929 statements judged, none differing, in 290 s.
+  Files that formatting leaves unchanged are not judged.
+  Templates are judged unrendered.
+- `--check` over the stateless corpus: 2.3 s with one job, 0.7 s wall and 4.4 s CPU with eight.
+- A 1.1 MB file formats in 62 ms in process: read 0.3, split 6, parse 20, layout 19–21, token check 1.5, print 4.7,
+  verify 11, dropping the tree 4.4.
+- A faster oracle route through `clickhouse local` was tried and rejected: it drops `INSERT` data.
