@@ -319,7 +319,7 @@ fn marked_tag(r: &mut Rng, body: &str) -> String {
 /// left-out branch joins to another, and `INSERT … FORMAT` data that a
 /// branch shapes.
 fn shaped_statement(r: &mut Rng, out: &mut String) {
-    match r.below(10) {
+    match r.below(12) {
         0 => {
             out.push_str(&marked_tag(r, "if a"));
             out.push_str(gap(r));
@@ -410,8 +410,35 @@ fn shaped_statement(r: &mut Rng, out: &mut String) {
             query(r, out);
         }
         8 => create(r, out),
+        9 | 10 => other_statement(r, out),
         _ => query(r, out),
     }
+}
+
+/// A statement of a kind other than a query or `CREATE TABLE`, with `{{ }}`
+/// atoms where names and values stand and now and then a block tag.
+fn other_statement(r: &mut Rng, out: &mut String) {
+    out.push_str(r.pick(&[
+        "insert into {{ db }}.t values (1, '{{ v }}')",
+        "insert into t (a, b) values\n(1, 2),\n(3, {{ v }})",
+        "insert into t_{{ s }} select a from u",
+        "insert into t format CSV\n1,{{ v }}\n",
+        "grant select on db.t to {{ role }}",
+        "grant select on {{ db }}.* to r {% if x %}with grant option{% endif %}",
+        "revoke insert on t from {{ role }}",
+        "alter table {{ db }}.t add column c UInt8 default {{ v }}",
+        "alter table t {% if x %}drop column a{% else %}drop column b{% endif %}",
+        "alter table t\n{% if x %}\nadd column a UInt8,\n{% endif %}\nadd column b UInt8",
+        "create user u identified by '{{ pw }}' settings max_memory_usage = {{ g }}",
+        "create database {{ db }} engine = {{ engine }}",
+        "create view {{ db }}.v as select a from t {% if y %} where b {% endif %}",
+        "create dictionary d (k UInt64, v String) primary key k \
+         source(clickhouse(table '{{ s }}' db {{ db }})) layout(flat()) lifetime(300)",
+        "drop table if exists {{ db }}.t",
+        "set max_threads = {{ g }}",
+        "delete from t where a = {{ v }}",
+        "show tables from {{ db }}",
+    ]));
 }
 
 /// A template from the second generator: a header now and then, statements

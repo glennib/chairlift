@@ -671,6 +671,30 @@ fn alternative_queries_under_a_tag_take_no_alias_across_it() {
 }
 
 #[test]
+fn templates_of_other_statement_kinds_are_laid_out() {
+    // A block tag between an `ALTER`'s head and its commands, at the
+    // commands' indentation.
+    assert_eq!(
+        jinja("alter table t\n{% if x %}\nadd column a UInt8,\n{% endif %}\nadd column b UInt8;"),
+        "ALTER TABLE t\n    {% if x %}\n    ADD COLUMN a UInt8,\n    {% endif %}\n    \
+         ADD COLUMN b UInt8;\n"
+    );
+    // `VALUES` data the template's tokens and every render agree on, after a
+    // header and with expressions inside it and in names.
+    let source = "{{ config() }}\ninsert into {{ db }}.t values ({{ v }}, 'a');\n\
+                  grant select on t to {{ role }};";
+    assert_eq!(
+        jinja(source),
+        "{{ config() }}\nINSERT INTO {{ db }}.t VALUES ({{ v }}, 'a');\n\n\
+         GRANT SELECT ON t TO {{ role }};\n"
+    );
+    assert_eq!(
+        decisions(source, true),
+        [Decision::Formatted, Decision::Formatted]
+    );
+}
+
+#[test]
 fn tags_touching_brackets_commas_and_semicolons_are_laid_out() {
     assert_eq!(
         jinja("select a,{% if x %} b, {% endif %} c from t"),
