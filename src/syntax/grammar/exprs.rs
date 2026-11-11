@@ -37,9 +37,6 @@ use crate::syntax::parser::Parser;
 /// Whether an alias may follow an expression.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AliasMode {
-    /// No alias.
-    #[allow(dead_code, reason = "for the statement grammar that builds on it")]
-    None,
     /// Only with `AS`, as in function arguments.
     As,
     /// With or without `AS`, as in a `SELECT` list; without it, the alias
@@ -140,11 +137,9 @@ pub(crate) fn alias(
     expr: CompletedMarker,
     mode: AliasMode,
 ) -> Option<CompletedMarker> {
-    let explicit = !matches!(mode, AliasMode::None | AliasMode::ImplicitOnly)
-        && p.at_kw(K::As)
-        && names::at_name(p, 1);
+    let explicit = mode != AliasMode::ImplicitOnly && p.at_kw(K::As) && names::at_name(p, 1);
     let implicit = match mode {
-        AliasMode::None | AliasMode::As => false,
+        AliasMode::As => false,
         AliasMode::Implicit | AliasMode::ImplicitOnly => at_implicit_alias(p),
         AliasMode::ImplicitExcept(words) => {
             at_implicit_alias(p) && !p.nth_keyword(0).is_some_and(|k| words.contains(&k))

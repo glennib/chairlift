@@ -73,7 +73,6 @@ pub(crate) fn verbatim_statement(p: &mut Parser<'_>) {
 /// Since clauses are tried one at a time, they may come in any order and
 /// repeat, which is what lets `{% if %} WHERE a {% else %} WHERE b
 /// {% endif %}` parse as two clauses.
-#[allow(dead_code, reason = "for the statement grammar that builds on it")]
 pub(crate) fn clause(
     p: &mut Parser<'_>,
     at_next_clause: Stop<'_>,
@@ -173,7 +172,6 @@ pub(crate) fn comma_separated(
 
 /// `open`, items separated by commas, `close`, as a node of `kind`: a
 /// bracketed list. Fails if the closing bracket is missing.
-#[allow(dead_code, reason = "for the statement grammar that builds on it")]
 pub(crate) fn delimited(
     p: &mut Parser<'_>,
     kind: SyntaxKind,

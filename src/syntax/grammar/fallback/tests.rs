@@ -30,7 +30,7 @@ fn clauses(p: &mut Parser<'_>) -> Option<()> {
             let kind = if p.at_kw(K::Group) {
                 p.bump_keyword();
                 p.bump_keyword();
-                common::expr_list(p, &at_clause, AliasMode::None)?;
+                common::expr_list(p, &at_clause, AliasMode::As)?;
                 SyntaxKind::GroupByClause
             } else {
                 let kind = if p.at_kw(K::Where) {

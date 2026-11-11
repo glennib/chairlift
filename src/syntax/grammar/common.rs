@@ -34,7 +34,6 @@ pub(crate) fn expr_list(
 /// `ORDER BY` items separated by commas, as an
 /// [`OrderByList`](SyntaxKind::OrderByList), up to `ends`. Fails if the list
 /// is empty.
-#[allow(dead_code, reason = "for the statement grammar that builds on it")]
 pub(crate) fn order_by_list(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<CompletedMarker> {
     let m = p.start();
     let shape = fallback::comma_separated(p, ends, &mut |p| order_by_item(p).map(drop));
@@ -79,7 +78,6 @@ pub(crate) fn order_by_item(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 /// Whether `SETTINGS` at the current token starts a settings clause: it does
 /// only when a setting's name and `=` follow, since `settings` is also a
 /// valid name.
-#[allow(dead_code, reason = "for the statement grammar that builds on it")]
 pub(crate) fn at_settings(p: &Parser<'_>) -> bool {
     if !p.at_kw(K::Settings) || !names::at_name(p, 1) {
         return false;
@@ -93,7 +91,6 @@ pub(crate) fn at_settings(p: &Parser<'_>) -> bool {
 
 /// `SETTINGS a = 1, …` as a [`SettingsClause`](SyntaxKind::SettingsClause),
 /// with the list up to `ends`.
-#[allow(dead_code, reason = "for the statement grammar that builds on it")]
 pub(crate) fn settings_clause(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<CompletedMarker> {
     let m = p.start();
     p.expect_kw(K::Settings)?;
@@ -134,7 +131,6 @@ fn ends_at(p: &Parser<'_>, n: usize) -> bool {
 }
 
 /// `ON CLUSTER name` or `ON CLUSTER 'name'`, if it follows.
-#[allow(dead_code, reason = "for the statement grammar that builds on it")]
 pub(crate) fn on_cluster(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     if !p.at_kws(&[K::On, K::Cluster]) {
         return None;
@@ -151,13 +147,11 @@ pub(crate) fn on_cluster(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 }
 
 /// `IF NOT EXISTS`, if it follows.
-#[allow(dead_code, reason = "for the statement grammar that builds on it")]
 pub(crate) fn if_not_exists(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     keywords(p, &[K::If, K::Not, K::Exists], SyntaxKind::IfNotExists)
 }
 
 /// `IF EXISTS`, if it follows.
-#[allow(dead_code, reason = "for the statement grammar that builds on it")]
 pub(crate) fn if_exists(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     keywords(p, &[K::If, K::Exists], SyntaxKind::IfExists)
 }

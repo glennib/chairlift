@@ -420,7 +420,6 @@ impl<'t> Parser<'t> {
     }
 
     /// Consumes `keywords` if the tokens from the current one spell them.
-    #[allow(dead_code, reason = "for the statement grammar that builds on it")]
     pub(crate) fn eat_kws(&mut self, keywords: &[Keyword]) -> bool {
         let at = self.at_kws(keywords);
         if at {
