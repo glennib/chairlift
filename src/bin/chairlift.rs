@@ -1056,6 +1056,28 @@ mod tests {
         ");
     }
 
+    /// The headline and the snippet's header give the same line and column:
+    /// columns in `char`s, and a lone `\r` ending a line.
+    #[test]
+    fn a_position_is_the_same_in_headline_and_snippet() {
+        for text in ["select 'æøå', `x\n", "select 1;\rselect 'æ', \"x\n"] {
+            let error = chairlift::format(text, &Options::default()).unwrap_err();
+            let rendered = render(
+                FileError::Format {
+                    error,
+                    text: text.to_owned(),
+                },
+                "q.sql",
+            );
+            let mut place = rendered.split_once("× q.sql:").unwrap().1.split(':');
+            let headline = format!("{}:{}", place.next().unwrap(), place.next().unwrap());
+            assert!(
+                rendered.contains(&format!("╭─[q.sql:{headline}]")),
+                "{rendered}"
+            );
+        }
+    }
+
     #[test]
     fn summaries() {
         assert_eq!(

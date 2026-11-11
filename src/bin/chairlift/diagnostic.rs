@@ -8,8 +8,11 @@ use std::io::IsTerminal as _;
 use miette::GraphicalReportHandler;
 use miette::GraphicalTheme;
 use miette::LabeledSpan;
-use miette::NamedSource;
+use miette::MietteError;
+use miette::MietteSpanContents;
 use miette::Severity;
+use miette::SourceSpan;
+use miette::SpanContents;
 
 /// Where chairlift's bugs are reported.
 pub const ISSUES: &str = "https://github.com/glennib/chairlift/issues";
@@ -109,8 +112,43 @@ pub struct Diagnostic {
 /// A labelled place in a file's text.
 #[derive(Debug)]
 pub struct Snippet {
-    source: NamedSource<String>,
+    source: Source,
     label: LabeledSpan,
+}
+
+/// A file's text, named, for a snippet.
+#[derive(Debug)]
+struct Source {
+    name: String,
+    text: String,
+}
+
+impl miette::SourceCode for Source {
+    fn read_span<'a>(
+        &'a self,
+        span: &SourceSpan,
+        context_lines_before: usize,
+        context_lines_after: usize,
+    ) -> Result<Box<dyn SpanContents<'a> + 'a>, MietteError> {
+        let contents = self
+            .text
+            .read_span(span, context_lines_before, context_lines_after)?;
+        // `miette` counts the column of the snippet's header in bytes; the
+        // headline's `chairlift::Position` counts `char`s, as editors do.
+        let column = span
+            .offset()
+            .checked_sub(contents.column())
+            .and_then(|start| self.text.get(start..span.offset()))
+            .map_or(contents.column(), |before| before.chars().count());
+        Ok(Box::new(MietteSpanContents::new_named(
+            self.name.clone(),
+            contents.data(),
+            *contents.span(),
+            contents.line(),
+            column,
+            contents.line_count(),
+        )))
+    }
 }
 
 impl Diagnostic {
@@ -163,14 +201,19 @@ impl Diagnostic {
     #[must_use]
     pub fn with_snippet(mut self, name: &str, text: String, offset: usize, label: &str) -> Self {
         let offset = text.floor_char_boundary(offset.min(text.len()));
-        let line_start = text[..offset].rfind('\n').map_or(0, |i| i + 1);
-        let line_end = text[offset..].find('\n').map_or(text.len(), |i| offset + i);
+        let line_start = text[..offset].rfind(['\n', '\r']).map_or(0, |i| i + 1);
+        let line_end = text[offset..]
+            .find(['\n', '\r'])
+            .map_or(text.len(), |i| offset + i);
         if line_end - line_start > SNIPPET_LINE_LIMIT {
             return self;
         }
         let len = text[offset..].chars().next().map_or(0, char::len_utf8);
         self.snippet = Some(Box::new(Snippet {
-            source: NamedSource::new(name, text),
+            source: Source {
+                name: name.to_owned(),
+                text,
+            },
             label: LabeledSpan::new_primary_with_span(Some(label.to_owned()), (offset, len)),
         }));
         self
