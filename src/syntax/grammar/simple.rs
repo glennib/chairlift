@@ -412,6 +412,13 @@ fn deduplicate_column(p: &mut Parser<'_>) -> Option<()> {
 pub(crate) fn partition(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     let m = p.start();
     p.expect_kw(K::Partition)?;
+    partition_value(p)?;
+    Some(m.complete(p, SyntaxKind::Partition))
+}
+
+/// What follows `PARTITION`: `ID` and a string or a query parameter, `ALL`,
+/// or an expression.
+pub(crate) fn partition_value(p: &mut Parser<'_>) -> Option<()> {
     if p.eat_kw(K::Id) {
         if names::at_query_parameter(p, 0) {
             exprs::query_parameter(p)?;
@@ -421,7 +428,7 @@ pub(crate) fn partition(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     } else if !p.eat_kw(K::All) {
         exprs::expr(p)?;
     }
-    Some(m.complete(p, SyntaxKind::Partition))
+    Some(())
 }
 
 /// A [`SetQuery`](SyntaxKind::SetQuery): `SET` and a
@@ -458,13 +465,13 @@ fn use_database(p: &mut Parser<'_>) -> Option<()> {
 
 /// Whether an output clause starts here: `INTO OUTFILE`, `FORMAT name` or
 /// `SETTINGS name`.
-fn at_output_clause(p: &Parser<'_>) -> bool {
+pub(crate) fn at_output_clause(p: &Parser<'_>) -> bool {
     common::at_into_outfile(p) || common::at_format(p) || common::at_settings(p)
 }
 
 /// The output clauses of a statement `ParserQueryWithOutput` reads, each
 /// with the clause fallback, in any order and repeated, as clauses are.
-fn output_clauses(p: &mut Parser<'_>) {
+pub(crate) fn output_clauses(p: &mut Parser<'_>) {
     loop {
         let parse = if common::at_into_outfile(p) {
             common::into_outfile_clause

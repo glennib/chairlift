@@ -15,8 +15,8 @@
 //! The query after `AS`, and a projection's query, go through
 //! [`select::query`] and [`select::subquery`].
 
-mod elements;
-mod storage;
+pub(crate) mod elements;
+pub(crate) mod storage;
 
 use crate::keyword::Keyword as K;
 use crate::lexer::TokenKind as T;
@@ -128,7 +128,7 @@ fn materialized_view(p: &mut Parser<'_>) -> Option<()> {
 /// `CREATE [OR REPLACE] [TEMPORARY] <object> [IF NOT EXISTS] name [UUID
 /// '…'] [TO INNER UUID '…'] [ON CLUSTER c]`, where `object` is the keywords
 /// of the object kind.
-fn header(p: &mut Parser<'_>, object: &[K]) -> Option<CompletedMarker> {
+pub(crate) fn header(p: &mut Parser<'_>, object: &[K]) -> Option<CompletedMarker> {
     let m = p.start();
     p.expect_kw(K::Create)?;
     p.eat_kws(&[K::Or, K::Replace]);
@@ -261,7 +261,7 @@ fn clause(p: &mut Parser<'_>, context: Context) -> Option<()> {
 }
 
 /// `COMMENT '…'` as a [`CommentClause`](SyntaxKind::CommentClause).
-fn comment(p: &mut Parser<'_>) -> Option<()> {
+pub(crate) fn comment(p: &mut Parser<'_>) -> Option<()> {
     let m = p.start();
     p.bump_keyword();
     string(p)?;
@@ -323,7 +323,7 @@ fn as_query(p: &mut Parser<'_>) -> Option<bool> {
 /// `DEFINER = user` and `SQL SECURITY DEFINER|INVOKER|NONE`, in either order,
 /// as a [`SqlSecurityClause`](SyntaxKind::SqlSecurityClause)
 /// (`ParserSQLSecurity`).
-fn sql_security(p: &mut Parser<'_>) -> Option<()> {
+pub(crate) fn sql_security(p: &mut Parser<'_>) -> Option<()> {
     let m = p.start();
     let mut definer = false;
     let mut security = false;
@@ -389,7 +389,7 @@ fn to(p: &mut Parser<'_>) -> Option<()> {
 
 /// `REFRESH …` of a materialized view, as a
 /// [`RefreshClause`](SyntaxKind::RefreshClause) (`ParserRefreshStrategy`).
-fn refresh(p: &mut Parser<'_>) -> Option<()> {
+pub(crate) fn refresh(p: &mut Parser<'_>) -> Option<()> {
     let m = p.start();
     p.bump_keyword();
     let every = p.at_kw(K::Every);
@@ -457,7 +457,7 @@ fn depends_on(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 /// (`ParserIdentifierWithOptionalParameters`): an engine, a codec, an index
 /// type. The name is never a keyword slot and never one of the functions
 /// with syntax of their own, so it keeps its case.
-fn name_with_args(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+pub(crate) fn name_with_args(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     let name = names::name(p)?;
     if !p.at(T::OpeningRoundBracket) {
         return Some(name);

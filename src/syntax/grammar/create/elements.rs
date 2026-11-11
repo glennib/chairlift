@@ -35,9 +35,9 @@ pub(super) fn element_list(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 /// quoted, and so does this.
 fn element(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     match p.nth_keyword(0) {
-        Some(K::Index) => index(p),
-        Some(K::Constraint) => constraint(p),
-        Some(K::Projection) => projection(p),
+        Some(K::Index) => index(p, true),
+        Some(K::Constraint) => constraint(p, true),
+        Some(K::Projection) => projection(p, true),
         Some(K::Primary) if p.nth_at_kw(1, K::Key) => {
             let m = p.start();
             p.bump_keyword();
@@ -46,14 +46,17 @@ fn element(p: &mut Parser<'_>) -> Option<CompletedMarker> {
             Some(m.complete(p, SyntaxKind::TablePrimaryKey))
         }
         Some(K::Foreign) if p.nth_at_kw(1, K::Key) => foreign_key(p),
-        _ => column(p),
+        _ => column(p, ColumnForm::Create),
     }
 }
 
 /// `INDEX name expr TYPE type [GRANULARITY n]` (`ParserIndexDeclaration`).
-fn index(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+/// After `ADD INDEX` the keyword is the command's, and `keyword` is unset.
+pub(crate) fn index(p: &mut Parser<'_>, keyword: bool) -> Option<CompletedMarker> {
     let m = p.start();
-    p.bump_keyword();
+    if keyword {
+        p.bump_keyword();
+    }
     names::name(p)?;
     exprs::expr(p)?;
     p.expect_kw(K::Type)?;
@@ -73,9 +76,13 @@ fn number(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 }
 
 /// `CONSTRAINT name CHECK|ASSUME expr` (`ParserConstraintDeclaration`).
-fn constraint(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+/// After `ADD CONSTRAINT` the keyword is the command's, and `keyword` is
+/// unset.
+pub(crate) fn constraint(p: &mut Parser<'_>, keyword: bool) -> Option<CompletedMarker> {
     let m = p.start();
-    p.bump_keyword();
+    if keyword {
+        p.bump_keyword();
+    }
     names::name(p)?;
     if !p.eat_kw(K::Check) && !p.eat_kw(K::Assume) {
         return p.expected("CHECK or ASSUME");
@@ -87,10 +94,13 @@ fn constraint(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 /// `PROJECTION name (query)` or `PROJECTION name INDEX exprs TYPE type`,
 /// then `WITH SETTINGS (…)` (`parseProjectionDeclarationBody`). The query
 /// is ClickHouse's projection form of `SELECT`, which the query grammar
-/// covers.
-fn projection(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+/// covers. After `ADD PROJECTION` the keyword is the command's, and
+/// `keyword` is unset.
+pub(crate) fn projection(p: &mut Parser<'_>, keyword: bool) -> Option<CompletedMarker> {
     let m = p.start();
-    p.bump_keyword();
+    if keyword {
+        p.bump_keyword();
+    }
     names::name(p)?;
     if p.at(T::OpeningRoundBracket) {
         select::projection_subquery(p)?;
@@ -149,13 +159,49 @@ fn at_null(p: &Parser<'_>) -> bool {
     p.at_kw(K::Null) || p.at_kws(&[K::Not, K::Null])
 }
 
+/// Where a column definition stands, which decides how
+/// `IParserColumnDeclaration` reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ColumnForm {
+    /// In `CREATE TABLE`: a name, and a type unless a default stands in for
+    /// it.
+    Create,
+    /// After `ADD COLUMN`: a dotted name, and otherwise as in `CREATE TABLE`.
+    Add,
+    /// After `MODIFY COLUMN`: a dotted name, and a type only if what follows
+    /// is not a modifier; before `REMOVE`, `MODIFY SETTING`, `RESET
+    /// SETTING` or `ADD ENUM VALUES`, the name alone.
+    Modify,
+    /// After `ALTER COLUMN`: as after `MODIFY COLUMN`, with `TYPE` before
+    /// the type.
+    Alter,
+}
+
+/// Whether the current tokens start what follows a column's name alone in
+/// `MODIFY COLUMN`: `REMOVE`, `MODIFY SETTING`, `RESET SETTING` or `ADD
+/// ENUM VALUES`.
+pub(crate) fn at_column_change(p: &Parser<'_>) -> bool {
+    p.at_kw(K::Remove)
+        || p.at_kws(&[K::Modify, K::Setting])
+        || p.at_kws(&[K::Reset, K::Setting])
+        || p.at_kws(&[K::Add, K::Enum, K::Values])
+}
+
 /// A [`ColumnDef`](SyntaxKind::ColumnDef), as `IParserColumnDeclaration`
-/// reads one in `CREATE TABLE`: the name, the type unless a default or
+/// reads one where `form` says: the name, the type unless a default or
 /// modifier keyword comes first, `NULL`/`NOT NULL` and `COLLATE` around the
 /// default, then the other modifiers in any order, each at most once.
-fn column(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+pub(crate) fn column(p: &mut Parser<'_>, form: ColumnForm) -> Option<CompletedMarker> {
     let m = p.start();
-    names::name(p)?;
+    if form == ColumnForm::Create {
+        names::name(p)?;
+    } else {
+        names::compound_name(p)?;
+    }
+    let optional = matches!(form, ColumnForm::Modify | ColumnForm::Alter);
+    if optional && at_column_change(p) {
+        return Some(m.complete(p, SyntaxKind::ColumnDef));
+    }
     let typeless = at_null(p)
         || matches!(
             p.nth_keyword(0),
@@ -163,9 +209,17 @@ fn column(p: &mut Parser<'_>) -> Option<CompletedMarker> {
                 K::Default | K::Materialized | K::Ephemeral | K::Alias | K::AutoIncrement | K::Ttl
             )
         )
-        || p.at_kws(&[K::Primary, K::Key]);
+        || p.at_kws(&[K::Primary, K::Key])
+        || (optional
+            && matches!(
+                p.nth_keyword(0),
+                Some(K::Comment | K::Codec | K::Statistics | K::Settings)
+            ));
     let mut collate = false;
     if !typeless {
+        if form == ColumnForm::Alter {
+            p.expect_kw(K::Type)?;
+        }
         types::data_type(p)?;
         if p.at_kw(K::Collate) {
             column_collate(p)?;
@@ -211,7 +265,7 @@ fn column(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         }
         _ => (false, true),
     };
-    if typeless && !defaulted {
+    if typeless && !defaulted && !optional {
         return p.expected("a data type or a default");
     }
     if !null && null_after {
@@ -292,7 +346,7 @@ fn modifiers(p: &mut Parser<'_>, mut collate: bool) -> Option<()> {
 /// `CODEC(…)` or `STATISTICS(…)` as a node of `kind`: the keyword and a
 /// [`CodecList`](SyntaxKind::CodecList) (`ParserCodec`,
 /// `ParserStatisticsType`).
-pub(super) fn codec_node(p: &mut Parser<'_>, kind: SyntaxKind) -> Option<CompletedMarker> {
+pub(crate) fn codec_node(p: &mut Parser<'_>, kind: SyntaxKind) -> Option<CompletedMarker> {
     let m = p.start();
     p.bump_keyword();
     fallback::delimited(

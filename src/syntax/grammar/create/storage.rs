@@ -107,7 +107,7 @@ pub(super) fn engine(p: &mut Parser<'_>) -> Option<()> {
 
 /// Two keywords and an expression, as a clause of `kind`: `PARTITION BY`,
 /// `PRIMARY KEY`, `UNIQUE KEY`, `SAMPLE BY`.
-pub(super) fn key(p: &mut Parser<'_>, kind: SyntaxKind) -> Option<()> {
+pub(crate) fn key(p: &mut Parser<'_>, kind: SyntaxKind) -> Option<()> {
     let m = p.start();
     p.bump_keyword();
     p.bump_keyword();
@@ -121,7 +121,7 @@ pub(super) fn key(p: &mut Parser<'_>, kind: SyntaxKind) -> Option<()> {
 /// direction, which covers `ORDER BY (a, b)` and `ORDER BY tuple()`, or else
 /// keys with directions in `(…)` or `tuple(…)`, an
 /// [`OrderByTuple`](SyntaxKind::OrderByTuple).
-pub(super) fn order_by(p: &mut Parser<'_>) -> Option<()> {
+pub(crate) fn order_by(p: &mut Parser<'_>) -> Option<()> {
     let m = p.start();
     p.bump_keyword();
     p.bump_keyword();
@@ -179,7 +179,7 @@ fn order_by_tuple(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 
 /// `TTL rule, …` of a table, as a [`TtlClause`](SyntaxKind::TtlClause) with
 /// a [`TtlList`](SyntaxKind::TtlList) that ends at `ends`.
-pub(super) fn ttl(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<()> {
+pub(crate) fn ttl(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<()> {
     let m = p.start();
     p.bump_keyword();
     let list = p.start();
@@ -245,7 +245,7 @@ fn assignments(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 }
 
 /// `name = expr` as an [`Assignment`](SyntaxKind::Assignment).
-fn assignment(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+pub(crate) fn assignment(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     let m = p.start();
     names::name(p)?;
     p.expect(T::Equals)?;
