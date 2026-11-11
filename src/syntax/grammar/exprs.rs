@@ -478,7 +478,9 @@ fn lambda_params(p: &Parser<'_>, lhs: CompletedMarker) -> bool {
 /// `operand` wrapped in a [`LiteralAsText`](SyntaxKind::LiteralAsText) if it
 /// is a literal ClickHouse reads as text: a number, string or `NULL`, a
 /// negative number, or an array or tuple of those. Its `NULL`s are not
-/// keyword slots then, since its bytes are kept.
+/// keyword slots then, since its bytes are kept. A Jinja expression counts
+/// as a literal here: it can render as one, and the whitespace around it is
+/// then part of the text.
 fn literal_as_text(p: &mut Parser<'_>, operand: CompletedMarker) -> CompletedMarker {
     let shape = |kind: SyntaxKind| {
         matches!(
@@ -497,6 +499,8 @@ fn literal_as_text(p: &mut Parser<'_>, operand: CompletedMarker) -> CompletedMar
                     kind,
                     SyntaxKind::Number
                         | SyntaxKind::StringLiteral
+                        | SyntaxKind::Name
+                        | SyntaxKind::JinjaExpr
                         | SyntaxKind::Minus
                         | SyntaxKind::Comma
                         | SyntaxKind::Keyword

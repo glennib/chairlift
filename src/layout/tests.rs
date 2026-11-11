@@ -204,6 +204,15 @@ fn literals_read_as_text_keep_their_bytes() {
         fmt("select [1,2,  3]::Array(UInt8)"),
         "SELECT [1,2,  3]::Array(UInt8)\n"
     );
+    // A Jinja expression can render as a literal: `[1,2]::String` is
+    // '[1,2]' and `[1, 2]::String` '[1, 2]'.
+    assert_eq!(
+        jinja("select [{{ x }},2]::String, cast([{{ x }},1] as String), [a,1]::String"),
+        "SELECT\n    [{{ x }},2]::String,\n    cast([{{ x }},1] AS String),\n    [a, 1]::String\n"
+    );
+    let source = "select [{{ x }},2]::String";
+    let parse = crate::syntax::parse(source, crate::lexer::Mode::Jinja);
+    assert_eq!(parse.facts().verbatim_regions(), [(2, 6)]);
 }
 
 #[test]
