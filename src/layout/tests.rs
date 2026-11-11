@@ -282,15 +282,16 @@ fn expressions_are_atoms_and_keep_their_adjacency() {
 }
 
 #[test]
-fn statements_the_layout_has_no_rule_for_are_kept() {
+fn statements_the_parser_does_not_know_are_kept() {
     assert_eq!(
         decisions(
-            "select 1; create table t (a Int8) engine = Memory; ;",
+            "select 1; create table t (a Int8) engine = Memory; drop table t; ;",
             false
         ),
         [
             Decision::Formatted,
-            Decision::Kept(Kept::NoRule),
+            Decision::Formatted,
+            Decision::Kept(Kept::NotParsed),
             Decision::Formatted
         ]
     );

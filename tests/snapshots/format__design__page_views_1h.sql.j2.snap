@@ -5,7 +5,7 @@ expression: once
 -- Hourly page views per site. The blank line after this header is
 -- intentional.
 
-create table analytics.page_views_1h
+CREATE TABLE analytics.page_views_1h
 (
     hour DateTime('UTC') CODEC(Delta, ZSTD(1)),
     site LowCardinality(String),

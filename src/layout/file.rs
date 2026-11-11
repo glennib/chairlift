@@ -24,6 +24,7 @@ pub(crate) type Rule = fn(&mut Writer<'_>, &Node);
 pub(crate) fn rule_for(kind: SyntaxKind) -> Option<Rule> {
     match kind {
         SyntaxKind::SelectQuery | SyntaxKind::UnionQuery => Some(super::query::query),
+        SyntaxKind::CreateTable => Some(super::create::statement),
         _ => None,
     }
 }

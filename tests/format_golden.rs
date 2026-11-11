@@ -239,11 +239,11 @@ fn statements_kept_as_written_stay_as_the_proposal_prints_them() {
     }
 }
 
-// The `CREATE` examples: their statements are kept as written until the
-// `CREATE TABLE` and materialized view layouts exist.
+// The `CREATE` examples of sections 2 and 3, and the DESIGN.md example of
+// section 4, whose materialized views are kept as written until their
+// layout exists.
 
 #[test]
-#[ignore = "needs the CREATE TABLE layout"]
 fn create_table_examples() {
     for expected in [
         proposal::SETTINGS_LIST,
@@ -265,7 +265,7 @@ fn a_materialized_view_ends_its_header_with_as() {
 }
 
 #[test]
-#[ignore = "needs the CREATE TABLE and materialized view layouts"]
+#[ignore = "needs the materialized view layout"]
 fn the_design_example_prints_as_the_proposal_says() {
     let fixtures = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/design/");
     let input = std::fs::read_to_string(format!("{fixtures}page_views_1h.sql.j2")).expect("input");

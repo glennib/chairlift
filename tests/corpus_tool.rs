@@ -120,7 +120,14 @@ fn fixtures_verify_and_keep_their_meaning() {
         .find(|r| field(r, "path") == "design/page_views_1h.sql.j2")
         .unwrap();
     assert_eq!(field(design, "mode"), "jinja");
-    assert_eq!(field(design, "changed"), "false");
+    // Formatting the example re-cases its keywords; its expected output is
+    // formatted already.
+    assert_eq!(field(design, "changed"), "true");
+    let expected = rows
+        .iter()
+        .find(|r| field(r, "path") == "design/page_views_1h.expected.sql.j2")
+        .unwrap();
+    assert_eq!(field(expected, "changed"), "false");
     if oracle {
         // The template is unjudgeable as a whole, but its statement without
         // tags is judged.

@@ -10,7 +10,7 @@ CREATE DATABASE chum_question_mark_app;
 CREATE TABLE chum_question_mark_app.t
 (
     id UInt8,
-    s  String
+    s String
 )
 ENGINE = MergeTree
 ORDER BY id;

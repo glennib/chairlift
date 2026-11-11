@@ -12,10 +12,10 @@ expression: once
 
 CREATE TABLE events
 (
-    event_id   UUID,
+    event_id UUID,
     event_name LowCardinality(String),
     -- a string literal containing a semicolon: must not split here either
-    note       String DEFAULT 'a;b;c',
+    note String DEFAULT 'a;b;c',
     event_time DateTime64(3, 'UTC')
 )
 ENGINE = MergeTree
@@ -23,7 +23,7 @@ ORDER BY (event_name, event_time);
 
 CREATE TABLE users
 (
-    user_id   UInt64,
+    user_id UInt64,
     user_name String
 )
 ENGINE = MergeTree
@@ -31,9 +31,9 @@ ORDER BY user_id;
 
 CREATE TABLE events_daily
 (
-    day        Date,
+    day Date,
     event_name LowCardinality(String),
-    cnt        UInt64
+    cnt UInt64
 )
 ENGINE = SummingMergeTree
 ORDER BY (day, event_name);

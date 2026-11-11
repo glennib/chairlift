@@ -27,6 +27,7 @@
 //! | `shapes` | lists, clauses of a keyword and a list, hugging brackets |
 //! | `expr` | binary operators, `AND`/`OR` runs, `CASE`, lambdas, `?:` |
 //! | `query` | `SELECT` queries, clauses, joins, set operations, `WITH` |
+//! | `create` | `CREATE TABLE`: header line, element list, column definitions, storage clauses, `AS` |
 //! | `tree` | preorder node numbers and the facts about each node, from one pass |
 //!
 //! `node` dispatches a node to its rule by kind. A kind without a rule
@@ -63,8 +64,9 @@
 //! - **A clause**: add its kind to `node`. A clause of keywords and a
 //!   list is `query::list_clause`; one of keywords and an expression is
 //!   the generic rule. Clauses go one per line because the rule for the
-//!   node that holds them (`query::clauses` for a query) puts a hard line
-//!   between its children.
+//!   node that holds them (`query::clauses` for a query,
+//!   `create::statement` for a `CREATE`) puts a hard line between its
+//!   children.
 //! - **An expression or another node**: add its kind to `node`, with a
 //!   function that takes the node's children from
 //!   `Writer::parts` and calls `Writer::gap` between them. Use a group for
@@ -72,14 +74,15 @@
 //!   the scope that should indent it.
 //! - **A query inside a statement** (`AS SELECT`, a materialized view's
 //!   body, `INSERT … SELECT`): end the header's line with a hard line and
-//!   call `query::query` at column 0. A query in brackets is
-//!   `shapes::hugged`.
+//!   call `query::query` at column 0, as `create::as_clause` does. A query
+//!   in brackets is `shapes::hugged`.
 //!
 //! Jinja block tags are allowed only between the children of the node
 //! kinds in `tree::tag_allowed_in`; a statement with a tag anywhere else
 //! is kept as written. Extend it with the node kinds whose rule puts a line
 //! break between children.
 
+mod create;
 mod expr;
 mod file;
 mod query;
@@ -308,11 +311,21 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         S::Subquery => shapes::hugged(w, node),
         S::SelectClause => query::select_clause(w, node),
         S::WithClause => query::with_clause(w, node),
+        S::TableElementList => create::element_list(w, node),
+        S::ColumnDef => create::column(w, node),
+        S::IndexDef => create::index(w, node),
+        S::ColumnCodec | S::ColumnStatistics => create::codec(w, node),
+        S::OrderByClause if create::is_table_order_by(w, node) => w.generic(node),
+        S::OrderByTuple => create::order_by_tuple(w, node),
+        S::SqlSecurityClause => create::sql_security(w, node),
+        S::AsClause => create::as_clause(w, node),
+        S::ViewTargetClause => create::view_target(w, node),
         S::FromClause
         | S::ArrayJoinClause
         | S::OrderByClause
         | S::SettingsClause
-        | S::WindowClause => query::list_clause(w, node),
+        | S::WindowClause
+        | S::TtlClause => query::list_clause(w, node),
         S::GroupByClause => query::group_by(w, node),
         S::JoinClause => query::join(w, node),
         S::ParenJoin => query::paren_join(w, node),
