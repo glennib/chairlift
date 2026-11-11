@@ -342,6 +342,16 @@ fn insert_heads() {
     assert_eq!(values("INSERT INTO db.t (a, b) VALUES"), one);
     assert_eq!(values("INSERT INTO `db`.\"t\"(a) VALUES"), one);
     assert_eq!(values("INSERT INTO TABLE t VALUES"), one);
+    assert_eq!(values("INSERT INTO TABLE table VALUES"), one);
+    assert_eq!(values("INSERT INTO TABLE FUNCTION file('f') VALUES"), one);
+    assert_eq!(values("INSERT INTO FUNCTION file('f') (a, b) VALUES"), one);
+    assert_eq!(
+        values("INSERT INTO {db:Identifier}.{t:Identifier} VALUES"),
+        one
+    );
+    assert_eq!(values("INSERT INTO {t:Identifier} (a) VALUES"), one);
+    assert_eq!(values("INSERT INTO t (select) VALUES"), one);
+    assert_eq!(values("INSERT INTO t (with, select) VALUES"), one);
     assert_eq!(values("INSERT INTO FUNCTION remote('h', db.t) VALUES"), one);
     assert_eq!(
         values("INSERT INTO FUNCTION s3('u') PARTITION BY rand() % 2 VALUES"),

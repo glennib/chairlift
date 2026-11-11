@@ -428,16 +428,24 @@ enum State {
     Prefix,
     /// After `INSERT`.
     Insert,
-    /// After `INSERT INTO [TABLE]`.
+    /// After `INSERT INTO`.
     Into,
+    /// After `INSERT INTO TABLE`, where a second `table` names the table.
+    IntoTable,
     /// After `FUNCTION`, up to the end of the table function's arguments.
     Function,
     /// After the table name.
     Table,
     /// After `database.`.
     Qualified,
+    /// Inside a `{name:Identifier}` parameter that names the database or
+    /// the table.
+    Parameter,
     /// After the `(` of the column list.
     ColumnsStart,
+    /// After `(SELECT` or `(WITH`: a query, unless the word is a column
+    /// that `)` or `,` follows.
+    ColumnOrQuery,
     /// Inside the column list.
     Columns,
     /// After the target and the column list.
@@ -538,19 +546,36 @@ impl Head {
             State::Prefix if depth == 0 && word("SELECT") => State::Done,
             State::Prefix => State::Prefix,
             State::Insert if word("INTO") => State::Into,
-            State::Into if word("TABLE") => State::Into,
-            State::Into if word("FUNCTION") => State::Function,
-            State::Into | State::Qualified if is_name => State::Table,
-            State::Function if closes && self.depth == 0 => State::Rest,
+            State::Into if word("TABLE") => State::IntoTable,
+            State::Into | State::IntoTable if word("FUNCTION") => State::Function,
+            State::Into | State::IntoTable | State::Qualified if is_name => State::Table,
+            State::Into | State::IntoTable | State::Qualified
+                if kind == TokenKind::OpeningCurlyBrace =>
+            {
+                State::Parameter
+            }
+            State::Parameter if kind == TokenKind::ClosingCurlyBrace => State::Table,
+            State::Parameter => State::Parameter,
+            // A column list may follow the function's arguments.
+            State::Function if closes && self.depth == 0 => State::Table,
             State::Function => State::Function,
             State::Table if kind == TokenKind::Dot => State::Qualified,
             State::Table | State::Qualified if kind == TokenKind::OpeningRoundBracket => {
                 State::ColumnsStart
             }
-            State::ColumnsStart | State::Columns => {
+            State::ColumnsStart if word("SELECT") || word("WITH") => State::ColumnOrQuery,
+            State::ColumnsStart | State::ColumnOrQuery | State::Columns => {
                 // `INSERT INTO t (SELECT …)` is a parenthesised SELECT, which
-                // ClickHouse finds by failing to read a column list.
-                if self.state == State::ColumnsStart && (word("SELECT") || word("WITH") || opens) {
+                // ClickHouse finds by failing to read a column list; in
+                // `(select)` and `(select, x)` the list names a column `select`.
+                let query = match self.state {
+                    State::ColumnsStart => opens,
+                    State::ColumnOrQuery => {
+                        !matches!(kind, TokenKind::ClosingRoundBracket | TokenKind::Comma)
+                    }
+                    _ => false,
+                };
+                if query {
                     self.select = true;
                 }
                 if self.depth == 0 {
