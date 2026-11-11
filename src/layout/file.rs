@@ -155,11 +155,11 @@ fn statement(w: &mut Writer<'_>, node: &Node, decision: Decision) {
 }
 
 /// What comes before the first statement: comments and tags on lines of
-/// their own, with up to two blank lines between them and before the
-/// statement, as written.
+/// their own, keeping the blank line, one at most, written between them and
+/// before the statement: a header comment keeps the 0 or 1 its author gave it.
 fn leading(w: &mut Writer<'_>, trivia: Range<usize>) {
     w.between_statements = true;
-    w.gap(trivia, Sep::Nothing, 2);
+    w.gap(trivia, Sep::Nothing, 1);
     w.between_statements = false;
 }
 

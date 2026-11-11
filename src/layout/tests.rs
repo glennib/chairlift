@@ -181,7 +181,7 @@ fn a_comment_on_the_line_of_what_follows_stays_on_it() {
 fn comments_at_the_start_and_end_of_the_file() {
     assert_eq!(
         fmt("\n\n-- header\n-- more\n\n\n\nselect 1; -- done\n\n-- tail\n"),
-        "-- header\n-- more\n\n\nSELECT 1;  -- done\n\n-- tail\n"
+        "-- header\n-- more\n\nSELECT 1;  -- done\n\n-- tail\n"
     );
     assert_eq!(fmt("/* only */"), "/* only */\n");
 }
