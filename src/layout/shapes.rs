@@ -238,6 +238,54 @@ pub(crate) fn list_body(w: &mut Writer<'_>, list_part: &Part, force: bool) -> Op
     id
 }
 
+/// Whether `el` is a keyword token whose text is one of `words`.
+pub(crate) fn keyword_is(w: &Writer<'_>, el: &El, words: &[&str]) -> bool {
+    match el {
+        El::Token {
+            kind: SyntaxKind::Keyword,
+            index,
+        } => {
+            let text = w.text(*index);
+            words.iter().any(|word| word.eq_ignore_ascii_case(text))
+        }
+        _ => false,
+    }
+}
+
+/// Adds `parts`, the head of a statement, in a group of their own: on one
+/// line if they fit, spaced as [`Writer::join`] says, and otherwise with
+/// each part that `breaks` picks starting a line one level in. Returns the
+/// group.
+pub(crate) fn head(
+    w: &mut Writer<'_>,
+    parent: SyntaxKind,
+    parts: &[Part],
+    breaks: impl Fn(&Writer<'_>, &El) -> bool,
+) -> Option<GroupId> {
+    let group = w.b.open_group();
+    let id = group.group();
+    let mut indent = None;
+    for (k, part) in parts.iter().enumerate() {
+        if k > 0 {
+            let sep = if breaks(w, &part.el) {
+                if indent.is_none() {
+                    indent = Some(w.b.open_indent());
+                }
+                Sep::Line
+            } else {
+                w.join(parent, &parts[k - 1].el, &part.el)
+            };
+            w.gap(part.trivia.clone(), sep, 0);
+        }
+        w.el(&part.el);
+    }
+    if let Some(indent) = indent {
+        w.b.close(indent);
+    }
+    w.b.close(group);
+    id
+}
+
 /// Adds `( query )` hugging the query: `(` ends the line, the query is
 /// indented under the line it opens on, and `)` starts a line at that
 /// line's indentation.

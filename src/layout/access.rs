@@ -3,12 +3,13 @@
 //!
 //! A statement stays on one line if it fits. Otherwise each clause starts a
 //! line of its own, one level in: `ON`, `TO` or `FROM`, and `WITH … OPTION`
-//! of a `GRANT` of privileges on one object, and every clause of a `CREATE`
-//! or `ALTER`. The list at the head (the privileges, the roles granted, the
-//! names) stays on the statement's line if it fits, and otherwise goes one
-//! item per line, one level in, as a clause's list does. `ON CLUSTER` stays
-//! where it is written. A `GRANT` of privileges on several objects is a list
-//! of them, each with its `ON`.
+//! of a `GRANT` of privileges on one object, `ON` of one row policy, `ON
+//! CLUSTER` after a name, and every clause of a `CREATE` or `ALTER`. The
+//! list at the head (the privileges, the roles granted, the names) stays on
+//! the statement's line if it fits, and otherwise goes one item per line,
+//! one level in, as a clause's list does. `ON CLUSTER` right after `GRANT`
+//! or `REVOKE` stays on that line. A `GRANT` of privileges on several
+//! objects is a list of them, each with its `ON`.
 //!
 //! A user's host (`u@'%'`), a privilege's columns (`SELECT(a, b)`),
 //! `CURRENT_USER()` and a grant's object (`db.*`) are written without
@@ -34,7 +35,7 @@ pub(crate) fn statement(w: &mut Writer<'_>, node: &Node) {
         }
         let el_kind = part.el.kind();
         if el_kind == SyntaxKind::AccessList
-            && let Some(element) = single_element(w, part)
+            && let Some(element) = single_element(w, part, SyntaxKind::AccessElement)
         {
             // Privileges on one object: their `ON` is a clause of the
             // statement.
@@ -53,6 +54,34 @@ pub(crate) fn statement(w: &mut Writer<'_>, node: &Node) {
             }
             continue;
         }
+        if el_kind == SyntaxKind::RowPolicyNameList
+            && let Some(name) = single_element(w, part, SyntaxKind::RowPolicyName)
+        {
+            // One policy: its `ON` and `ON CLUSTER` are clauses of the
+            // statement.
+            let inner = w.parts(&name);
+            for (j, piece) in inner.iter().enumerate() {
+                let (prev, trivia) = if j == 0 {
+                    (&parts[k - 1].el, part.trivia.clone())
+                } else {
+                    (&inner[j - 1].el, piece.trivia.clone())
+                };
+                if j > 0
+                    && (piece.el.kind() == SyntaxKind::OnCluster
+                        || shapes::keyword_is(w, &piece.el, &["ON"]))
+                {
+                    let indent = w.b.open_indent();
+                    w.gap(trivia, Sep::Line, 0);
+                    w.el(&piece.el);
+                    w.b.close(indent);
+                } else {
+                    let sep = w.join(kind, prev, &piece.el);
+                    w.gap(trivia, sep, 0);
+                    w.el(&piece.el);
+                }
+            }
+            continue;
+        }
         place(w, kind, &parts[k - 1], part);
     }
     w.b.close(open);
@@ -61,7 +90,9 @@ pub(crate) fn statement(w: &mut Writer<'_>, node: &Node) {
 /// Adds `part`, which follows `prev` in a statement of `kind`.
 fn place(w: &mut Writer<'_>, kind: SyntaxKind, prev: &Part, part: &Part) {
     let el_kind = part.el.kind();
-    if breaks_before(el_kind) {
+    // `ON CLUSTER` right after `GRANT` or `REVOKE` stays on its line.
+    let cluster = el_kind == SyntaxKind::OnCluster && !prev.el.is_token(SyntaxKind::Keyword);
+    if breaks_before(el_kind) || cluster {
         let indent = w.b.open_indent();
         w.gap(part.trivia.clone(), Sep::Line, 0);
         w.el(&part.el);
@@ -87,14 +118,13 @@ fn breaks_before(kind: SyntaxKind) -> bool {
     )
 }
 
-/// The one [`AccessElement`](SyntaxKind::AccessElement) of the
-/// [`AccessList`](SyntaxKind::AccessList) `part`, if it has one and no
+/// The one element of the list `part`, if it has one of `kind` and no
 /// comma.
-fn single_element<'g>(w: &Writer<'_>, part: &Part<'g>) -> Option<Node<'g>> {
+fn single_element<'g>(w: &Writer<'_>, part: &Part<'g>, kind: SyntaxKind) -> Option<Node<'g>> {
     let list = part.el.node()?;
     let items = w.parts(&list);
     match items.as_slice() {
-        [only] if only.el.kind() == SyntaxKind::AccessElement => only.el.node(),
+        [only] if only.el.kind() == kind => only.el.node(),
         _ => None,
     }
 }

@@ -39,9 +39,7 @@ ALTER USER IF EXISTS bob RENAME TO robert DROP host local;
 ALTER ROLE events_writer ON CLUSTER c RENAME TO events_writers;
 SET ROLE ALL EXCEPT events_writer;
 SET DEFAULT ROLE NONE TO alice, CURRENT_USER;
-
 DROP USER IF EXISTS alice, bob@'%' ON CLUSTER c;
-
 DROP ROLE events_writers;
 
 -- Quotas, row policies and settings profiles.
@@ -52,7 +50,8 @@ CREATE QUOTA IF NOT EXISTS q
 
 ALTER QUOTA q FOR INTERVAL 1 MONTH TRACKING ONLY;
 
-CREATE ROW POLICY IF NOT EXISTS only_mine ON analytics.page_views
+CREATE ROW POLICY IF NOT EXISTS only_mine
+    ON analytics.page_views
     AS RESTRICTIVE
     FOR SELECT
     USING site = currentUser() AND visitor_id != ''

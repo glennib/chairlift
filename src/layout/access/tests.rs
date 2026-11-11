@@ -141,3 +141,37 @@ CREATE USER u  -- who
 ",
     );
 }
+
+/// `ON CLUSTER` after a name and a row policy's `ON` go on lines of their
+/// own; `ON CLUSTER` right after `GRANT` stays.
+#[test]
+fn on_cluster_and_a_policy_table_break_like_clauses() {
+    check_at(
+        "create role analyst on cluster main",
+        "
+CREATE ROLE analyst
+    ON CLUSTER main
+",
+        30,
+    );
+    check_at(
+        "create row policy p on cluster main on analytics.events using 1 to all",
+        "
+CREATE ROW POLICY p
+    ON CLUSTER main
+    ON analytics.events
+    USING 1
+    TO ALL
+",
+        40,
+    );
+    check_at(
+        "grant on cluster main select on analytics.events to analyst",
+        "
+GRANT ON CLUSTER main SELECT
+    ON analytics.events
+    TO analyst
+",
+        40,
+    );
+}

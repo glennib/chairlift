@@ -62,6 +62,40 @@ pub(crate) fn statement(w: &mut Writer<'_>, node: &Node) {
     }
 }
 
+/// A [`CreateHeader`](SyntaxKind::CreateHeader): its keywords and name on
+/// one line, and `ON CLUSTER` on the next if the name and `ON CLUSTER` do
+/// not fit on it, at the indentation the caller opened for what continues
+/// the header.
+pub(crate) fn header(w: &mut Writer<'_>, node: &Node) {
+    let parts = w.parts(node);
+    let kind = node.kind();
+    let Some(at) = parts
+        .iter()
+        .position(|p| p.el.kind() == SyntaxKind::OnCluster)
+        .filter(|&at| at > 0)
+    else {
+        w.inline(kind, &parts);
+        return;
+    };
+    w.inline(kind, &parts[..at - 1]);
+    if at > 1 {
+        let sep = w.join(kind, &parts[at - 2].el, &parts[at - 1].el);
+        w.gap(parts[at - 1].trivia.clone(), sep, 0);
+    }
+    let group = w.b.open_group();
+    w.el(&parts[at - 1].el);
+    for (k, part) in parts.iter().enumerate().skip(at) {
+        let sep = if k == at {
+            Sep::Line
+        } else {
+            w.join(kind, &parts[k - 1].el, &part.el)
+        };
+        w.gap(part.trivia.clone(), sep, 0);
+        w.el(&part.el);
+    }
+    w.b.close(group);
+}
+
 /// Whether `AS` and a query go at the end of the line of what is before
 /// them, `before` the parts after the header: the header line, the element
 /// list, or `EMPTY`, `CLONE` or `POPULATE`.
@@ -201,7 +235,9 @@ pub(crate) fn column(w: &mut Writer<'_>, node: &Node) {
 /// `INDEX name expr TYPE type GRANULARITY n`: on one line if it fits;
 /// otherwise a line break, one level in, before `TYPE` and `GRANULARITY`.
 pub(crate) fn index(w: &mut Writer<'_>, node: &Node) {
-    breaking(w, node, |w, el| keyword_is(w, el, &["TYPE", "GRANULARITY"]));
+    breaking(w, node, |w, el| {
+        shapes::keyword_is(w, el, &["TYPE", "GRANULARITY"])
+    });
 }
 
 /// `PROJECTION name (query)`, the query hugging its brackets; or
@@ -215,7 +251,7 @@ pub(crate) fn projection(w: &mut Writer<'_>, node: &Node) {
         w.generic(node);
     } else {
         breaking(w, node, |w, el| {
-            el.kind() == SyntaxKind::ProjectionSettings || keyword_is(w, el, &["TYPE"])
+            el.kind() == SyntaxKind::ProjectionSettings || shapes::keyword_is(w, el, &["TYPE"])
         });
     }
 }
@@ -228,7 +264,7 @@ pub(crate) fn refresh(w: &mut Writer<'_>, node: &Node) {
         matches!(
             el.kind(),
             SyntaxKind::DependsOn | SyntaxKind::SettingsClause
-        ) || keyword_is(w, el, &["OFFSET", "RANDOMIZE", "APPEND"])
+        ) || shapes::keyword_is(w, el, &["OFFSET", "RANDOMIZE", "APPEND"])
     });
 }
 
@@ -247,7 +283,7 @@ pub(crate) fn ttl_rule(w: &mut Writer<'_>, node: &Node) {
     w.el(&first.el);
     let indent = w.b.open_indent();
     for (k, part) in rest.iter().enumerate() {
-        let sep = if keyword_is(w, &part.el, &["WHERE", "GROUP", "SET"]) {
+        let sep = if shapes::keyword_is(w, &part.el, &["WHERE", "GROUP", "SET"]) {
             Sep::Line
         } else {
             w.join(kind, &parts[k].el, &part.el)
@@ -257,20 +293,6 @@ pub(crate) fn ttl_rule(w: &mut Writer<'_>, node: &Node) {
     }
     w.b.close(indent);
     w.b.close(group);
-}
-
-/// Whether `el` is a keyword token whose text is one of `words`.
-fn keyword_is(w: &Writer<'_>, el: &El, words: &[&str]) -> bool {
-    match el {
-        El::Token {
-            kind: SyntaxKind::Keyword,
-            index,
-        } => {
-            let text = w.text(*index);
-            words.iter().any(|word| word.eq_ignore_ascii_case(text))
-        }
-        _ => false,
-    }
 }
 
 /// Adds `node`'s children on one line if they fit, spaced as

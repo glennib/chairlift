@@ -128,3 +128,38 @@ SET
 ",
     );
 }
+
+/// A head that does not fit puts `ON CLUSTER`, the clauses of `OPTIMIZE`
+/// and the filters of `SHOW` on lines of their own, one level in.
+#[test]
+fn a_head_that_does_not_fit_breaks_before_its_clauses() {
+    check_at(
+        "optimize table db.events on cluster main partition id '202601' final deduplicate by a, b",
+        "
+OPTIMIZE TABLE db.events
+    ON CLUSTER main
+    PARTITION ID '202601'
+    FINAL
+    DEDUPLICATE BY a, b
+",
+        40,
+    );
+    check_at(
+        "drop table if exists db.events on cluster main sync",
+        "
+DROP TABLE IF EXISTS db.events
+    ON CLUSTER main SYNC
+",
+        40,
+    );
+    check_at(
+        "show tables from analytics like 'page%' limit 10",
+        "
+SHOW TABLES
+    FROM analytics
+    LIKE 'page%'
+    LIMIT 10
+",
+        40,
+    );
+}

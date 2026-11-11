@@ -183,3 +183,27 @@ SELECT 1
 ",
     );
 }
+
+/// `ON CLUSTER` goes on a line of its own, one level in, when the header
+/// does not fit.
+#[test]
+fn a_header_that_does_not_fit_breaks_before_on_cluster() {
+    check_at(
+        "create database if not exists analytics on cluster main engine = Atomic",
+        "
+CREATE DATABASE IF NOT EXISTS analytics
+    ON CLUSTER main
+ENGINE = Atomic
+",
+        50,
+    );
+    check_at(
+        "create view analytics.recent on cluster main as select 1",
+        "
+CREATE VIEW analytics.recent
+    ON CLUSTER main AS
+SELECT 1
+",
+        40,
+    );
+}

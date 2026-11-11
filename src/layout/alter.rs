@@ -1,7 +1,9 @@
 //! `ALTER` and the lightweight `DELETE` and `UPDATE`.
 //!
-//! An `ALTER`'s commands are a list. One command stays on the `ALTER` line
-//! if it fits, and goes on the next line, one level in, if it does not;
+//! An `ALTER`'s head is on one line if it fits; otherwise `ON CLUSTER`
+//! starts a line one level in. Its commands are a list. One command stays
+//! on the `ALTER` line if it fits, and goes on the next line, one level in,
+//! if it does not or the head broke;
 //! several go one per line, one level in, each but the last with its comma.
 //! Output clauses after the commands (`SETTINGS mutations_sync = 2`) stay on
 //! the line if the statement fits, and start a line at the statement's
@@ -15,7 +17,8 @@
 //! `CREATE … AS` does.
 //!
 //! `DELETE` and `UPDATE` are laid out as a query is: the head (`DELETE FROM
-//! t`, `UPDATE t`) on its line, then `SET`, `IN PARTITION`, `WHERE` and
+//! t`, `UPDATE t`) on its line, with `ON CLUSTER` on the next, one level
+//! in, if it does not fit; then `SET`, `IN PARTITION`, `WHERE` and
 //! `SETTINGS` each on a line of their own.
 
 use super::query;
@@ -25,6 +28,8 @@ use super::tree::Node;
 use super::tree::Part;
 use super::writer::Sep;
 use super::writer::Writer;
+use crate::doc::Gap;
+use crate::doc::GroupId;
 use crate::syntax::SyntaxKind;
 
 /// The body of an `ALTER` statement, an
@@ -39,8 +44,13 @@ pub(crate) fn statement(w: &mut Writer<'_>, node: &Node) {
         return;
     };
     let open = w.b.open_group();
-    w.inline(node.kind(), &parts[..list]);
-    commands(w, &parts[list]);
+    let head_group = shapes::head(w, node.kind(), &parts[..list], |_, el| {
+        el.kind() == SyntaxKind::OnCluster
+    });
+    let cluster = parts[..list]
+        .iter()
+        .any(|p| p.el.kind() == SyntaxKind::OnCluster);
+    commands(w, &parts[list], head_group.filter(|_| cluster));
     for part in &parts[list + 1..] {
         w.gap(part.trivia.clone(), Sep::Line, 0);
         w.el(&part.el);
@@ -48,8 +58,9 @@ pub(crate) fn statement(w: &mut Writer<'_>, node: &Node) {
     w.b.close(open);
 }
 
-/// The command list, `part` of the statement.
-fn commands(w: &mut Writer<'_>, part: &Part) {
+/// The command list, `part` of the statement. One command stays on the
+/// line before it unless `head`, the group of a head that can break, broke.
+fn commands(w: &mut Writer<'_>, part: &Part, head: Option<GroupId>) {
     let Some(list) = part.el.node() else {
         w.gap(part.trivia.clone(), Sep::Space, 0);
         w.el(&part.el);
@@ -61,6 +72,19 @@ fn commands(w: &mut Writer<'_>, part: &Part) {
     let lead = Some(part.trivia.clone());
     if count == 1 && items.len() == 1 && items[0].parts.iter().any(|p| holds_query(w, &p.el)) {
         shapes::items(w, list.kind(), &items, Sep::Space, lead);
+        return;
+    }
+    if let Some(head) = head.filter(|_| count == 1) {
+        // A head that broke broke the statement's group too, whose line
+        // then starts the command's line.
+        let indent = w.b.open_indent();
+        w.gap(part.trivia.clone(), Sep::Nothing, 0);
+        w.b.if_break(head, Gap::Line, Gap::Nothing);
+        let group = w.b.open_group();
+        w.b.if_break(head, Gap::Nothing, Gap::Line);
+        shapes::items(w, list.kind(), &items, Sep::Nothing, None);
+        w.b.close(group);
+        w.b.close(indent);
         return;
     }
     let group = w.b.open_group();
@@ -144,7 +168,9 @@ pub(crate) fn mutation(w: &mut Writer<'_>, node: &Node) {
             )
         })
         .unwrap_or(parts.len());
-    w.inline(node.kind(), &parts[..head]);
+    shapes::head(w, node.kind(), &parts[..head], |_, el| {
+        el.kind() == SyntaxKind::OnCluster
+    });
     for part in &parts[head..] {
         w.gap(part.trivia.clone(), Sep::Hard, 1);
         w.el(&part.el);

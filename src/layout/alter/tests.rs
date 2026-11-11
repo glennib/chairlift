@@ -160,3 +160,27 @@ WHERE c = 3;
 ",
     );
 }
+
+/// `ON CLUSTER` goes on a line of its own when the head does not fit, and
+/// the command then starts a line too.
+#[test]
+fn a_head_that_does_not_fit_breaks_before_on_cluster() {
+    check_at(
+        "alter table analytics.events on cluster main drop column a",
+        "
+ALTER TABLE analytics.events
+    ON CLUSTER main
+    DROP COLUMN a
+",
+        40,
+    );
+    check_at(
+        "delete from analytics.events on cluster main where a = 1",
+        "
+DELETE FROM analytics.events
+    ON CLUSTER main
+WHERE a = 1
+",
+        40,
+    );
+}

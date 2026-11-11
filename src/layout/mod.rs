@@ -405,6 +405,7 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         S::TtlElement => create::ttl_rule(w, node),
         S::SqlSecurityClause => create::sql_security(w, node),
         S::AsClause => create::as_clause(w, node),
+        S::CreateHeader => create::header(w, node),
         S::AlterCommand => alter::command(w, node),
         S::DictionaryClause => create_other::clause(w, node),
         S::KeyValueFunction => create_other::key_value_function(w, node),

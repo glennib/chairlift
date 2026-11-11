@@ -7,8 +7,9 @@
 //! `GRANULARITY` each start a line, one level in, as in an index of a
 //! table, and a long bracketed list of expressions goes one per line.
 //!
-//! A database stays on one line if it fits; otherwise each clause starts a
-//! line at the statement's indentation, as a table's do.
+//! A database stays on one line if it fits; otherwise `ON CLUSTER` starts a
+//! line one level in, and each clause a line at the statement's
+//! indentation, as a table's do.
 //!
 //! A dictionary's `SOURCE(…)`, `LAYOUT(…)`, `LIFETIME(…)` and `RANGE(…)`
 //! glue their brackets to the keyword and to the source's or layout's name,
@@ -32,7 +33,14 @@ pub(crate) fn database(w: &mut Writer<'_>, node: &Node) {
         if k > 0 {
             w.gap(part.trivia.clone(), Sep::Line, 0);
         }
-        w.el(&part.el);
+        if part.el.kind() == SyntaxKind::CreateHeader {
+            // `ON CLUSTER` goes one level in.
+            let indent = w.b.open_indent();
+            w.el(&part.el);
+            w.b.close(indent);
+        } else {
+            w.el(&part.el);
+        }
     }
     w.b.close(open);
 }

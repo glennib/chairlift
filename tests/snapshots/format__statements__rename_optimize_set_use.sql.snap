@@ -20,9 +20,9 @@ RENAME DATABASE scratch TO scratch_old;
 
 OPTIMIZE TABLE analytics.page_views FINAL;
 
-OPTIMIZE TABLE analytics.page_views PARTITION '2026-01' FINAL DEDUPLICATE BY
-    site,
-    event_time,
-    visitor_id;
+OPTIMIZE TABLE analytics.page_views
+    PARTITION '2026-01'
+    FINAL
+    DEDUPLICATE BY site, event_time, visitor_id;
 
 OPTIMIZE TABLE analytics.sessions PARTITION ID '202601' FINAL SETTINGS optimize_throw_if_noop = 1;
