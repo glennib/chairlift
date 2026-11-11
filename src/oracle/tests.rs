@@ -283,6 +283,18 @@ mod misbehaving {
     }
 
     #[test]
+    fn a_directory_is_not_a_program() {
+        let dir = script("directory", "exit 0");
+        let dir = dir.parent().unwrap();
+        assert_eq!(
+            Oracle::new(dir).probe(),
+            Err(ProbeError::Directory {
+                program: dir.display().to_string()
+            })
+        );
+    }
+
+    #[test]
     fn a_program_that_cannot_be_run() {
         let path = script("not-executable", "exit 0");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();

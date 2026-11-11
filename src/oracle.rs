@@ -384,6 +384,11 @@ impl Oracle {
         let program = self.program.display().to_string();
         let run = match self.run_for("select 1", self.timeout.min(PROBE_TIMEOUT)) {
             Ok(run) => run,
+            // A name without a `/` is looked up on `PATH`, and a directory
+            // fails as if it were not executable.
+            Err(RunError::Spawn(_)) if self.program.is_dir() => {
+                return Err(ProbeError::Directory { program });
+            }
             Err(RunError::Spawn(e)) if e.kind() == io::ErrorKind::NotFound => {
                 return Err(ProbeError::NotFound { program });
             }
@@ -759,6 +764,12 @@ pub enum ProbeError {
     /// There is no such program.
     #[error("`{program}` was not found")]
     NotFound {
+        /// The program, as given.
+        program: String,
+    },
+    /// It is a directory.
+    #[error("`{program}` is a directory, not an executable file")]
+    Directory {
         /// The program, as given.
         program: String,
     },
