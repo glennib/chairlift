@@ -14,6 +14,7 @@ use super::ir::Place;
 use super::ir::Scope;
 use super::ir::Sep;
 use super::ir::Span;
+use super::ir::Verbatim;
 use super::ir::VerbatimInfo;
 use super::ir::first_line;
 use super::ir::narrow;
@@ -72,6 +73,9 @@ pub struct Builder<'s> {
     groups: Vec<OpenGroup>,
     adj: Adjacency<'s>,
     any_frozen: bool,
+    /// The first token that renders as text is a `Dot`, after tags that
+    /// render nothing, and the rendered text has whitespace before it.
+    dot_first: bool,
 }
 
 /// An open scope, to [`close`](Builder::close).
@@ -168,6 +172,7 @@ impl<'s> Builder<'s> {
                 gap: Between::Separated,
             },
             any_frozen: false,
+            dot_first: dot_after_tags(source, tokens, mode),
         }
     }
 
@@ -292,7 +297,7 @@ impl<'s> Builder<'s> {
     /// least indented line goes to the indentation of the scope, and the
     /// others keep their indentation relative to it.
     pub fn comment_block(&mut self, first: usize, last: usize) {
-        self.verbatim_block(first, last, false, true);
+        self.verbatim_block(first, last, Verbatim::Block, true);
     }
 
     /// Prints Jinja block tag `index` (`{% … %}`) on a line of its own, at
@@ -321,7 +326,7 @@ impl<'s> Builder<'s> {
     ///
     /// `first` and `last` must not be whitespace.
     pub fn verbatim(&mut self, first: usize, last: usize) {
-        self.verbatim_block(first, last, false, false);
+        self.verbatim_block(first, last, Verbatim::Block, false);
     }
 
     /// Prints tokens `first` to `last` and the whitespace between them byte
@@ -330,7 +335,19 @@ impl<'s> Builder<'s> {
     ///
     /// `first` and `last` must not be whitespace.
     pub fn verbatim_exact(&mut self, first: usize, last: usize) {
-        self.verbatim_block(first, last, true, false);
+        self.verbatim_block(first, last, Verbatim::Exact, false);
+    }
+
+    /// Prints tokens `first` to `last` with the lines they are on in the
+    /// input: as [`verbatim`](Self::verbatim), except that every line after
+    /// the first keeps the indentation it has in the input byte for byte,
+    /// tabs included, wherever the first line is printed. This is the safe
+    /// cleanup's treatment of a statement, for one the layout keeps as
+    /// written.
+    ///
+    /// `first` and `last` must not be whitespace.
+    pub fn as_written(&mut self, first: usize, last: usize) {
+        self.verbatim_block(first, last, Verbatim::AsWritten, false);
     }
 
     // Layout.
@@ -386,7 +403,9 @@ impl<'s> Builder<'s> {
     /// One blank line here, where a line break is printed here, if `group`
     /// breaks. `group` may be built after this: before a statement's group,
     /// this asks for a blank line before the statement if it prints on
-    /// several lines.
+    /// several lines. Where tokens come between this place and a group
+    /// built after it, the blank line is printed if the group can never
+    /// print flat, and otherwise not.
     pub fn blank_line_if_broken(&mut self, group: GroupId) {
         self.doc.nodes.push(Node::BlankIfBroken(group.0));
     }
@@ -447,8 +466,8 @@ impl<'s> Builder<'s> {
     /// is printed as in the input, byte for byte, as if
     /// [`frozen`](Self::frozen) were called there, and so is it inside
     /// [verbatim](Self::verbatim) text; two frozen tokens that touch in the
-    /// input touch in the output. Call it before adding the tokens it
-    /// concerns.
+    /// input touch in the output, and a frozen line comment keeps the
+    /// whitespace at its end. Call it before adding the tokens it concerns.
     ///
     /// In [`Mode::Jinja`], whitespace with a character the renderer does not
     /// count as whitespace (U+FEFF, U+200B and a few more, which stop a `-`
@@ -734,7 +753,7 @@ impl<'s> Builder<'s> {
         };
     }
 
-    fn verbatim_block(&mut self, first: usize, last: usize, exact: bool, own_line: bool) {
+    fn verbatim_block(&mut self, first: usize, last: usize, kind: Verbatim, own_line: bool) {
         let tokens = self.doc.tokens;
         let source = self.doc.source;
         debug_assert!(first <= last && last < tokens.len(), "{first}..={last}");
@@ -764,7 +783,7 @@ impl<'s> Builder<'s> {
         self.doc.verbatims.push(VerbatimInfo {
             first: narrow(first),
             last: narrow(last),
-            exact,
+            kind,
             own_line,
             sep,
             first_width,
@@ -806,9 +825,9 @@ impl<'s> Builder<'s> {
         let tokens = self.doc.tokens;
         let Some(last) = self.adj.last else {
             // At the very start of a text, `.` begins a number: a `Dot` must
-            // not get there, and a number that starts with `.` there must
-            // stay there.
-            return if kind == TokenKind::Dot {
+            // not get there, nor after tags there that render nothing, and a
+            // number that starts with `.` there must stay there.
+            return if kind == TokenKind::Dot || self.dot_first {
                 Sep::Glue
             } else if tokens[index].start() == 0 && printed.starts_with('.') {
                 Sep::Touch
@@ -852,6 +871,10 @@ impl<'s> Builder<'s> {
         let Some(last) = self.adj.last else {
             return;
         };
+        if self.adj.gap == Between::Frozen {
+            // Frozen already, with `frozen`.
+            return;
+        }
         let last = last as usize;
         let tokens = self.doc.tokens;
         let freeze = if index == last + 2 && tokens[last + 1].kind() == TokenKind::Whitespace {
@@ -882,6 +905,22 @@ impl<'s> Builder<'s> {
         });
         self.adj.gap = Between::Frozen;
     }
+}
+
+/// Whether the first token of a template that renders as text is a `Dot`
+/// after tags that render nothing, with whitespace before it once rendered:
+/// a `.` that starts the rendered text is a number, and one after
+/// whitespace a `Dot`, so a `Dot` must not start the printed text either.
+fn dot_after_tags(source: &str, tokens: &[Token], mode: Mode) -> bool {
+    let tags = |t: &&Token| matches!(t.kind(), TokenKind::JinjaBlock | TokenKind::JinjaComment);
+    let first = tokens.iter().find(|t| t.kind() != TokenKind::Whitespace);
+    mode == Mode::Jinja
+        && first.is_some_and(|t| tags(&t))
+        && tokens
+            .iter()
+            .find(|t| t.kind() != TokenKind::Whitespace && !tags(t))
+            .is_some_and(|t| t.kind() == TokenKind::Dot)
+        && !crate::verify::rendered(source).0.starts_with('.')
 }
 
 /// Whether the renderer strips all of `text` next to a `-` marker: whether

@@ -84,6 +84,9 @@
 //!   re-indented as a block, for what the parser kept verbatim.
 //! - [`verbatim_exact`](Builder::verbatim_exact): a run of tokens byte for
 //!   byte, for text ClickHouse reads as written (the left operand of `::`).
+//! - [`as_written`](Builder::as_written): a run of tokens on the lines they
+//!   are on in the input, each keeping its indentation: a statement the
+//!   layout keeps as written.
 //!
 //! **Whitespace.** Printed lazily, when the next token is.
 //!
@@ -283,6 +286,10 @@ pub enum Ending {
     /// for a text that ends in `INSERT` data, whose end is where the data
     /// ends.
     AsInput,
+    /// A `\n` and a blank line: for a text that ends in `INSERT` data that
+    /// ends at a blank line, which without it would run to the end of the
+    /// text.
+    BlankLine,
 }
 
 impl<'s> Doc<'s> {

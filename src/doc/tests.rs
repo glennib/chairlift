@@ -594,6 +594,85 @@ fn verbatim_blank_lines_never_follow_open_or_precede_close() {
 }
 
 #[test]
+fn text_as_written_keeps_the_indentation_of_its_lines() {
+    let source = "  a\n\t  b  \n\n\n      c";
+    let out = print(source, |b, n| {
+        let first = n.t("a");
+        n.t("b");
+        b.indent(|b| b.as_written(first, n.t("c")));
+    });
+    // The first line goes where the layout puts it, the others as written.
+    assert_eq!(out, "    a\n\t  b\n\n      c\n");
+}
+
+#[test]
+fn data_that_ends_at_a_blank_line_keeps_it() {
+    let out = print("a\n\n\n", |b, n| {
+        b.set_ending(Ending::BlankLine);
+        b.token(n.t("a"));
+    });
+    assert_eq!(out, "a\n\n");
+}
+
+/// A group that can never print flat asks for its blank line also where
+/// comments come between the request and the group.
+#[test]
+fn a_blank_line_for_a_broken_group_comes_before_comments_in_front_of_it() {
+    let out = print("a -- c\nb", |b, n| {
+        b.token(n.t("a"));
+        let next = b.reserve_group();
+        b.hard_line();
+        b.blank_line_if_broken(next);
+        b.own_line_comment(n.t("-- c"));
+        b.group_reserved(next, |b| {
+            b.force_break();
+            b.token(n.t("b"));
+        });
+    });
+    assert_eq!(out, "a\n\n-- c\nb\n");
+}
+
+#[test]
+fn a_frozen_line_comment_keeps_its_trailing_whitespace() {
+    let source = "a -- c  \nb";
+    let out = print(source, |b, n| {
+        b.token(n.t("a"));
+        b.space();
+        let comment = n.t("-- c  ");
+        b.freeze(comment);
+        b.trailing_comment(comment);
+        b.token(n.t("b"));
+    });
+    assert_eq!(out, "a  -- c  \nb\n");
+}
+
+#[test]
+fn a_dot_after_tags_at_the_start_keeps_whitespace_before_it() {
+    // Rendered, the `.` follows a line break: a `Dot`, as it must stay.
+    let out = print_at("\n{% x %}.e", Mode::Jinja, 100, |b, n| {
+        let tag = n.t("{% x %}");
+        let dot = n.t(".");
+        b.freeze(tag);
+        b.freeze(dot);
+        b.block_tag(tag);
+        b.token(dot);
+        b.token(n.t("e"));
+    });
+    assert_eq!(out, " {% x %}.e\n");
+    // Rendered, the `.` starts the text: a number, as it must stay.
+    let out = print_at("{% x %}.e", Mode::Jinja, 100, |b, n| {
+        let tag = n.t("{% x %}");
+        let dot = n.t(".");
+        b.freeze(tag);
+        b.freeze(dot);
+        b.block_tag(tag);
+        b.token(dot);
+        b.token(n.t("e"));
+    });
+    assert_eq!(out, "{% x %}.e");
+}
+
+#[test]
 fn exact_verbatim_text_keeps_every_byte() {
     let source = "x [1,  2,\n 3]::t";
     let out = print(source, |b, n| {

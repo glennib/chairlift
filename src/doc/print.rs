@@ -13,6 +13,7 @@ use super::ir::Pend;
 use super::ir::Place;
 use super::ir::Scope;
 use super::ir::Sep;
+use super::ir::Verbatim;
 use super::ir::first_line;
 use super::ir::narrow;
 use super::ir::width;
@@ -261,6 +262,11 @@ impl<'d, 's> Printer<'d, 's> {
             Node::BlankIfBroken(group) => match self.decisions[group as usize] {
                 Decision::Broken => self.pending.blank = self.pending.blank.max(1),
                 Decision::Flat => {}
+                // A group that can never print flat breaks wherever it
+                // starts, also after comments that come before it.
+                Decision::Undecided if self.doc.groups[group as usize].forced => {
+                    self.pending.blank = self.pending.blank.max(1);
+                }
                 Decision::Undecided => self.pending.blank_ref = group,
             },
             Node::IfBreak {
@@ -416,7 +422,7 @@ impl<'d, 's> Printer<'d, 's> {
             (Place::Inline, aux) if aux != NONE => doc.statics[aux as usize],
             _ => doc.token(atom.token).text(doc.source),
         };
-        let text = if kind == TokenKind::LineComment {
+        let text = if kind == TokenKind::LineComment && !doc.is_frozen(atom.token as usize) {
             line_comment_text(text, doc.mode)
         } else {
             text
@@ -521,7 +527,7 @@ impl<'d, 's> Printer<'d, 's> {
         if self.stopped() {
             return;
         }
-        if info.exact {
+        if info.kind == Verbatim::Exact {
             let at = self.out.len();
             let start = tokens[first].start();
             self.write(&source[start..tokens[last].end()]);
@@ -551,8 +557,15 @@ impl<'d, 's> Printer<'d, 's> {
                             } else {
                                 (newlines - 1).min(1)
                             };
-                            let line = indent_columns(after_last_newline(text), self.indent_width);
-                            self.newline(blank, base + line.saturating_sub(common));
+                            let indentation = after_last_newline(text);
+                            if info.kind == Verbatim::AsWritten {
+                                self.newline(blank, 0);
+                                self.write(indentation);
+                                self.line_indent = indent_columns(indentation, self.indent_width);
+                            } else {
+                                let line = indent_columns(indentation, self.indent_width);
+                                self.newline(blank, base + line.saturating_sub(common));
+                            }
                         }
                     }
                     TokenKind::Whitespace => {
@@ -562,7 +575,7 @@ impl<'d, 's> Printer<'d, 's> {
                         }
                     }
                     kind => {
-                        let text = if kind == TokenKind::LineComment {
+                        let text = if kind == TokenKind::LineComment && !doc.is_frozen(i) {
                             line_comment_text(text, doc.mode)
                         } else {
                             text
@@ -670,6 +683,7 @@ impl<'d, 's> Printer<'d, 's> {
                 let end = doc.token(last).end();
                 self.out.push_str(&doc.source[end..]);
             }
+            Ending::BlankLine => self.out.push_str("\n\n"),
             Ending::Newline => {
                 if self.newline_lexes_the_same() {
                     self.out.push('\n');

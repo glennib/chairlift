@@ -9,6 +9,7 @@ use super::ir::Node;
 use super::ir::Place;
 use super::ir::Scope;
 use super::ir::Sep;
+use super::ir::Verbatim;
 
 /// One node per line, indented by nesting: tokens with their text and how
 /// they are placed, layout whitespace, groups (with their id, and `forced`
@@ -48,8 +49,10 @@ impl fmt::Debug for Doc<'_> {
                 Node::Verbatim(v) => {
                     let v = self.verbatims[v as usize];
                     write!(f, "verbatim {}..={}", v.first, v.last)?;
-                    if v.exact {
-                        f.write_str(" exact")?;
+                    match v.kind {
+                        Verbatim::Block => {}
+                        Verbatim::Exact => f.write_str(" exact")?,
+                        Verbatim::AsWritten => f.write_str(" as-written")?,
                     }
                     if v.own_line {
                         f.write_str(" own-line")?;

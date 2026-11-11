@@ -123,8 +123,8 @@ pub(super) enum Place {
 pub(super) struct VerbatimInfo {
     pub(super) first: u32,
     pub(super) last: u32,
-    /// Byte for byte, or re-indented as a block.
-    pub(super) exact: bool,
+    /// How its whitespace is printed.
+    pub(super) kind: Verbatim,
     /// On lines of its own, as a block of comments.
     pub(super) own_line: bool,
     /// How the first token joins the token before it.
@@ -133,6 +133,17 @@ pub(super) struct VerbatimInfo {
     pub(super) first_width: u32,
     /// The block spans lines.
     pub(super) multiline: bool,
+}
+
+/// How a run of tokens printed as written treats its whitespace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Verbatim {
+    /// Re-indented as a block.
+    Block,
+    /// Byte for byte.
+    Exact,
+    /// Each line keeps the indentation it has in the input, byte for byte.
+    AsWritten,
 }
 
 /// What the printer needs to know about a group before printing it.
