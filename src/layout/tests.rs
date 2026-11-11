@@ -65,6 +65,22 @@ fn comments_after_a_clause_keyword_go_with_its_body() {
 }
 
 #[test]
+fn the_list_of_limit_by_follows_the_list_rule() {
+    assert_eq!(
+        fmt("select a from t limit 3 by a, b limit 5"),
+        "SELECT a\nFROM t\nLIMIT 3 BY a, b\nLIMIT 5\n"
+    );
+    assert_eq!(
+        fmt_in(
+            "select a from t limit 3 by aaaaaaaaaa, bbbbbbbbbb",
+            false,
+            20
+        ),
+        "SELECT a\nFROM t\nLIMIT 3 BY\n    aaaaaaaaaa,\n    bbbbbbbbbb\n"
+    );
+}
+
+#[test]
 fn comments_between_clauses_and_before_the_semicolon() {
     assert_eq!(
         fmt("select 1 -- one\n-- before from\nfrom t /* t */\nwhere x -- x\n;"),

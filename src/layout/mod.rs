@@ -329,7 +329,8 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         | S::OrderByClause
         | S::SettingsClause
         | S::WindowClause
-        | S::TtlClause => query::list_clause(w, node),
+        | S::TtlClause
+        | S::LimitByClause => query::list_clause(w, node),
         S::GroupByClause => query::group_by(w, node),
         S::JoinClause => query::join(w, node),
         S::ParenJoin => query::paren_join(w, node),
