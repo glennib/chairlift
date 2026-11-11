@@ -96,14 +96,44 @@ fn template_data_is_kept_and_other_formats_are_not() {
             Decision::Formatted
         ]
     );
+    // The data ends at the blank line in every render, and what follows it
+    // is laid out.
     let source = "{% if x %}\nselect 1;\n{% endif %}\ninsert into t format CSV\n1\n\nselect 2;";
     assert_eq!(
         decisions(source, true),
         [
             Decision::Formatted,
             Decision::Kept(Kept::TemplateData),
-            Decision::Kept(Kept::TemplateData)
+            Decision::Formatted
         ]
+    );
+    // Not where a branch holds the blank line, or a `-` marker strips it:
+    // then the data can run on. (The render with every branch taken can join
+    // the data and what follows, which keeps it for that first.)
+    for source in [
+        "insert into t format CSV\n1\n{% if x %}\n\n{% endif %} select 2;",
+        "insert into t format CSV\n1\n\n{%- if x %} {% endif %} select 2;",
+        "{% for i in xs %}\ninsert into t format CSV\n{{ i }}\n{% endfor %}\n\nselect 2;",
+    ] {
+        let last = decisions(source, true).pop();
+        assert!(
+            matches!(
+                last,
+                Some(Decision::Kept(Kept::TemplateData | Kept::RenderJoined))
+            ),
+            "{source}: {last:?}"
+        );
+    }
+    // An expression glued to `insert` by a `-` marker: the data can run to
+    // the end, which gains no newline.
+    let source = "{{ c() }}\n{%- for i in xs -%}\ninsert into t format TSV\n{{ i }}\n\
+                  {% endfor -%}\n\nselect 1;";
+    assert_eq!(jinja(source), source);
+    // A loop that holds the blank line holds the `INSERT` too.
+    let source = "{% for i in xs %}\ninsert into t format CSV\n{{ i }}\n\nselect 2;\n{% endfor %}";
+    assert_eq!(
+        decisions(source, true),
+        [Decision::Kept(Kept::TemplateData), Decision::Formatted]
     );
     // A block tag inside the `INSERT` can leave out the `;` that ends it.
     let source = "insert into t select 1 {% if x %};{% endif %}\nselect 2 format CSV;";
@@ -586,14 +616,88 @@ fn a_closer_aligns_with_its_opener() {
 }
 
 #[test]
+fn expression_headers_go_at_column_0_with_their_blank_lines() {
+    // dbt's `config()` before a model, with `{% set %}` before it.
+    assert_eq!(
+        jinja(
+            "{% set n = 1 %}\n{{ config(\n  materialized='table'\n) }}\n\n\n\
+             with s as (select a from {{ ref('x') }} ) select * from s"
+        ),
+        "{% set n = 1 %}\n{{ config(\n  materialized='table'\n) }}\n\n\
+         WITH s AS (\n    SELECT a\n    FROM {{ ref('x') }}\n)\nSELECT *\nFROM s\n"
+    );
+    // Several, and none at all where the expression shares its line with
+    // what follows.
+    assert_eq!(
+        jinja("{{ a }}\n{{ b }}\nselect 1;\n{{ verb }} select 2;"),
+        "{{ a }}\n{{ b }}\nSELECT 1;\n\n{{ verb }} select 2;\n"
+    );
+    // One that follows the statement before on its line stays there.
+    assert_eq!(
+        jinja("select a, b from t; {{ hint() }}\nselect c from u;"),
+        "SELECT\n    a,\n    b\nFROM t; {{ hint() }}\n\nSELECT c\nFROM u;\n"
+    );
+}
+
+#[test]
+fn alternative_queries_under_a_tag_take_no_alias_across_it() {
+    assert_eq!(
+        jinja("{% if x %}\nselect a from t\n{% else %}\nselect b from u\n{% endif %}"),
+        "{% if x %}\nSELECT a\nFROM t\n{% else %}\nSELECT b\nFROM u\n{% endif %}\n"
+    );
+    // A `for` loop that emits list items, as in the proposal's section 2g.
+    assert_eq!(
+        jinja(
+            "select site, {% for e in this.event_types %} countIf(event_type = '{{ e }}') AS \
+             {{ e }}_count, {% endfor %} count() AS total from raw.events group by site"
+        ),
+        "SELECT\n    site,\n    {% for e in this.event_types %}\n    \
+         countIf(event_type = '{{ e }}') AS {{ e }}_count,\n    {% endfor %}\n    \
+         count() AS total\nFROM raw.events\nGROUP BY site\n"
+    );
+    // A tag after a clause keyword, before its list, and one in a subquery.
+    assert_eq!(
+        jinja(
+            "select {% for f in fs -%} {{ f }}(x){{ ',' if not loop.last }} {% endfor -%} from t"
+        ),
+        "SELECT\n    {% for f in fs -%}\n    {{ f }}(x){{ ',' if not loop.last }}\n    \
+         {% endfor -%}\nFROM t\n"
+    );
+    assert_eq!(
+        jinja("select * from (select a from t {% if y %} where b {% endif %})"),
+        "SELECT *\nFROM (\n    SELECT a\n    FROM t\n    {% if y %}\n    WHERE b\n    \
+         {% endif %}\n)\n"
+    );
+}
+
+#[test]
+fn tags_touching_brackets_commas_and_semicolons_are_laid_out() {
+    assert_eq!(
+        jinja("select a,{% if x %} b, {% endif %} c from t"),
+        "SELECT\n    a,\n    {% if x %}\n    b,\n    {% endif %}\n    c\nFROM t\n"
+    );
+    // A block inside a string changes only the string.
+    assert_eq!(
+        jinja("set m = '{% if x %}16Mi{% else %}0{% endif %}';\nselect a, b from t"),
+        "SET m = '{% if x %}16Mi{% else %}0{% endif %}';\n\nSELECT\n    a,\n    b\nFROM t\n"
+    );
+    // Unless a render puts an expression against it: whitespace next to
+    // one stays as written.
+    let source = "select a from t settings m = {{ g }} {%- endif %};";
+    assert_eq!(decisions(source, true), [Decision::Kept(Kept::TagTouching)]);
+}
+
+#[test]
 fn jinja_shapes_the_layout_does_not_cover_are_kept_as_written() {
     // A block tag inside an expression.
     let source = "select a + {% if x %} b {% else %} c {% endif %} from t";
     assert_eq!(jinja(source), format!("{source}\n"));
     assert_eq!(decisions(source, true), [Decision::Kept(Kept::TagPlace)]);
-    // A tag touching a word.
-    let source = "select a,{% if x %} b {% endif %} from t";
+    // A tag touching a string or an operator.
+    let source = "select 'a'{% if x %}, b {% endif %} from t";
     assert_eq!(decisions(source, true), [Decision::Kept(Kept::TagTouching)]);
+    let source = "select a +{% if x %} b {% else %} c {% endif %} from t";
+    assert_eq!(decisions(source, true), [Decision::Kept(Kept::TagPlace)]);
     // A tag inside a string: every statement is kept.
     let source = "select '{% if x %}';\n{% endif %}\nselect 2;";
     assert_eq!(
@@ -679,6 +783,35 @@ fn a_line_comment_the_rendering_runs_on_leaves_the_text_alone() {
         "select a -- c\n{%- if x %}\n",
     ] {
         jinja(source);
+    }
+}
+
+/// sqlfmt merges a short block onto the line before it, so that a `--`
+/// comment followed by `{%- if %}` swallows the block's text: the marker
+/// strips the line break that ended the comment. Here the block tags keep
+/// lines of their own, and every render keeps its SQL.
+#[test]
+fn a_comment_before_a_stripping_tag_does_not_swallow_the_next_line() {
+    let source =
+        "select\n    a, -- the comment\n    {%- if x %}\n    b,\n    {%- endif %}\n    c\nfrom t\n";
+    let output = jinja(source);
+    assert_eq!(
+        output,
+        "SELECT\n    a,  -- the comment\n    {%- if x %}\n    b,\n    {%- endif %}\n    c\nFROM t\n"
+    );
+    #[cfg(feature = "template")]
+    {
+        let (before, after) = (
+            crate::template::render(source),
+            crate::template::render(&output),
+        );
+        assert_eq!(before.variants.len(), 2);
+        for (a, b) in before.variants.iter().zip(&after.variants) {
+            let (Ok(a), Ok(b)) = (&a.text, &b.text) else {
+                panic!("a variant does not render");
+            };
+            assert_eq!(crate::template::compare_sql(a, b), Ok(()));
+        }
     }
 }
 

@@ -306,6 +306,144 @@ fn template(r: &mut Rng) -> String {
     out
 }
 
+/// A block tag with any marker on either side now and then: `-` or `+`.
+fn marked_tag(r: &mut Rng, body: &str) -> String {
+    let left = r.pick(&["{%", "{%", "{%", "{%-", "{%+"]);
+    let right = r.pick(&["%}", "%}", "%}", "-%}", "+%}"]);
+    format!("{left} {body} {right}")
+}
+
+/// One statement of a shape the second generator adds: alternative queries
+/// under a tag, a loop that emits list items after a clause keyword, tags
+/// touching brackets and commas, in a subquery and inside strings, a word a
+/// left-out branch joins to another, and `INSERT … FORMAT` data that a
+/// branch shapes.
+fn shaped_statement(r: &mut Rng, out: &mut String) {
+    match r.below(10) {
+        0 => {
+            out.push_str(&marked_tag(r, "if a"));
+            out.push_str(gap(r));
+            query(r, out);
+            out.push_str(gap(r));
+            out.push_str(&marked_tag(r, "else"));
+            out.push_str(gap(r));
+            query(r, out);
+            out.push_str(gap(r));
+            out.push_str(&marked_tag(r, "endif"));
+        }
+        1 => {
+            out.push_str("select");
+            out.push_str(gap(r));
+            out.push_str(&marked_tag(r, "for f in fs"));
+            out.push_str(gap(r));
+            out.push_str(r.pick(&[
+                "{{ f }}(x){{ ',' if not loop.last }}",
+                "count{{ f }}() as c_{{ f }},",
+            ]));
+            out.push_str(gap(r));
+            out.push_str(&marked_tag(r, "endfor"));
+            out.push_str(gap(r));
+            out.push_str(r.pick(&["1", "x"]));
+            out.push_str(" from t");
+        }
+        2 => {
+            out.push_str("select a from (select b from t");
+            out.push_str(gap(r));
+            out.push_str(&marked_tag(r, "if y"));
+            out.push_str(gap(r));
+            out.push_str("where c");
+            out.push_str(gap(r));
+            out.push_str(&marked_tag(r, "endif"));
+            out.push_str(r.pick(&[")", " )", "\n)"]));
+        }
+        3 => {
+            out.push_str("select a,");
+            out.push_str(&marked_tag(r, "if x"));
+            out.push_str(" b,");
+            out.push_str(&marked_tag(r, "endif"));
+            out.push_str(gap(r));
+            out.push_str("f(c,");
+            out.push_str(&marked_tag(r, "if y"));
+            out.push('d');
+            out.push_str(&marked_tag(r, "endif"));
+            out.push_str(") from t");
+        }
+        4 => {
+            out.push_str("select '");
+            out.push_str(&marked_tag(r, "if x"));
+            out.push_str("a ");
+            out.push_str(&marked_tag(r, "else"));
+            out.push_str(" b");
+            out.push_str(&marked_tag(r, "endif"));
+            out.push_str("' as s,");
+            out.push_str(gap(r));
+            out.push_str("/* ");
+            out.push_str(&marked_tag(r, "for i in xs"));
+            out.push_str("{{ i }}");
+            out.push_str(&marked_tag(r, "endfor"));
+            out.push_str(" */ c from t");
+        }
+        5 => {
+            out.push_str("select a from t where b = case when c then 1 else 2 end");
+            out.push_str(r.pick(&[" {%- if y %}", " {% if y %}"]));
+            out.push_str(r.pick(&[" and d", " or d"]));
+            out.push_str(gap(r));
+            out.push_str(&marked_tag(r, "else"));
+            out.push_str(r.pick(&[" and e", "and e", " or e"]));
+            out.push_str(gap(r));
+            out.push_str(&marked_tag(r, "endif"));
+        }
+        6 => {
+            out.push_str("insert into t format CSV\n1,2\n");
+            out.push_str(&marked_tag(r, "if x"));
+            out.push_str(r.pick(&["\n3,4\n", "3,4\n", "\n\n3,4\n"]));
+            out.push_str(&marked_tag(r, "endif"));
+            out.push_str(r.pick(&["\n\n", "\n", "\n\n\n"]));
+            query(r, out);
+        }
+        7 => {
+            out.push_str(&marked_tag(r, "for i in xs"));
+            out.push_str("\ninsert into t format TSV\n{{ i }}\n");
+            out.push_str(r.pick(&["\n", ""]));
+            out.push_str(&marked_tag(r, "endfor"));
+            out.push_str("\n\n");
+            query(r, out);
+        }
+        8 => create(r, out),
+        _ => query(r, out),
+    }
+}
+
+/// A template from the second generator: a header now and then, statements
+/// of [`shaped_statement`], and test hints after a statement's `;`.
+fn shaped_template(r: &mut Rng) -> String {
+    let mut out = String::from(r.pick(&[
+        "",
+        "",
+        "{{ config(materialized='table') }}\n",
+        "{% set n = 1 %}\n{{ config(x=1) }}\n\n\n",
+        "{{ a }}\n{{ b }}\n",
+        "-- head\n{{ config() }}\n",
+    ]));
+    let statements = 1 + r.below(3);
+    for k in 0..statements {
+        if k > 0 {
+            out.push_str(r.pick(&[
+                ";\n",
+                ";\n\n",
+                "; {{ hint() }}\n",
+                "; {{ hint() }} ",
+                ";\n{{ h }}\n",
+            ]));
+        }
+        shaped_statement(r, &mut out);
+    }
+    if r.below(2) == 0 {
+        out.push(';');
+    }
+    out
+}
+
 /// The SQL of a rendered text as ClickHouse reads it: its tokens without
 /// whitespace, bare words in one case and `INSERT` data as one token, and
 /// the source text of each literal in brackets left of `::`, which
@@ -406,11 +544,21 @@ const MAX_LEFT_ALONE: f64 = 0.4;
 
 #[test]
 fn every_render_of_a_formatted_template_keeps_its_sql() {
-    let mut r = rng(2026);
+    every_render_keeps_its_sql(rng(2026), template);
+}
+
+/// The same for the second generator's templates, on a random stream of
+/// their own.
+#[test]
+fn every_render_of_a_formatted_shaped_template_keeps_its_sql() {
+    every_render_keeps_its_sql(rng(5150), shaped_template);
+}
+
+fn every_render_keeps_its_sql(mut r: Rng, generate: fn(&mut Rng) -> String) {
     let mut left_alone = 0_u32;
     let n = cases();
     for _ in 0..n {
-        let source = template(&mut r);
+        let source = generate(&mut r);
         let Some(once) = format(&source, true) else {
             left_alone += 1;
             continue;

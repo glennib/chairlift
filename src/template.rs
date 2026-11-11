@@ -742,13 +742,14 @@ fn literal_before<'t>(
             depth = depth.saturating_sub(1);
             if depth == 0 {
                 let call = m.checked_sub(1).is_some_and(|k| {
-                    matches!(
-                        tokens[solid[k]].kind(),
-                        TokenKind::BareWord
-                            | TokenKind::QuotedIdentifier
-                            | TokenKind::ClosingRoundBracket
-                            | TokenKind::ClosingSquareBracket
-                    )
+                    let before = tokens[solid[k]];
+                    match before.kind() {
+                        TokenKind::BareWord => !operand_before(before.text(text)),
+                        TokenKind::QuotedIdentifier
+                        | TokenKind::ClosingRoundBracket
+                        | TokenKind::ClosingSquareBracket => true,
+                        _ => false,
+                    }
                 });
                 return (!call).then(|| text.get(token.start()..tokens[last].end()))?;
             }
@@ -757,6 +758,32 @@ fn literal_before<'t>(
         }
     }
     None
+}
+
+/// Whether `word` is a keyword after which brackets start an operand, not
+/// the arguments of a call or an index: `SELECT [1, 2]::String`.
+fn operand_before(word: &str) -> bool {
+    matches!(
+        word.to_ascii_lowercase().as_str(),
+        "select"
+            | "where"
+            | "prewhere"
+            | "having"
+            | "and"
+            | "or"
+            | "not"
+            | "in"
+            | "is"
+            | "like"
+            | "between"
+            | "when"
+            | "then"
+            | "else"
+            | "by"
+            | "on"
+            | "distinct"
+            | "values"
+    )
 }
 
 /// Whether a token can be part of an array or tuple literal.

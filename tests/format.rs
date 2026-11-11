@@ -112,3 +112,39 @@ fn each_statement_is_formatted_or_kept_with_a_reason() {
     );
     assert_eq!(statements[1].tokens, 5..11);
 }
+
+/// Outside Jinja mode, tag delimiters are SQL text: in a string, and as two
+/// braces of a map in a map.
+#[test]
+fn plain_sql_with_braces_is_not_a_template() {
+    use chairlift::layout::Decision;
+    let source = "select '{% if x %}' as a, '{{ y }}' as b, {'k': {'n': 1}} from t";
+    let (output, statements) =
+        chairlift::format_with_statements(source, &Options::default()).unwrap();
+    assert_eq!(
+        output,
+        "SELECT\n    '{% if x %}' AS a,\n    '{{ y }}' AS b,\n    {'k': {'n': 1}}\nFROM t\n"
+    );
+    assert_eq!(statements[0].decision, Decision::Formatted);
+}
+
+/// Every tag of a template comes out byte for byte and in order, with the
+/// output verified: a tag inside a string, tags glued to identifiers, Jinja
+/// comments, `+` and `-` markers and a raw block.
+#[test]
+fn every_tag_of_a_template_keeps_its_bytes() {
+    use chairlift::lexer::jinja::tags;
+    let source = "{# a header #}\n{{ config( x = 1 ) }}\n\
+        select events_{{ suffix }}, {{x}}_n , '{% if a %}A{% else %}B{% endif %}' as s,\n\
+        {%+ if b +%} c, {%+ endif +%} {%- raw -%} '{{ not a tag }}' {%- endraw -%} as r\n\
+        from {{ db | sql_ident }}.t {#- trailing #} where d = 1;\n";
+    let options = Options::default().with_jinja(true);
+    let output = chairlift::format(source, &options).unwrap();
+    let texts =
+        |text: &str| -> Vec<String> { tags(text).map(|t| text[t.range].to_owned()).collect() };
+    assert_eq!(texts(&output), texts(source), "{output}");
+    assert!(output.contains("SELECT"), "{output}");
+    let parse = chairlift::syntax::parse(source, Mode::Jinja);
+    chairlift::verify::verify(source, &output, Mode::Jinja, parse.facts())
+        .unwrap_or_else(|e| panic!("{e}\n{output}"));
+}
