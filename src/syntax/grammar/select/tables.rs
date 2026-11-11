@@ -354,6 +354,8 @@ pub(super) fn join_keywords(p: &Parser<'_>, start: usize) -> Option<usize> {
         )
     };
     let mut n = start;
+    // Every word of a join is a keyword.
+    p.nth_keyword(n)?;
     if matches!(p.nth_keyword(n), Some(K::Global | K::Local)) {
         n += 1;
     }

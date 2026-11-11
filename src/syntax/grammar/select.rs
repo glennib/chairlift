@@ -410,23 +410,23 @@ enum Clause {
 
 /// The clause that starts at the current token, if any.
 fn clause_at(p: &Parser<'_>) -> Option<Clause> {
-    Some(match p.nth_keyword(0) {
-        Some(K::With) if at_group_by_modifier(p) => Clause::GroupByModifiers,
-        Some(K::With) => Clause::With,
-        Some(K::Select) => Clause::Select,
-        Some(K::From) => Clause::From,
-        Some(K::Prewhere) => Clause::Prewhere,
-        Some(K::Where) => Clause::Where,
-        Some(K::Group) if p.nth_at_kw(1, K::By) => Clause::GroupBy,
-        Some(K::Having) => Clause::Having,
-        Some(K::Window) if names::at_name(p, 1) && p.nth_at_kw(2, K::As) => Clause::Window,
-        Some(K::Qualify) => Clause::Qualify,
-        Some(K::Order) if p.nth_at_kw(1, K::By) => Clause::OrderBy,
-        Some(K::Interpolate) => Clause::Interpolate,
-        Some(K::Limit) => Clause::Limit,
-        Some(K::Offset) => Clause::Offset,
-        Some(K::Fetch) if matches!(p.nth_keyword(1), Some(K::First | K::Next)) => Clause::Fetch,
-        Some(K::Settings) if common::at_settings(p) => Clause::Settings,
+    Some(match p.nth_keyword(0)? {
+        K::With if at_group_by_modifier(p) => Clause::GroupByModifiers,
+        K::With => Clause::With,
+        K::Select => Clause::Select,
+        K::From => Clause::From,
+        K::Prewhere => Clause::Prewhere,
+        K::Where => Clause::Where,
+        K::Group if p.nth_at_kw(1, K::By) => Clause::GroupBy,
+        K::Having => Clause::Having,
+        K::Window if names::at_name(p, 1) && p.nth_at_kw(2, K::As) => Clause::Window,
+        K::Qualify => Clause::Qualify,
+        K::Order if p.nth_at_kw(1, K::By) => Clause::OrderBy,
+        K::Interpolate => Clause::Interpolate,
+        K::Limit => Clause::Limit,
+        K::Offset => Clause::Offset,
+        K::Fetch if matches!(p.nth_keyword(1), Some(K::First | K::Next)) => Clause::Fetch,
+        K::Settings if common::at_settings(p) => Clause::Settings,
         _ if tables::at_array_join(p, 0) => Clause::ArrayJoin,
         _ if tables::at_join(p) => Clause::Join,
         _ => return None,
@@ -438,12 +438,14 @@ fn clause_at(p: &Parser<'_>) -> Option<Clause> {
 /// `COMMENT 'text'`, which ends the query of a `CREATE VIEW`, or `ELSE`
 /// where it ends the query of `viewIfPermitted(SELECT … ELSE f())`.
 fn at_clause(p: &Parser<'_>) -> bool {
-    clause_at(p).is_some()
-        || common::at_format(p)
-        || common::at_into_outfile(p)
-        || at_set_operator(p)
-        || (p.at_kw(K::Comment) && p.nth_at(1, T::StringLiteral))
-        || (p.else_ends_query() && p.at_kw(K::Else))
+    // Each of these starts with a keyword, which a name mostly is not.
+    p.nth_keyword(0).is_some()
+        && (clause_at(p).is_some()
+            || common::at_format(p)
+            || common::at_into_outfile(p)
+            || at_set_operator(p)
+            || (p.at_kw(K::Comment) && p.nth_at(1, T::StringLiteral))
+            || (p.else_ends_query() && p.at_kw(K::Else)))
 }
 
 /// [`at_clause`], or a comma, which may follow a join to join another table.
