@@ -12,11 +12,15 @@
 //! # Commas
 //!
 //! A list inside a command reads on after a comma, whatever word follows, as
-//! ClickHouse's `ParserList` does: in `MODIFY SETTING a = 1, b = 2`, `MODIFY
-//! TTL …, …`, `UPDATE a = 1, b = 2`, `DELETE IN PARTITION 1, 2` and the
-//! columns and types of `STATISTICS`, the comma is the list's, so such a
-//! command can only be followed by another as the last of its list allows.
-//! `MODIFY QUERY` takes the rest of the statement.
+//! ClickHouse's `ParserList` does. Where the list ends the command, the
+//! comma is the list's, so such a command must be the last: `MODIFY
+//! SETTING a = 1, b = 2`, `RESET SETTING a, b`, `MODIFY TTL …, …`, `MODIFY
+//! COLUMN … MODIFY SETTING` and `RESET SETTING`, `ADD STATISTICS … TYPE a,
+//! b`, `DROP STATISTICS a, b` and `ALTER DATABASE … MODIFY SETTING`. Where a
+//! required part follows the list, that part ends it, and another command
+//! may follow: `UPDATE a = 1, b = 2 WHERE …`, `DELETE IN PARTITION 1, 2
+//! WHERE …` and `MATERIALIZE STATISTICS a, b IN PARTITION 1`. `MODIFY
+//! QUERY` takes the rest of the statement.
 //!
 //! # Keyword slots
 //!
