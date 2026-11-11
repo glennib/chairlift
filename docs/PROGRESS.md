@@ -13,28 +13,20 @@ M9 (chum integration) is not part of this run.
 | M3. Parser core | done | both grammar reviews' fixes are on `main` |
 | M4. Formatting rules and printer | done | acceptance measured; reviews' fixes on `main`; style readings await the project owner |
 | M5. Jinja templates | implemented | on `main`; acceptance measured; not yet reviewed |
-| M6. CLI polish and performance | done | acceptance measured; the CI benchmark check's sensitivity is unproven |
+| M6. CLI polish and performance | done | reviewed; every finding fixed |
 | M7. Remaining statement kinds | implemented | on `main`; acceptance met; not yet reviewed |
 | M8. Hardening and first release | not started | |
 
 ## Resuming the work
 
-The run was paused on 2026-11-11 with M0–M7 on `main` and no unmerged branch.
-Nothing is running.
+M0–M7 are on `main`.
+M5, M6 and M7 each had an independent review on 2026-11-12.
+The M6 findings are fixed and on `main`; the fixes for M5 and M7 are in progress.
 Only the tip of each landed stack was checked with `mise run ci`, not every commit.
 
 What remains, in order:
 
-1. **An independent review of M5, M6 and M7.**
-   None of the three has had one, and every review of an earlier milestone found real defects.
-   Aim it at:
-   - templates: renders for every branch combination against the new statement kinds
-     (`corpus:templates`, `test:templates`),
-     the two templates still refused, the 102 statements kept because a tag is glued into a word;
-   - keyword slots in the M7 statements
-     (`mise run test:keyword-positions`), secrets in access-control statements, `INSERT` data kept byte for byte;
-   - the CLI: exit codes, `--verify` with and without the `template` feature, parallel output order;
-   - idempotence and style on generated input for the M7 layouts, and reading real output.
+1. **The fixes for the M5 and M7 reviews**, listed under those milestones' notes once they land.
 2. **M8**: fuzz targets run for an hour, the docs-examples corpus in the oracle sweep, the README
    (installation, usage, style summary, editor setup, pre-commit),
    `CHANGELOG.md` through release-plz, and `--version` printing the keyword-list version.
@@ -42,7 +34,12 @@ What remains, in order:
 
 Known loose ends:
 
-- The CI benchmark check never fails on identical builds, but did not reliably catch a build made twice as slow.
+- The benchmark check catches a build made twice as slow, but on a loaded machine a regression of 15–20% can pass.
+- An in-place write does not keep a file's owner, extended attributes, ACLs or hard links,
+  and a killed run can leave a `.chairlift-PID-N.tmp` file behind.
+- The default `cli` features do not include `template`,
+  so a default build's `--verify` does not judge a template through its renders; it says so in the summary.
+- `cargo clippy --lib --no-default-features --features oracle` fails on an unused `mut`; CI does not build that.
 - `SYSTEM`, `EXPLAIN` and KQL `PRINT` statements stay verbatim, as planned.
 - In plain SQL, `{map} AS m` does not upper-case `as`.
 
@@ -734,3 +731,31 @@ Not independently reviewed.
   Two templates are refused.
 - Four defects the harness found were fixed, among them a left-out branch joining `end` and `and` into `ENDAND`.
 - Verify and idempotence hold on every corpus file; the oracle judges 270,251 stateless statements, none differing.
+
+### M6, reviewed
+
+An independent review found one way to lose data, four major defects and eleven minor ones.
+All are fixed and on `main`.
+Only the tip was checked with `mise run ci` (549 tests).
+
+- **A file edited while chairlift runs is not overwritten.**
+  With `--verify` the window was the whole oracle run.
+  The file is read again right before the rename; if it changed, it is an error and exit 2.
+- A file named under two spellings is formatted once.
+  Each write has a temporary file of its own, created with the target's permissions.
+- `--verify` fails a file of which the oracle judged nothing because it crashed, timed out or printed too much
+  (exit 2, not written).
+  A crash on single statements is still "not judged"; that warning shows with `-q` too.
+- After three timeouts in a row `--verify` stops running the oracle, exits 2 and leaves the files not judged unchanged.
+  The oracle runs in a process group of its own, killed on a timeout and on `SIGINT`, `SIGTERM` and `SIGHUP`.
+- `scripts/bench-compare.sh` built both trees into one target directory when `CARGO_TARGET_DIR` was set,
+  and compared a binary with itself.
+  The base has a target directory of its own now.
+  A head made twice as slow fails (lower bounds +78% to +108%); identical sources pass.
+  Measured under load.
+- A warning no longer prints what the oracle printed, which could hold a password.
+- Smaller: a closed pipe stops the output quietly; a lone CR counts as a line break in positions and in `--diff`;
+  snippet headers count columns in chars; a directory without SQL files is warned about;
+  `--help` states the real rules for `--jinja auto`, `--check --diff`, symlinks and explicit paths.
+- Unchanged: `--check` over the stateless corpus gives the same output byte for byte with 1 and 8 jobs
+  (2.5 s with 8 jobs on a loaded machine).
