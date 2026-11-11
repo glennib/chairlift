@@ -162,6 +162,29 @@ pub fn render(source: &str) -> Rendering {
     }
 }
 
+/// The distinct pairs of renders of `input` and of `output`, formatted from
+/// it, that both render, with the label of the first variant to give each:
+/// what the oracle judges for a template. None where the two have different
+/// branches, which only a formatter bug can cause and [`compare_sql`] over
+/// the variants shows.
+#[must_use]
+pub fn rendered_pairs(input: &str, output: &str) -> Vec<(String, String, String)> {
+    let (before, after) = (render(input), render(output));
+    if before.branches != after.branches {
+        return Vec::new();
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for (a, b) in before.variants.into_iter().zip(after.variants) {
+        if let (Ok(x), Ok(y)) = (a.text, b.text)
+            && seen.insert((x.clone(), y.clone()))
+        {
+            out.push((a.label, x, y));
+        }
+    }
+    out
+}
+
 /// The prefix of the names this module adds to a template.
 const INTERNAL: &str = "__chairlift_";
 /// The function that decides a branch: `__chairlift_branch(chain, index)`.

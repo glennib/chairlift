@@ -166,11 +166,36 @@ fn long_canonical_forms_are_cut_around_the_difference() {
 #[test]
 fn a_file_is_its_own_variant() {
     let found = variants("select 1", "SELECT 1\n", Mode::Jinja);
-    assert_eq!(found.len(), 1);
+    // With the `template` feature, followed by its one render.
+    assert_eq!(found.len(), if cfg!(feature = "template") { 2 } else { 1 });
     assert_eq!(found[0].rendering, None);
     assert_eq!(found[0].input, "select 1");
     assert_eq!(found[0].output, "SELECT 1\n");
     assert_eq!(found[0].mode, Mode::Jinja);
+}
+
+/// With the `template` feature, a template is also judged once per distinct
+/// render: here one per branch.
+#[cfg(feature = "template")]
+#[test]
+fn a_template_is_judged_per_render() {
+    let input = "select 1{% if x %}, 2{% endif %}";
+    let output = "SELECT\n    1{% if x %}, 2{% endif %}\n";
+    let found = variants(input, output, Mode::Jinja);
+    let renders: Vec<(&str, &str, Mode)> = found[1..]
+        .iter()
+        .map(|v| (v.input.as_ref(), v.output.as_ref(), v.mode))
+        .collect();
+    assert_eq!(
+        renders,
+        [
+            ("select 1, 2", "SELECT\n    1, 2\n", Mode::Sql),
+            ("select 1", "SELECT\n    1\n", Mode::Sql),
+        ]
+    );
+    assert_eq!(found[1].rendering.as_deref(), Some("render branches 0"));
+    // SQL is not rendered.
+    assert_eq!(variants(input, output, Mode::Sql).len(), 1);
 }
 
 #[test]

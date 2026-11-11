@@ -220,17 +220,32 @@ pub struct Variant<'a> {
 /// This is the file as it is. In [`Mode::Jinja`], [`Oracle::judge_pairs`]
 /// then finds the statements that hold a tag
 /// [`UnrenderedJinja`](RejectionClass::UnrenderedJinja) and judges the
-/// others. Rendering a template once per combination of its branches, to
-/// judge every statement, adds a variant per rendering; it is not built
-/// yet.
+/// others. With the `template` feature, a template also gives a variant per
+/// distinct pair of renders of input and output, one per combination of its
+/// branches and loop count (see [`crate::template`]), in [`Mode::Sql`]: so
+/// every statement is judged. Without it, templates are judged unrendered.
 #[must_use]
 pub fn variants<'a>(input: &'a str, output: &'a str, mode: Mode) -> Vec<Variant<'a>> {
-    vec![Variant {
+    let mut out = vec![Variant {
         rendering: None,
         input: Cow::Borrowed(input),
         output: Cow::Borrowed(output),
         mode,
-    }]
+    }];
+    #[cfg(feature = "template")]
+    if mode == Mode::Jinja {
+        out.extend(
+            crate::template::rendered_pairs(input, output)
+                .into_iter()
+                .map(|(label, input, output)| Variant {
+                    rendering: Some(format!("render {label}")),
+                    input: Cow::Owned(input),
+                    output: Cow::Owned(output),
+                    mode: Mode::Sql,
+                }),
+        );
+    }
+    out
 }
 
 /// Characters of a canonical form shown before the point where it differs.

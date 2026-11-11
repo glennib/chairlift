@@ -1058,12 +1058,19 @@ fn verify_with_clickhouse_format() {
         stdout(&output).replace('\\', "/"),
         "Would reformat: ./messy.sql\nWould reformat: ./model.sql.j2\n"
     );
-    assert_eq!(
-        stderr(&output),
+    // With the `template` feature the template is judged rendered as well:
+    // its two statements, once.
+    let expected = if cfg!(feature = "template") {
+        "2 files would be reformatted, 1 file already formatted\n\
+         clickhouse-format reads 4 of 6 statements in changed files the same; not judged: \
+         1 with Jinja, 1 it cannot parse\n"
+    } else {
         "2 files would be reformatted, 1 file already formatted\n\
          clickhouse-format reads 2 of 4 statements in changed files the same; not judged: \
-         1 with Jinja, 1 it cannot parse; 1 template not rendered\n"
-    );
+         1 with Jinja, 1 it cannot parse; 1 template not rendered (chairlift is built without \
+         the `template` feature)\n"
+    };
+    assert_eq!(stderr(&output), expected);
 
     let output = run(
         &[&args[..], &["-v", "--diff", "."]].concat(),
@@ -1072,11 +1079,12 @@ fn verify_with_clickhouse_format() {
     );
     assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
     assert!(stdout(&output).contains("+SELECT\n+    a,\n+    b\n+FROM t;\n"));
-    assert!(
+    assert_eq!(
         stderr(&output).contains(
             "model.sql.j2: a template, judged without rendering it: 1 statement with Jinja \
              not judged"
         ),
+        !cfg!(feature = "template"),
         "{}",
         stderr(&output)
     );

@@ -6,9 +6,10 @@
 //! input. All of them go through one [`Oracle::judge_pairs`] call, which
 //! batches texts per process, judges statement by statement where a whole
 //! text is rejected, and runs a text alone where a batch fails on it. A file
-//! is judged as it is and, once the library renders templates, once per
-//! rendering ([`oracle::variants`]); until then a template's statements that
-//! hold Jinja are not judged, which [`Verdict::unrendered`] records.
+//! is judged as it is and, built with the `template` feature, a template
+//! once per rendering ([`oracle::variants`]); without it a template's
+//! statements that hold Jinja are not judged, which [`Verdict::unrendered`]
+//! records.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -244,8 +245,13 @@ pub fn summary(counts: &Counts, unrendered: usize) -> String {
     if unrendered > 0 {
         let _ = write!(
             out,
-            "; {unrendered} template{} not rendered",
-            if unrendered == 1 { "" } else { "s" }
+            "; {unrendered} template{} not rendered{}",
+            if unrendered == 1 { "" } else { "s" },
+            if cfg!(feature = "template") {
+                ""
+            } else {
+                " (chairlift is built without the `template` feature)"
+            }
         );
     }
     out

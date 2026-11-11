@@ -41,7 +41,6 @@
 //! difference, or a variant only one side renders, is a chairlift bug.
 //! `--only-templates` leaves out the files that are not templates.
 
-use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::fs;
@@ -254,9 +253,6 @@ struct Record {
     layout: Vec<Decision>,
     /// For a template that formatted, what its renders showed.
     renders: Option<Renders>,
-    /// The renders of a template's input and output that the oracle judges,
-    /// each with its label, without repeats; kept for the oracle.
-    rendered: Vec<(String, String, String)>,
 }
 
 /// What rendering a template's input and output showed.
@@ -419,7 +415,7 @@ fn run(cli: &Cli) -> Result<bool, String> {
             files.push((i, path));
         }
     }
-    let mut records = format_all(&corpora, &files, jobs, transform, cli.oracle);
+    let mut records = format_all(&corpora, &files, jobs, transform);
     let format_time = started.elapsed();
 
     let oracle_time = if cli.oracle {
@@ -633,7 +629,6 @@ fn format_all(
     files: &[(usize, PathBuf)],
     jobs: usize,
     transform: Transform,
-    keep_renders: bool,
 ) -> Vec<Record> {
     let next = AtomicUsize::new(0);
     let records = Mutex::new(Vec::with_capacity(files.len()));
@@ -645,8 +640,7 @@ fn format_all(
                     let Some((corpus, path)) = files.get(i) else {
                         break;
                     };
-                    let record =
-                        format_file(*corpus, &corpora[*corpus], path, transform, keep_renders);
+                    let record = format_file(*corpus, &corpora[*corpus], path, transform);
                     records
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -662,13 +656,7 @@ fn format_all(
     records.into_iter().map(|(_, r)| r).collect()
 }
 
-fn format_file(
-    index: usize,
-    corpus: &Corpus,
-    path: &Path,
-    transform: Transform,
-    keep_renders: bool,
-) -> Record {
+fn format_file(index: usize, corpus: &Corpus, path: &Path, transform: Transform) -> Record {
     let relative = path.strip_prefix(&corpus.root).unwrap_or(path);
     let mode = if corpus.all_templates {
         Mode::Jinja
@@ -695,7 +683,6 @@ fn format_file(
         parse_panic: None,
         layout: Vec::new(),
         renders: None,
-        rendered: Vec::new(),
     };
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
@@ -763,9 +750,7 @@ fn format_file(
                 }
             }
             if mode == Mode::Jinja && transform == Transform::Format {
-                let (renders, rendered) = compare_renders(&source, &output, keep_renders);
-                record.renders = Some(renders);
-                record.rendered = rendered;
+                record.renders = Some(compare_renders(&source, &output));
             }
             record.texts = Some((source, output));
         }
@@ -782,33 +767,9 @@ fn format_file(
     record
 }
 
-/// The texts the oracle judges for a file: [`oracle::variants`], and for a
-/// template each distinct pair of renders of its input and output, in
-/// [`Mode::Sql`] and labelled with its branches.
-fn variants<'a>(
-    input: &'a str,
-    output: &'a str,
-    mode: Mode,
-    rendered: &'a [(String, String, String)],
-) -> Vec<oracle::Variant<'a>> {
-    let mut out = oracle::variants(input, output, mode);
-    out.extend(rendered.iter().map(|(label, input, output)| oracle::Variant {
-        rendering: Some(label.clone()),
-        input: Cow::Borrowed(input),
-        output: Cow::Borrowed(output),
-        mode: Mode::Sql,
-    }));
-    out
-}
-
 /// Renders template `input` and its formatted `output` in every variant and
-/// compares the SQL of each pair; with `keep`, also returns the distinct
-/// pairs, for the oracle.
-fn compare_renders(
-    input: &str,
-    output: &str,
-    keep: bool,
-) -> (Renders, Vec<(String, String, String)>) {
+/// compares the SQL of each pair.
+fn compare_renders(input: &str, output: &str) -> Renders {
     let before = chairlift::template::render(input);
     let after = chairlift::template::render(output);
     let mut renders = Renders {
@@ -816,23 +777,19 @@ fn compare_renders(
         sampled: before.sampled,
         ..Renders::default()
     };
-    let mut kept = Vec::new();
     if before.branches != after.branches {
         renders.differences.push(format!(
             "the output's branches and loops are {:?}, the input's {:?}",
             after.branches, before.branches
         ));
-        return (renders, kept);
+        return renders;
     }
-    let mut seen = std::collections::HashSet::new();
     for (a, b) in before.variants.iter().zip(&after.variants) {
         match (&a.text, &b.text) {
             (Ok(x), Ok(y)) => {
                 renders.rendered += 1;
                 if let Err(e) = chairlift::template::compare_sql(x, y) {
                     renders.differences.push(format!("render {}: {e}", a.label));
-                } else if keep && seen.insert((x.clone(), y.clone())) {
-                    kept.push((format!("render {}", a.label), x.clone(), y.clone()));
                 }
             }
             (Err(_), Err(_)) => {}
@@ -844,7 +801,7 @@ fn compare_renders(
                 .push(format!("render {}: only the output renders: {e}", a.label)),
         }
     }
-    (renders, kept)
+    renders
 }
 
 /// `transform` applied to `source`: formatted, with what the layout did
@@ -976,7 +933,7 @@ fn judge_all(
     let mut texts = Vec::new();
     for (r, record) in records.iter().enumerate() {
         if let Some((input, output)) = &record.texts {
-            for variant in variants(input, output, record.mode, &record.rendered) {
+            for variant in oracle::variants(input, output, record.mode) {
                 owners.push(r);
                 labels.push(variant.rendering.unwrap_or_default());
                 texts.push((variant.input, variant.output, variant.mode));
@@ -1001,7 +958,6 @@ fn judge_all(
     }
     for (record, reports) in records.iter_mut().zip(by_record) {
         record.texts = None;
-        record.rendered = Vec::new();
         if reports.is_empty() {
             continue;
         }
