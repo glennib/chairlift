@@ -144,6 +144,8 @@ pub(crate) mod probe;
 pub(crate) mod select;
 pub(crate) mod types;
 
+use crate::keyword::Keyword as K;
+use crate::lexer::TokenKind as T;
 use crate::syntax::Entry;
 #[cfg(doc)]
 use crate::syntax::SyntaxKind;
@@ -159,12 +161,13 @@ pub(crate) fn statement(p: &mut Parser<'_>, entry: Entry) {
     }
     match entry {
         Entry::File => {
-            if select::at_statement(p) {
-                fallback::statement(p, select::statement);
-            } else if create::at_statement(p) {
-                fallback::statement(p, create::statement);
-            } else {
+            let query = select::at_statement(p);
+            if !(query || create::at_statement(p)) || at_unparsed_statement(p) {
                 fallback::verbatim_statement(p);
+            } else if query {
+                fallback::statement(p, select::statement);
+            } else {
+                fallback::statement(p, create::statement);
             }
         }
         Entry::SelectListProbe => probe::statement(p),
@@ -173,4 +176,40 @@ pub(crate) fn statement(p: &mut Parser<'_>, entry: Entry) {
         }),
         Entry::DataType => fallback::statement(p, |p| types::data_type(p).map(drop)),
     }
+}
+
+/// Whether the statement is of a kind the grammar does not parse, though it
+/// starts as a query or a `CREATE` does: statements joined by `PARALLEL
+/// WITH` (`ParserParallelWithQuery`), or an `INSERT` after a `WITH` clause
+/// (`WITH x AS (…) INSERT INTO t …`, which `ParserInsertQuery` reads). Such a
+/// statement is kept verbatim whole rather than parsed in part, which would
+/// record keyword slots that the grammar for the whole might not.
+///
+/// The words count outside brackets only. `PARALLEL WITH` is not the
+/// combinator before `TOTALS`, `ROLLUP`, `CUBE`, `FILL` or `TIES`, where
+/// `parallel` is a column that the clause's `WITH` follows, nor is `INSERT
+/// INTO` before `OUTFILE` and a string, where `insert` is an alias.
+fn at_unparsed_statement(p: &Parser<'_>) -> bool {
+    let with = p.at_kw(K::With);
+    let mut n = 0;
+    while p.nth(n).is_some() {
+        if p.nth_at_kw(n, K::Parallel)
+            && p.nth_at_kw(n + 1, K::With)
+            && !matches!(
+                p.nth_keyword(n + 2),
+                Some(K::Totals | K::Rollup | K::Cube | K::Fill | K::Ties)
+            )
+        {
+            return true;
+        }
+        if with
+            && p.nth_at_kw(n, K::Insert)
+            && p.nth_at_kw(n + 1, K::Into)
+            && !(p.nth_at_kw(n + 2, K::Outfile) && p.nth_at(n + 3, T::StringLiteral))
+        {
+            return true;
+        }
+        n += p.step_len(n);
+    }
+    false
 }

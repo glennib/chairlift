@@ -217,6 +217,40 @@ fn clauses_in_any_order_and_repeated() {
     assert_eq!(fallbacks("SELECT * FROM t SETTINGS final, a = 1"), []);
 }
 
+/// Statements that start as a query does but are of other kinds are kept
+/// verbatim whole, without a fallback: an `INSERT` after `WITH`, and
+/// statements joined by `PARALLEL WITH`.
+#[test]
+fn statements_of_other_kinds_are_verbatim() {
+    for source in [
+        "with x as (select 1) insert into t select * from x",
+        "select * from t parallel with select 2",
+        "create table t (a UInt8) engine = Memory parallel with create table u (a UInt8) engine = Memory",
+    ] {
+        let parse = crate::syntax::parse(source, crate::lexer::Mode::Sql);
+        assert_eq!(parse.fallbacks(), &[], "{source}");
+        assert_eq!(
+            parse.statements()[0].outcome,
+            StatementOutcome::Verbatim,
+            "{source}"
+        );
+        assert_eq!(parse.recased(), source);
+    }
+    // A column named `parallel`, and an alias named `insert`.
+    for source in [
+        "SELECT parallel WITH TOTALS",
+        "SELECT a AS parallel FROM t ORDER BY parallel WITH FILL",
+        "WITH 1 AS x SELECT x AS insert INTO OUTFILE 'f'",
+    ] {
+        let parse = crate::syntax::parse(source, crate::lexer::Mode::Sql);
+        assert_eq!(
+            parse.statements()[0].outcome,
+            StatementOutcome::Parsed,
+            "{source}"
+        );
+    }
+}
+
 #[test]
 fn design_example_parses_without_fallback() {
     let source = include_str!("../../../../tests/fixtures/design/page_views_1h.sql.j2");
