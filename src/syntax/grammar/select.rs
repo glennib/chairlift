@@ -159,7 +159,19 @@ pub(crate) fn statement(p: &mut Parser<'_>) -> Option<()> {
     {
         return p.expected("a query without `|>`");
     }
-    query(p).map(drop)
+    query(p, Level::Statement).map(drop)
+}
+
+/// Where a query stands, which says whether output clauses follow it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Level {
+    /// A statement of its own, which `INTO OUTFILE`, `FORMAT` and a
+    /// `SETTINGS` after them may follow (`ParserQueryWithOutput`).
+    Statement,
+    /// Part of something else: a subquery, a table function's argument, or
+    /// the query of `CREATE … AS`, whose output clauses, if any, are the
+    /// `CREATE` statement's.
+    Nested,
 }
 
 /// A query, up to the end of the statement or a closing bracket that does
@@ -167,39 +179,81 @@ pub(crate) fn statement(p: &mut Parser<'_>) -> Option<()> {
 /// [`UnionQuery`](SyntaxKind::UnionQuery) for set operations and queries in
 /// parentheses. It also ends before `COMMENT 'text'`, which follows the
 /// query of `CREATE VIEW … AS SELECT …`.
-pub(crate) fn query(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+///
+/// At the [statement level](Level::Statement), the output clauses follow
+/// as the query's own children, after its operands: ClickHouse attaches
+/// them to the whole set operation, wherever the brackets are. A `SETTINGS`
+/// right after an operand without brackets is that operand's, as ClickHouse
+/// reads it; one after brackets or another output clause is the
+/// statement's.
+pub(crate) fn query(p: &mut Parser<'_>, level: Level) -> Option<CompletedMarker> {
     p.nested(|p| {
         let first = operand(p)?;
-        if first.kind() == SyntaxKind::SelectQuery && !at_set_operator(p) {
-            return Some(first);
-        }
-        let m = first.precede(p);
-        let mut last = first.kind();
-        loop {
-            if last == SyntaxKind::Subquery {
-                let _ = clauses(p, Form::Query);
-            }
-            if !at_set_operator(p) {
-                break;
-            }
-            let op = p.start();
-            p.bump_keyword();
-            if p.at_kw(K::All) || p.at_kw(K::Distinct) {
+        let (m, kind) = if at_set_operator(p) {
+            let m = first.complete(p).precede(p);
+            while at_set_operator(p) {
+                let op = p.start();
                 p.bump_keyword();
+                if p.at_kw(K::All) || p.at_kw(K::Distinct) {
+                    p.bump_keyword();
+                }
+                op.complete(p, SyntaxKind::SetOperator);
+                operand(p)?.complete(p);
             }
-            op.complete(p, SyntaxKind::SetOperator);
-            last = operand(p)?.kind();
+            (m, SyntaxKind::UnionQuery)
+        } else {
+            match first {
+                Operand::Select(m) => (m, SyntaxKind::SelectQuery),
+                Operand::Subquery(subquery) => (subquery.precede(p), SyntaxKind::UnionQuery),
+            }
+        };
+        if level == Level::Statement {
+            output_clauses(p);
         }
-        Some(m.complete(p, SyntaxKind::UnionQuery))
+        Some(m.complete(p, kind))
     })
 }
 
-/// An operand of a set operation: a query in parentheses, or one without.
-fn operand(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+/// An operand of a set operation: a query in parentheses, or the clauses of
+/// one without, whose [`SelectQuery`](SyntaxKind::SelectQuery) node is left
+/// open for the output clauses of a statement that is only that query.
+enum Operand {
+    Subquery(CompletedMarker),
+    Select(crate::syntax::parser::Marker),
+}
+
+impl Operand {
+    fn complete(self, p: &mut Parser<'_>) -> CompletedMarker {
+        match self {
+            Operand::Subquery(subquery) => subquery,
+            Operand::Select(m) => m.complete(p, SyntaxKind::SelectQuery),
+        }
+    }
+}
+
+fn operand(p: &mut Parser<'_>) -> Option<Operand> {
     if p.at(T::OpeningRoundBracket) {
-        subquery(p)
+        subquery(p).map(Operand::Subquery)
     } else {
-        select_query(p)
+        select_query(p).map(Operand::Select)
+    }
+}
+
+/// The output clauses of a statement (`ParserQueryWithOutput`): `INTO
+/// OUTFILE`, `FORMAT` and `SETTINGS`, each with the clause fallback, in any
+/// order and repeated, as clauses are.
+fn output_clauses(p: &mut Parser<'_>) {
+    loop {
+        let parse = if common::at_into_outfile(p) {
+            common::into_outfile_clause
+        } else if common::at_format(p) {
+            common::format_clause
+        } else if common::at_settings(p) {
+            |p: &mut Parser<'_>| common::settings_clause(p, &at_clause)
+        } else {
+            return;
+        };
+        fallback::clause(p, &at_clause, |p| parse(p).map(drop));
     }
 }
 
@@ -266,7 +320,7 @@ pub(crate) fn subquery(p: &mut Parser<'_>) -> Option<CompletedMarker> {
                 list(p, SyntaxKind::ExprList, &mut |p| exprs::expr(p).map(drop))
                     .map(|_| values.complete(p, SyntaxKind::ValuesRows))
             } else {
-                query(p)
+                query(p, Level::Nested)
             }
         })
     })?;
@@ -279,9 +333,9 @@ fn at_query(p: &Parser<'_>) -> bool {
     p.at_kw(K::Select) || p.at_kw(K::With) || at_from_first(p, 0)
 }
 
-/// A [`SelectQuery`](SyntaxKind::SelectQuery): its clauses, which must
-/// include `SELECT` or `FROM`.
-fn select_query(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+/// The clauses of a [`SelectQuery`](SyntaxKind::SelectQuery), which must
+/// include `SELECT` or `FROM`, and the query's node, open.
+fn select_query(p: &mut Parser<'_>) -> Option<crate::syntax::parser::Marker> {
     if !at_query(p) {
         return p.expected("a query");
     }
@@ -290,7 +344,7 @@ fn select_query(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         m.abandon(p);
         return p.expected("SELECT");
     }
-    Some(m.complete(p, SyntaxKind::SelectQuery))
+    Some(m)
 }
 
 /// The query of `PROJECTION name (…)`, as a [`Subquery`](SyntaxKind::Subquery)
@@ -352,8 +406,6 @@ enum Clause {
     Offset,
     Fetch,
     Settings,
-    Format,
-    IntoOutfile,
 }
 
 /// The clause that starts at the current token, if any.
@@ -375,8 +427,6 @@ fn clause_at(p: &Parser<'_>) -> Option<Clause> {
         Some(K::Offset) => Clause::Offset,
         Some(K::Fetch) if matches!(p.nth_keyword(1), Some(K::First | K::Next)) => Clause::Fetch,
         Some(K::Settings) if common::at_settings(p) => Clause::Settings,
-        Some(K::Format) if names::at_name(p, 1) => Clause::Format,
-        Some(K::Into) if p.nth_at_kw(1, K::Outfile) => Clause::IntoOutfile,
         _ if tables::at_array_join(p, 0) => Clause::ArrayJoin,
         _ if tables::at_join(p) => Clause::Join,
         _ => return None,
@@ -384,11 +434,13 @@ fn clause_at(p: &Parser<'_>) -> Option<Clause> {
 }
 
 /// Whether a query's clause, list or verbatim region ends here: at a clause
-/// keyword, a set operator, `COMMENT 'text'`, which ends the query of a
-/// `CREATE VIEW`, or `ELSE` where it ends the query of
-/// `viewIfPermitted(SELECT … ELSE f())`.
+/// keyword, an output clause's (`FORMAT`, `INTO OUTFILE`), a set operator,
+/// `COMMENT 'text'`, which ends the query of a `CREATE VIEW`, or `ELSE`
+/// where it ends the query of `viewIfPermitted(SELECT … ELSE f())`.
 fn at_clause(p: &Parser<'_>) -> bool {
     clause_at(p).is_some()
+        || common::at_format(p)
+        || common::at_into_outfile(p)
         || at_set_operator(p)
         || (p.at_kw(K::Comment) && p.nth_at(1, T::StringLiteral))
         || (p.else_ends_query() && p.at_kw(K::Else))
@@ -452,11 +504,7 @@ fn clauses(p: &mut Parser<'_>, form: Form) -> bool {
 /// How many keywords start `clause` at the current token.
 fn keyword_count(p: &Parser<'_>, clause: Clause) -> usize {
     match clause {
-        Clause::GroupByModifiers
-        | Clause::GroupBy
-        | Clause::OrderBy
-        | Clause::Fetch
-        | Clause::IntoOutfile => 2,
+        Clause::GroupByModifiers | Clause::GroupBy | Clause::OrderBy | Clause::Fetch => 2,
         Clause::ArrayJoin => 2 + usize::from(!p.at_kw(K::Array)),
         Clause::Join => tables::join_keywords(p, 0).unwrap_or(1),
         _ => 1,
@@ -489,21 +537,6 @@ fn parse_clause(
         Clause::Offset => offset_clause(p),
         Clause::Fetch => fetch_clause(p),
         Clause::Settings => common::settings_clause(p, &at_clause).map(drop),
-        Clause::Format => {
-            let m = p.start();
-            p.bump_keyword();
-            names::name(p)?;
-            m.complete(p, SyntaxKind::FormatClause);
-            Some(())
-        }
-        Clause::IntoOutfile => {
-            let m = p.start();
-            p.bump_keyword();
-            p.bump_keyword();
-            fallback::opaque_until(p, &at_clause)?;
-            m.complete(p, SyntaxKind::IntoOutfileClause);
-            Some(())
-        }
     }
 }
 

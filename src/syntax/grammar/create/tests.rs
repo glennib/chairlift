@@ -163,6 +163,9 @@ fn as_forms() {
         "CREATE TABLE t (a Int8) ENGINE = MergeTree ORDER BY a DEFINER = default SQL SECURITY DEFINER",
         // Any query may end with `FORMAT`.
         "CREATE TABLE t (a Int8) ENGINE = Memory FORMAT Null",
+        // Output clauses after the query are the statement's.
+        "CREATE TABLE t ENGINE = Memory AS SELECT 1 FORMAT Null SETTINGS a = 1",
+        "CREATE MATERIALIZED VIEW v TO t AS SELECT 1 INTO OUTFILE 'x'",
     ]));
     // The table functions are those of `FROM`.
     assert_parses("CREATE TABLE t AS view(SELECT 1)");

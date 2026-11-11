@@ -1,6 +1,6 @@
 ---
 source: src/syntax/grammar/select/tests.rs
-expression: "trees(&[\"SELECT a, b FROM t PREWHERE p WHERE w GROUP BY a HAVING h QUALIFY q ORDER BY a LIMIT 10\",\n\"SELECT 1\", \"SELECT x FROM t SETTINGS max_threads = 8 FORMAT JSONEachRow\",\n\"SELECT x FROM t INTO OUTFILE 'out.csv' AND STDOUT COMPRESSION 'gzip' FORMAT CSV\",\n\"SELECT x FROM t WINDOW w AS (PARTITION BY y ORDER BY z), v AS (w ROWS 1 PRECEDING)\",])"
+expression: "trees(&[\"SELECT a, b FROM t PREWHERE p WHERE w GROUP BY a HAVING h QUALIFY q ORDER BY a LIMIT 10\",\n\"SELECT 1\", \"SELECT x FROM t SETTINGS max_threads = 8 FORMAT JSONEachRow\",\n\"SELECT x FROM t INTO OUTFILE 'out.csv' AND STDOUT COMPRESSION 'gzip' FORMAT CSV\",\n\"SELECT x FROM t WINDOW w AS (PARTITION BY y ORDER BY z), v AS (w ROWS 1 PRECEDING)\",\n\"SELECT 1 SETTINGS a = 1 FORMAT JSON SETTINGS b = 2\",])"
 ---
 > SELECT a, b FROM t PREWHERE p WHERE w GROUP BY a HAVING h QUALIFY q ORDER BY a LIMIT 10
 SelectQuery
@@ -103,11 +103,12 @@ SelectQuery
   IntoOutfileClause
     Keyword "INTO"
     Keyword "OUTFILE"
-    Opaque
+    Literal
       StringLiteral "'out.csv'"
-      BareWord "AND"
-      BareWord "STDOUT"
-      BareWord "COMPRESSION"
+    Keyword "AND"
+    Keyword "STDOUT"
+    Keyword "COMPRESSION"
+    Literal
       StringLiteral "'gzip'"
   FormatClause
     Keyword "FORMAT"
@@ -155,3 +156,33 @@ SelectQuery
           Number "1"
           BareWord "PRECEDING"
           ClosingRoundBracket ")"
+
+> SELECT 1 SETTINGS a = 1 FORMAT JSON SETTINGS b = 2
+SelectQuery
+  SelectClause
+    Keyword "SELECT"
+    SelectList
+      Literal
+        Number "1"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "a"
+        Equals "="
+        Literal
+          Number "1"
+  FormatClause
+    Keyword "FORMAT"
+    Name
+      BareWord "JSON"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "b"
+        Equals "="
+        Literal
+          Number "2"

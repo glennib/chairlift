@@ -445,6 +445,17 @@ syntax_kinds! {
         // Grammar in `grammar/select.rs`. A clause node holds its keywords as
         // tokens, then its body: an expression, or a list node whose child
         // nodes are the items.
+        //
+        // Output clauses: `INTO OUTFILE`, `FORMAT`, and a `SETTINGS` after
+        // either, are the statement's, as ClickHouse attaches them
+        // (`ParserQueryWithOutput`): they are the last children of the
+        // statement's body, a `SelectQuery` that is the whole statement, a
+        // `UnionQuery` (set operations, or a query in parentheses, wherever
+        // the parentheses are), or a `CreateTable` or
+        // `CreateMaterializedView` after its `AsClause`. A `SETTINGS` right
+        // after a query without parentheses, before any output clause, is
+        // that query's own clause. A query inside another, or after `AS`,
+        // has no output clauses.
         /// One query: its clauses in the order written, which may be any
         /// order, with repeats, since each clause is parsed (or kept
         /// verbatim) on its own: [`WithClause`](Self::WithClause),
@@ -464,23 +475,25 @@ syntax_kinds! {
         /// [`LimitClause`](Self::LimitClause),
         /// [`OffsetClause`](Self::OffsetClause),
         /// [`FetchClause`](Self::FetchClause),
-        /// [`SettingsClause`](Self::SettingsClause),
-        /// [`FormatClause`](Self::FormatClause),
-        /// [`IntoOutfileClause`](Self::IntoOutfileClause), and
+        /// [`SettingsClause`](Self::SettingsClause), and
         /// [`VerbatimClause`](Self::VerbatimClause) for one that did not
-        /// parse. A query may start with `FROM` (`FROM t SELECT x`, or
-        /// `FROM t` alone for `SELECT *`), and always has a `SelectClause`
-        /// or a `FromClause`, parsed or verbatim: a `WITH` clause alone is
-        /// no query, and a statement of one is verbatim.
+        /// parse; then, if the query is the whole statement, its output
+        /// clauses ([`IntoOutfileClause`](Self::IntoOutfileClause),
+        /// [`FormatClause`](Self::FormatClause), `SettingsClause`). A query
+        /// may start with `FROM` (`FROM t SELECT x`, or `FROM t` alone for
+        /// `SELECT *`), and always has a `SelectClause` or a `FromClause`,
+        /// parsed or verbatim: a `WITH` clause alone is no query, and a
+        /// statement of one is verbatim.
         SelectQuery: Statement,
         /// Queries joined by `UNION`, `EXCEPT` or `INTERSECT`, or one query
         /// in parentheses: operands ([`SelectQuery`](Self::SelectQuery) or
         /// [`Subquery`](Self::Subquery)) separated by
         /// [`SetOperator`](Self::SetOperator)s, as one flat run whatever the
-        /// operators' priorities. Clauses that follow an operand in
-        /// parentheses, such as the `FORMAT` of `(SELECT 1) UNION ALL
-        /// (SELECT 2) FORMAT JSON`, come after it here; after an operand
-        /// without parentheses they are that operand's own.
+        /// operators' priorities; then, if it is the whole statement, its
+        /// output clauses ([`IntoOutfileClause`](Self::IntoOutfileClause),
+        /// [`FormatClause`](Self::FormatClause),
+        /// [`SettingsClause`](Self::SettingsClause)). Nothing else follows
+        /// an operand in parentheses.
         UnionQuery: Statement,
         /// `UNION`, `EXCEPT` or `INTERSECT`, with any `ALL` or `DISTINCT`.
         SetOperator: Node,
@@ -607,8 +620,11 @@ syntax_kinds! {
         FetchClause: Clause,
         /// `FORMAT name`.
         FormatClause: Clause,
-        /// `INTO OUTFILE`, then the file name and its options
-        /// [`Opaque`](Self::Opaque).
+        /// `INTO OUTFILE`, the file name as a string
+        /// [`Literal`](Self::Literal), then any of `APPEND`, `TRUNCATE` and
+        /// `AND STDOUT` as tokens, and `COMPRESSION` with a string `Literal`
+        /// and any `LEVEL` with a number `Literal`; of a query or a `CREATE`
+        /// statement.
         IntoOutfileClause: Clause,
         /// `( a, b )`: a list in parentheses that is not an expression, after
         /// `DISTINCT ON`, `USING`, `ROLLUP`, `CUBE` and `INTERPOLATE`, in
@@ -622,14 +638,21 @@ syntax_kinds! {
         // clauses, each a child of the statement in the order written.
         /// `CREATE [OR REPLACE] [TEMPORARY] TABLE …`: a
         /// [`CreateHeader`](Self::CreateHeader), an optional
-        /// [`TableElementList`](Self::TableElementList), then clauses.
+        /// [`TableElementList`](Self::TableElementList), then clauses,
+        /// among them the statement's output clauses: a
+        /// [`FormatClause`](Self::FormatClause) or
+        /// [`IntoOutfileClause`](Self::IntoOutfileClause) after the
+        /// [`AsClause`](Self::AsClause)'s query is the statement's, as is a
+        /// [`SettingsClause`](Self::SettingsClause) after one of those.
         CreateTable: Statement,
         /// `CREATE [OR REPLACE] MATERIALIZED VIEW …`: a
         /// [`CreateHeader`](Self::CreateHeader), then clauses
         /// ([`RefreshClause`](Self::RefreshClause), [`ToClause`](Self::ToClause),
         /// storage clauses, [`PopulateClause`](Self::PopulateClause), …), with
         /// the view's [`TableElementList`](Self::TableElementList) where it is
-        /// written, and the query in an [`AsClause`](Self::AsClause).
+        /// written, and the query in an [`AsClause`](Self::AsClause); output
+        /// clauses after the query are the statement's, as in
+        /// [`CreateTable`](Self::CreateTable).
         CreateMaterializedView: Statement,
         /// The statement's keywords up to the object kind (`CREATE OR
         /// REPLACE TABLE`), an [`IfNotExists`](Self::IfNotExists), the name
@@ -734,8 +757,11 @@ syntax_kinds! {
         Assignment: Node,
         /// `COMMENT '…'` of a table or view.
         CommentClause: Clause,
-        /// `AS` and a query, a [`FunctionCall`](Self::FunctionCall) of a table
-        /// function, or a table's name.
+        /// `AS` and a query (a [`SelectQuery`](Self::SelectQuery) or
+        /// [`UnionQuery`](Self::UnionQuery), without output clauses), a
+        /// [`FunctionCall`](Self::FunctionCall) of a table function, or a
+        /// table's name (a [`Name`](Self::Name) or
+        /// [`QualifiedName`](Self::QualifiedName)).
         AsClause: Clause,
         /// `TO [db.]table` of a materialized view.
         ToClause: Clause,

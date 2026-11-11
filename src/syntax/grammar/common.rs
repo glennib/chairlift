@@ -129,6 +129,49 @@ fn ends_at(p: &Parser<'_>, n: usize) -> bool {
     p.nth(n).is_some_and(fallback::is_closer)
 }
 
+/// Whether `FORMAT` and a format's name follow, which start a clause.
+pub(crate) fn at_format(p: &Parser<'_>) -> bool {
+    p.at_kw(K::Format) && names::at_name(p, 1)
+}
+
+/// `FORMAT name` as a [`FormatClause`](SyntaxKind::FormatClause); the name
+/// keeps its case.
+pub(crate) fn format_clause(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    let m = p.start();
+    p.expect_kw(K::Format)?;
+    names::name(p)?;
+    Some(m.complete(p, SyntaxKind::FormatClause))
+}
+
+/// Whether `INTO OUTFILE` follows.
+pub(crate) fn at_into_outfile(p: &Parser<'_>) -> bool {
+    p.at_kws(&[K::Into, K::Outfile])
+}
+
+/// `INTO OUTFILE 'file' [APPEND] [TRUNCATE] [AND STDOUT] [COMPRESSION
+/// 'method' [LEVEL n]]` as an [`IntoOutfileClause`](SyntaxKind::IntoOutfileClause),
+/// in the order `ParserQueryWithOutput` reads them.
+pub(crate) fn into_outfile_clause(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    let m = p.start();
+    if !p.eat_kws(&[K::Into, K::Outfile]) {
+        return p.expected("INTO OUTFILE");
+    }
+    exprs::string(p)?;
+    p.eat_kw(K::Append);
+    p.eat_kw(K::Truncate);
+    p.eat_kws(&[K::And, K::Stdout]);
+    if p.eat_kw(K::Compression) {
+        exprs::string(p)?;
+        if p.eat_kw(K::Level) {
+            if !p.at(T::Number) {
+                return p.expected("a number");
+            }
+            exprs::literal(p)?;
+        }
+    }
+    Some(m.complete(p, SyntaxKind::IntoOutfileClause))
+}
+
 /// `ON CLUSTER name` or `ON CLUSTER 'name'`, if it follows.
 pub(crate) fn on_cluster(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     if !p.at_kws(&[K::On, K::Cluster]) {

@@ -1,6 +1,6 @@
 ---
 source: src/syntax/grammar/select/tests.rs
-expression: "trees(&[\"SELECT 1 UNION ALL SELECT 2 UNION DISTINCT SELECT 3\",\n\"SELECT 1 INTERSECT SELECT 2 EXCEPT ALL SELECT 3\",\n\"(SELECT 1) UNION ALL (SELECT 2 ORDER BY 1 LIMIT 1) FORMAT JSON\",\n\"(SELECT 1)\", \"SELECT 1 FROM t UNION ALL WITH 2 AS x SELECT x FORMAT TSV\",])"
+expression: "trees(&[\"SELECT 1 UNION ALL SELECT 2 UNION DISTINCT SELECT 3\",\n\"SELECT 1 INTERSECT SELECT 2 EXCEPT ALL SELECT 3\",\n\"(SELECT 1) UNION ALL (SELECT 2 ORDER BY 1 LIMIT 1) FORMAT JSON\",\n\"(SELECT 1)\", \"SELECT 1 FROM t UNION ALL WITH 2 AS x SELECT x FORMAT TSV\",\n\"SELECT 1 UNION ALL SELECT 2 SETTINGS a = 1 FORMAT JSON SETTINGS b = 2\",\n\"(SELECT 1) SETTINGS a = 1\",])"
 ---
 > SELECT 1 UNION ALL SELECT 2 UNION DISTINCT SELECT 3
 UnionQuery
@@ -139,7 +139,68 @@ UnionQuery
       SelectList
         Name
           BareWord "x"
-    FormatClause
-      Keyword "FORMAT"
-      Name
-        BareWord "TSV"
+  FormatClause
+    Keyword "FORMAT"
+    Name
+      BareWord "TSV"
+
+> SELECT 1 UNION ALL SELECT 2 SETTINGS a = 1 FORMAT JSON SETTINGS b = 2
+UnionQuery
+  SelectQuery
+    SelectClause
+      Keyword "SELECT"
+      SelectList
+        Literal
+          Number "1"
+  SetOperator
+    Keyword "UNION"
+    Keyword "ALL"
+  SelectQuery
+    SelectClause
+      Keyword "SELECT"
+      SelectList
+        Literal
+          Number "2"
+    SettingsClause
+      Keyword "SETTINGS"
+      SettingsList
+        SettingItem
+          Name
+            BareWord "a"
+          Equals "="
+          Literal
+            Number "1"
+  FormatClause
+    Keyword "FORMAT"
+    Name
+      BareWord "JSON"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "b"
+        Equals "="
+        Literal
+          Number "2"
+
+> (SELECT 1) SETTINGS a = 1
+UnionQuery
+  Subquery
+    OpeningRoundBracket "("
+    SelectQuery
+      SelectClause
+        Keyword "SELECT"
+        SelectList
+          Literal
+            Number "1"
+    ClosingRoundBracket ")"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "a"
+        Equals "="
+        Literal
+          Number "1"

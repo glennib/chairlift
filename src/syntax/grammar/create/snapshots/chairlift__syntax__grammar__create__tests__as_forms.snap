@@ -1,6 +1,6 @@
 ---
 source: src/syntax/grammar/create/tests.rs
-expression: "trees(&[\"CREATE TABLE t ENGINE = Memory AS SELECT 1\",\n\"CREATE TABLE t (a Int8) ENGINE = Memory AS SELECT 1\",\n\"CREATE TABLE t AS db.t2 ENGINE = Memory COMMENT 'x'\",\n\"CREATE TABLE t AS remote('host', db, t2, SETTINGS connect_timeout = 1, x = 2)\",\n\"CREATE TABLE t EMPTY AS SELECT 1\", \"CREATE TABLE t CLONE AS t2\",\n\"CREATE TABLE t (a Int8) ENGINE = MergeTree ORDER BY a DEFINER = default SQL SECURITY DEFINER\",\n\"CREATE TABLE t (a Int8) ENGINE = Memory FORMAT Null\",])"
+expression: "trees(&[\"CREATE TABLE t ENGINE = Memory AS SELECT 1\",\n\"CREATE TABLE t (a Int8) ENGINE = Memory AS SELECT 1\",\n\"CREATE TABLE t AS db.t2 ENGINE = Memory COMMENT 'x'\",\n\"CREATE TABLE t AS remote('host', db, t2, SETTINGS connect_timeout = 1, x = 2)\",\n\"CREATE TABLE t EMPTY AS SELECT 1\", \"CREATE TABLE t CLONE AS t2\",\n\"CREATE TABLE t (a Int8) ENGINE = MergeTree ORDER BY a DEFINER = default SQL SECURITY DEFINER\",\n\"CREATE TABLE t (a Int8) ENGINE = Memory FORMAT Null\",\n\"CREATE TABLE t ENGINE = Memory AS SELECT 1 FORMAT Null SETTINGS a = 1\",\n\"CREATE MATERIALIZED VIEW v TO t AS SELECT 1 INTO OUTFILE 'x'\",])"
 ---
 > CREATE TABLE t ENGINE = Memory AS SELECT 1
 CreateTable
@@ -196,3 +196,53 @@ CreateTable
     Keyword "FORMAT"
     Name
       BareWord "Null"
+
+> CREATE TABLE t ENGINE = Memory AS SELECT 1 FORMAT Null SETTINGS a = 1
+CreateTable
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "TABLE"
+    Name
+      BareWord "t"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "Memory"
+  AsClause
+    Keyword "AS"
+    <query>
+  FormatClause
+    Keyword "FORMAT"
+    Name
+      BareWord "Null"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "a"
+        Equals "="
+        Literal
+          Number "1"
+
+> CREATE MATERIALIZED VIEW v TO t AS SELECT 1 INTO OUTFILE 'x'
+CreateMaterializedView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "MATERIALIZED"
+    Keyword "VIEW"
+    Name
+      BareWord "v"
+  ToClause
+    Keyword "TO"
+    Name
+      BareWord "t"
+  AsClause
+    Keyword "AS"
+    <query>
+  IntoOutfileClause
+    Keyword "INTO"
+    Keyword "OUTFILE"
+    Literal
+      StringLiteral "'x'"

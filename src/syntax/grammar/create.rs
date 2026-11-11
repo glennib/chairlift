@@ -26,6 +26,7 @@ use crate::syntax::grammar::exprs;
 use crate::syntax::grammar::fallback;
 use crate::syntax::grammar::names;
 use crate::syntax::grammar::select;
+use crate::syntax::grammar::select::Level;
 use crate::syntax::parser::CompletedMarker;
 use crate::syntax::parser::Parser;
 
@@ -188,7 +189,8 @@ fn at_clause(p: &Parser<'_>) -> bool {
         Some(K::Sql) => p.nth_at_kw(1, K::Security),
         Some(K::Refresh) => matches!(p.nth_keyword(1), Some(K::Every | K::After | K::Depends)),
         Some(K::To) => at_to(p),
-        Some(K::Format) => names::at_name(p, 1),
+        Some(K::Format) => common::at_format(p),
+        Some(K::Into) => common::at_into_outfile(p),
         _ => false,
     }
 }
@@ -252,13 +254,8 @@ fn clause(p: &mut Parser<'_>, context: Context) -> Option<()> {
         Some(K::As) => as_clause(p, context),
         Some(K::Refresh) => refresh(p),
         Some(K::To) => to(p),
-        Some(K::Format) => {
-            let m = p.start();
-            p.bump_keyword();
-            names::name(p)?;
-            m.complete(p, SyntaxKind::FormatClause);
-            Some(())
-        }
+        Some(K::Format) => common::format_clause(p).map(drop),
+        Some(K::Into) => common::into_outfile_clause(p).map(drop),
         _ => p.expected("a clause"),
     }
 }
@@ -293,7 +290,7 @@ fn as_clause(p: &mut Parser<'_>, context: Context) -> Option<()> {
     p.bump_keyword();
     let has_storage = context.storage || context.object == Object::TemporaryTable;
     if context.object == Object::View || (context.columns && has_storage) {
-        select::query(p)?;
+        select::query(p, Level::Nested)?;
     } else if context.columns {
         select::table_function(p)?;
     } else if !as_query(p)? {
@@ -318,9 +315,9 @@ fn as_query(p: &mut Parser<'_>) -> Option<bool> {
         return Some(false);
     }
     if p.at_kw(K::With) {
-        return Some(p.speculate(select::query).is_some());
+        return Some(p.speculate(|p| select::query(p, Level::Nested)).is_some());
     }
-    select::query(p).map(|_| true)
+    select::query(p, Level::Nested).map(|_| true)
 }
 
 /// `DEFINER = user` and `SQL SECURITY DEFINER|INVOKER|NONE`, in either order,

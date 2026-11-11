@@ -253,7 +253,7 @@ fn table_function_body(p: &mut Parser<'_>, view: QueryArgument) -> Option<()> {
         });
         Some(())
     } else {
-        select::query(p)?;
+        select::query(p, select::Level::Nested)?;
         if view == QueryArgument::QueryOrElse && p.eat_kw(K::Else) {
             let name = names::name(p)?;
             table_function(p, name, QueryArgument::None)?;

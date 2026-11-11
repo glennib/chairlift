@@ -99,8 +99,8 @@ fn a_statement_on_several_lines_gets_blank_lines_also_past_comments() {
 #[test]
 fn set_operations_are_flat() {
     assert_eq!(
-        fmt("select 1 union all select 2 union distinct (select 3) order by 1 limit 1"),
-        "SELECT 1\nUNION ALL\nSELECT 2\nUNION DISTINCT\n(\n    SELECT 3\n)\nORDER BY 1\nLIMIT 1\n"
+        fmt("select 1 union all select 2 union distinct (select 3) settings a = 1 format JSON"),
+        "SELECT 1\nUNION ALL\nSELECT 2\nUNION DISTINCT\n(\n    SELECT 3\n)\nSETTINGS a = 1\nFORMAT JSON\n"
     );
 }
 

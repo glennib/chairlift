@@ -38,7 +38,16 @@ fn clauses_of_a_query() {
         "SELECT x FROM t SETTINGS max_threads = 8 FORMAT JSONEachRow",
         "SELECT x FROM t INTO OUTFILE 'out.csv' AND STDOUT COMPRESSION 'gzip' FORMAT CSV",
         "SELECT x FROM t WINDOW w AS (PARTITION BY y ORDER BY z), v AS (w ROWS 1 PRECEDING)",
+        "SELECT 1 SETTINGS a = 1 FORMAT JSON SETTINGS b = 2",
     ]));
+    assert_eq!(
+        fallbacks("SELECT 1 INTO OUTFILE 'x' TRUNCATE COMPRESSION 'zstd' LEVEL 3 FORMAT CSV"),
+        []
+    );
+    assert_eq!(
+        fallbacks("SELECT 1 INTO OUTFILE 'x' foo bar"),
+        [FallbackLevel::Clause]
+    );
 }
 
 #[test]
@@ -148,7 +157,19 @@ fn set_operations() {
         "(SELECT 1) UNION ALL (SELECT 2 ORDER BY 1 LIMIT 1) FORMAT JSON",
         "(SELECT 1)",
         "SELECT 1 FROM t UNION ALL WITH 2 AS x SELECT x FORMAT TSV",
+        // The output clauses are the statement's, but a `SETTINGS` right
+        // after a query without brackets.
+        "SELECT 1 UNION ALL SELECT 2 SETTINGS a = 1 FORMAT JSON SETTINGS b = 2",
+        "(SELECT 1) SETTINGS a = 1",
     ]));
+    assert_eq!(
+        fallbacks("(SELECT 1) ORDER BY 1"),
+        [FallbackLevel::Statement]
+    );
+    assert_eq!(
+        fallbacks("SELECT * FROM (SELECT 1 FORMAT JSON)"),
+        [FallbackLevel::Item]
+    );
 }
 
 #[test]
@@ -403,6 +424,12 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
     (
         "select x from t into outfile 'f' format CSV",
         "SELECT x FROM t INTO OUTFILE 'f' FORMAT CSV",
+    ),
+    (
+        "select 1 union all select 2 into outfile 'f' append and stdout compression 'gzip' level 1 \
+         format CSV settings a = 1",
+        "SELECT 1 UNION ALL SELECT 2 INTO OUTFILE 'f' APPEND AND STDOUT COMPRESSION 'gzip' LEVEL 1 \
+         FORMAT CSV SETTINGS a = 1",
     ),
     (
         "select * from t settings limit = 5",
