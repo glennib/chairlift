@@ -430,6 +430,23 @@ METRICS INNER UUID '1'
     );
 }
 
+/// Types nested deeper than four go on one line, so that a type nested a
+/// hundred deep does not indent without bound.
+#[test]
+fn a_deeply_nested_type_goes_on_one_line() {
+    assert_eq!(
+        fmt_in(
+            "create table t (x Map(Map(Map(Map(Map(Map(Map(Int32, Int32), Int32), Int32), Int32), \
+             Int32), Int32), Int32)) engine = Memory",
+            false,
+            30,
+        ),
+        "CREATE TABLE t\n(\n    x Map(\n        Map(\n            Map(\n                Map(\n                    \
+         Map(Map(Map(Int32, Int32), Int32), Int32),\n                    Int32\n                ),\n                \
+         Int32\n            ),\n            Int32\n        ),\n        Int32\n    )\n)\nENGINE = Memory\n"
+    );
+}
+
 /// After a comment inside the header, the header goes on one level in.
 #[test]
 fn a_comment_inside_the_header_continues_it_one_level_in() {

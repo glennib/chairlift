@@ -305,6 +305,22 @@ pub(crate) fn cast(w: &mut Writer<'_>, node: &Node) {
     });
 }
 
+/// How deep data types nest before the inner ones go on one line.
+const TYPE_DEPTH: u32 = 4;
+
+/// A data type: by the generic rule, and on one line when it is nested in
+/// [`TYPE_DEPTH`] others, so that a type nested a hundred deep does not
+/// indent without bound.
+pub(crate) fn data_type(w: &mut Writer<'_>, node: &Node) {
+    w.type_depth += 1;
+    if w.type_depth > TYPE_DEPTH {
+        w.on_one_line(|w| w.generic(node));
+    } else {
+        w.generic(node);
+    }
+    w.type_depth -= 1;
+}
+
 /// Whether `node` is a run of `AND`s or `OR`s.
 pub(crate) fn is_condition_run(node: &Node) -> bool {
     matches!(node.kind(), SyntaxKind::AndExpr | SyntaxKind::OrExpr)

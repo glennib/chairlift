@@ -59,6 +59,8 @@ pub(crate) struct Writer<'s> {
     closer: Option<Closer>,
     /// How many [`on_one_line`](Self::on_one_line) scopes are open.
     one_line: u32,
+    /// How many data types the node being laid out is inside.
+    pub(crate) type_depth: u32,
 }
 
 /// A closer that starts a line of its own when its list or `CASE` breaks.
@@ -93,6 +95,7 @@ impl<'s> Writer<'s> {
             breaks: 0,
             closer: None,
             one_line: 0,
+            type_depth: 0,
         }
     }
 
