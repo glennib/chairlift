@@ -178,6 +178,25 @@ fn a_comment_on_the_line_of_what_follows_stays_on_it() {
 }
 
 #[test]
+fn a_jinja_comment_is_spaced_from_brackets_and_commas() {
+    // Touching one, it would keep its statement as written the next time.
+    let once = jinja(
+        "select f( {##} a ), g(a {##} , b), [1 {##} ] where 2\n{% if x %}\nand b {% endif %}\n",
+    );
+    assert_eq!(
+        once,
+        "SELECT\n    f( {##} a),\n    g(a {##} , b),\n    [1 {##} ]\nWHERE 2\n    {% if x %}\n    AND b\n    {% endif %}\n"
+    );
+    assert_eq!(jinja(&once), once);
+    let once = jinja("create table t ( {##} a UInt8 {##} ) engine = Log");
+    assert_eq!(
+        once,
+        "CREATE TABLE t\n( {##}\n    a UInt8 {##}\n)\nENGINE = Log\n"
+    );
+    assert_eq!(jinja(&once), once);
+}
+
+#[test]
 fn comments_at_the_start_and_end_of_the_file() {
     assert_eq!(
         fmt("\n\n-- header\n-- more\n\n\n\nselect 1; -- done\n\n-- tail\n"),

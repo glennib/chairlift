@@ -338,27 +338,34 @@ impl<'s> Writer<'s> {
         let mut broke = false;
         let mut k = 0;
         // Comments that trail the line before: a `/* */` one is an atom,
-        // spaced from what is around it but brackets and commas.
-        let mut inline = false;
+        // spaced from what is around it but brackets and commas. A Jinja
+        // comment is spaced from those too: one that touches a token keeps
+        // its statement as written.
+        let mut inline = None;
         while let Some(&i) = solid.get(k) {
             if !self.started || self.newlines_before(i) > 0 || self.is_tag(i) {
                 break;
             }
-            if self.tokens[i].kind() == TokenKind::LineComment {
+            let kind = self.tokens[i].kind();
+            if kind == TokenKind::LineComment {
                 self.b.trailing_comment(i);
                 k += 1;
                 broke = true;
-                inline = false;
+                inline = None;
                 break;
             }
-            if !(k == 0 && after_opener) {
+            if !(k == 0 && after_opener) || kind == TokenKind::JinjaComment {
                 self.b.space();
             }
             self.b.token(i);
-            inline = true;
+            inline = Some(kind);
             k += 1;
         }
-        if inline && matches!(sep, Sep::Nothing | Sep::Soft) && !closes && k == solid.len() {
+        if let Some(kind) = inline
+            && matches!(sep, Sep::Nothing | Sep::Soft)
+            && (!closes || kind == TokenKind::JinjaComment)
+            && k == solid.len()
+        {
             self.b.space();
         }
         self.sep(sep);
