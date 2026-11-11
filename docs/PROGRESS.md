@@ -13,31 +13,18 @@ M9 (chum integration) is not part of this run.
 | M3. Parser core | done | both grammar reviews' fixes are on `main` |
 | M4. Formatting rules and printer | done | acceptance measured; reviews' fixes on `main`; style readings await the project owner |
 | M5. Jinja templates | in progress |  |
-| M6. CLI polish and performance | implemented, unmerged | complete on the branch `wip/m6-cli`; needs rebasing onto `main` |
+| M6. CLI polish and performance | done | acceptance measured; the CI benchmark check's sensitivity is unproven |
 | M7. Remaining statement kinds | in progress | part 1 (`INSERT`, one-line statements) done; `ALTER TABLE`, other `CREATE` kinds and access control in progress |
 | M8. Hardening and first release | not started | |
 
 ## Resuming the work
 
-Work resumed on 2026-11-11.
-This section says what is unmerged and what comes next.
+Everything finished is on `main`; there is no unmerged branch.
+In progress: M5 (Jinja templates) and the last two parts of M7
+(`ALTER TABLE` with the other `CREATE` kinds; access control with `SHOW` and `DESCRIBE`).
+M8 comes last.
 
-| Branch | Holds | State |
-| --- | --- | --- |
-| `main` | M0–M4 | the tip passes `mise run ci` with the corpora present |
-| `wip/m6-cli` | M6 | complete, every commit passed `mise run ci`; based on an older `main` |
-
-Next:
-
-1. Rebase `wip/m6-cli` onto `main`.
-   The CLI's diagnostics need an arm for `Error::Template`, whose `TemplateError` carries a `reason`,
-   and the message of `Error::Layout`; snapshots that quote formatted output need refreshing.
-2. Measure a 1 MB file through the binary on a quiet machine (target 100 ms).
-   Under load it took 0.12–0.19 s; in process, on a quiet machine, 62 ms before the layout fixes.
-3. M5 and the remaining M7 parts (`ALTER TABLE` with the other `CREATE` kinds; access control) are in progress.
-4. M8 last.
-
-Only the tip of a branch is checked with `mise run ci` from here on, not every commit.
+Only the tip of a branch is checked with `mise run ci`, not every commit.
 
 ### Setup
 
@@ -134,7 +121,7 @@ Those assumptions are used unless the project owner decides otherwise:
   - M0: the inline snapshot of `--help` in `tests/cli.rs`.
   - M7 part 1: 9 tree snapshots under `src/syntax/grammar/{insert,simple}/snapshots/`
     and `tests/snapshots/format__statements__*.snap`.
-  - M6, unmerged: new and changed snapshots in `tests/cli.rs` and `src/bin/chairlift.rs`.
+  - M6: the `help` snapshot and five new ones in `tests/cli.rs`; three inline ones in `src/bin/chairlift.rs`.
   - M4 part 3: five of the `tests/snapshots/format__*.snap` files changed:
     the chum migrations lose column alignment and get `(` on its own line, and the design example is re-cased.
   - M4 part 2: 14 formatted-fixture snapshots, `tests/snapshots/format__*.snap`.
@@ -506,7 +493,8 @@ The fuzz run of `format` for 30 minutes on part 2 found no crash (339,000 runs).
 
 ### M6
 
-Implemented on `wip/m6-cli`; see "Resuming the work" for what is verified.
+On `main`.
+Only the tip was checked with `mise run ci` after the last rebase (468 tests).
 
 - `miette` diagnostics with `--quiet`, `--verbose`, `--color`; parallel processing with `-j/--jobs`,
   output in path order; `--stdin-filename`; `--verify`.
@@ -586,3 +574,26 @@ Only the tip was checked with `mise run ci`.
   `SHOW` 1,189, `DESCRIBE` 1,059, `DROP` of access entities 727, `UPDATE` 285, `DELETE` 263.
 - Where ClickHouse differs from the plan: `INSERT` takes no `SETTINGS` after `FORMAT` and has no `WATCH` form;
   the `SETTINGS` of an `INSERT … SELECT` belongs to the `SELECT`; `DETACH` and `TRUNCATE` take one name.
+
+M6, closing notes:
+
+| Acceptance | Result |
+| --- | --- |
+| A 1 MB file under 100 ms | 87 ms median through the binary on a quiet machine (82.5 ms best); 69–74 ms in process |
+| `--check` over the stateless corpus under 5 s on 8 cores | 1.2–1.3 s wall with 8 jobs |
+| `--verify` over the local corpora | no difference; every statement judged |
+| `echo 'select 1' \| chairlift -` | prints `SELECT 1`, exit 0 |
+| A lexer error exits 2 with a position | `<stdin>:2:8: Unrecognized token; the file is left unchanged`, with a labelled snippet |
+
+- In process, the 1.1 MB file spends: split 6 ms, parse 20–22, layout 20–22, token check 1.5, print 4.7, verify 11–12,
+  dropping the tree 4.5.
+  The binary adds about 14 ms.
+- A template the formatter refuses has a diagnostic of its own that names the comment and the marker to change,
+  is counted apart from errors in the summary, and exits 2.
+  `--verify` never judges it.
+- A crash or timeout of `clickhouse-format` on the output is "not judged", not a difference.
+  A child process that hangs cannot hold `--verify` past its timeout.
+- `--diff` stops refining a file's diff after 500 ms; the coarser diff is still correct.
+- The CI benchmark check runs base, head and base again in one job,
+  and fails only when the lower 95% bound of the median change exceeds 10% against both base runs, and again on a rerun.
+  It never failed on identical builds, but a build made twice as slow was not reliably caught on a loaded machine.
