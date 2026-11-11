@@ -5,12 +5,13 @@
 //!
 //! The header line holds the statement's keywords and name and the clauses
 //! that read as part of it, when they follow the name directly: a view's
-//! `REFRESH` and `TO`, and `EMPTY`, `CLONE`, `POPULATE` and `AS` a table or
-//! table function. They stay on the line if it fits; otherwise each goes on
-//! a line of its own, one level in.
+//! `REFRESH`, `TO` and column aliases, and `EMPTY`, `CLONE`, `POPULATE` and
+//! `AS` a table or table function. They stay on the line if it fits;
+//! otherwise each goes on a line of its own, one level in. Aliases after
+//! the element list follow its `)`.
 //!
 //! `AS` and a query end the line of the header, of the element list's `)`,
-//! or of `EMPTY`, `CLONE` or `POPULATE`: `… TO t AS`. After a storage clause
+//! of a view's aliases, or of `EMPTY`, `CLONE` or `POPULATE`: `… TO t AS`. After a storage clause
 //! `AS` goes on a line of its own, where it cannot read as an alias of what
 //! ends the line before. The query starts the next line at the statement's
 //! indentation, so that a view's clauses line up as a plain query's do; a
@@ -48,6 +49,7 @@ pub(crate) fn statement(w: &mut Writer<'_>, node: &Node) {
     for (k, part) in rest.iter().enumerate().skip(on_line) {
         let (sep, blank) = match part.el.kind() {
             SyntaxKind::TableElementList | SyntaxKind::DictionaryAttributeList => (Sep::Hard, 0),
+            SyntaxKind::ViewAliasList => (Sep::Space, 0),
             // The header group counts `AS` in its measure, as it follows
             // the group on its line.
             SyntaxKind::AsClause if holds_query(w, part) && ends_line_with_as(&rest[..k]) => {
@@ -72,6 +74,7 @@ fn ends_line_with_as(before: &[Part]) -> bool {
                 | SyntaxKind::PopulateClause
                 | SyntaxKind::AsClause
                 | SyntaxKind::TableElementList
+                | SyntaxKind::ViewAliasList
         )
     })
 }
@@ -80,7 +83,10 @@ fn ends_line_with_as(before: &[Part]) -> bool {
 /// on the header line when it follows the header directly.
 fn on_header_line(w: &Writer<'_>, part: &Part) -> bool {
     match part.el.kind() {
-        SyntaxKind::ToClause | SyntaxKind::RefreshClause | SyntaxKind::PopulateClause => true,
+        SyntaxKind::ToClause
+        | SyntaxKind::RefreshClause
+        | SyntaxKind::PopulateClause
+        | SyntaxKind::ViewAliasList => true,
         SyntaxKind::AsClause => !holds_query(w, part),
         _ => false,
     }

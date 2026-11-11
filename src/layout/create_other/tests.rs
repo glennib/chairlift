@@ -156,3 +156,30 @@ CREATE INDEX idx_events ON analytics.events (
         60,
     );
 }
+
+#[test]
+fn view_aliases_stay_on_the_header_line() {
+    check(
+        "create view v (a, b) as select 1, 2;\n\
+         create view w (a Int64, b Int64) (x, y) as select 1, 2;\n\
+         create definer = u sql security definer view d as select 1",
+        "
+CREATE VIEW v (a, b) AS
+SELECT
+    1,
+    2;
+
+CREATE VIEW w
+(
+    a Int64,
+    b Int64
+) (x, y) AS
+SELECT
+    1,
+    2;
+
+CREATE DEFINER = u SQL SECURITY DEFINER VIEW d AS
+SELECT 1
+",
+    );
+}

@@ -42,6 +42,9 @@ pub(crate) fn at_statement(p: &Parser<'_>) -> bool {
     if p.nth_at_kw(n, K::Or) && p.nth_at_kw(n + 1, K::Replace) {
         n += 2;
     }
+    if let Some(len) = sql_security_len(p, n) {
+        return view_after_security(p, n + len).is_some();
+    }
     if p.nth_at_kw(n, K::Temporary) {
         n += 1;
     }
@@ -61,6 +64,12 @@ pub(crate) fn statement(p: &mut Parser<'_>) -> Option<()> {
             object = Object::TemporaryTable;
         }
         n += 1;
+    }
+    if let Some(len) = sql_security_len(p, n) {
+        return match view_after_security(p, n + len) {
+            Some(true) => materialized_view(p),
+            _ => view(p),
+        };
     }
     match p.nth_keyword(n) {
         Some(K::Materialized) => materialized_view(p),
@@ -123,23 +132,19 @@ fn materialized_view(p: &mut Parser<'_>) -> Option<()> {
     while p.at_kw(K::Refresh) || at_to(p) {
         fallback::clause(p, &before_columns, |p| clause(p, context));
     }
-    if p.at(T::OpeningRoundBracket) {
-        elements::element_list(p)?;
-    }
+    view_columns(p)?;
     clauses(p, context);
     m.complete(p, SyntaxKind::CreateMaterializedView);
     Some(())
 }
 
 /// [`CreateView`](SyntaxKind::CreateView), as `ParserCreateViewQuery` reads
-/// an ordinary view: the column list after the name, then `SQL SECURITY`,
+/// an ordinary view: the columns after the name, then `SQL SECURITY`,
 /// `COMMENT` and `AS` and a query, which a `COMMENT` may follow.
 fn view(p: &mut Parser<'_>) -> Option<()> {
     let m = p.start();
     header(p, &[K::View])?;
-    if p.at(T::OpeningRoundBracket) {
-        elements::element_list(p)?;
-    }
+    view_columns(p)?;
     clauses(
         p,
         Context {
@@ -150,6 +155,101 @@ fn view(p: &mut Parser<'_>) -> Option<()> {
     );
     m.complete(p, SyntaxKind::CreateView);
     Some(())
+}
+
+/// A view's columns, if `(` follows (`ParserCreateViewQuery`): a column
+/// list, a [`ViewAliasList`](SyntaxKind::ViewAliasList), or a column list
+/// and then an alias list. ClickHouse tries the column list first, which
+/// fails where an element is a name alone, since a column needs a type or a
+/// default.
+fn view_columns(p: &mut Parser<'_>) -> Option<()> {
+    if !p.at(T::OpeningRoundBracket) {
+        return Some(());
+    }
+    if !at_alias_list(p) {
+        elements::element_list(p)?;
+        if !p.at(T::OpeningRoundBracket) {
+            return Some(());
+        }
+    }
+    fallback::delimited(
+        p,
+        SyntaxKind::ViewAliasList,
+        T::OpeningRoundBracket,
+        T::ClosingRoundBracket,
+        &mut |p| names::name(p).map(drop),
+    )
+    .map(drop)
+}
+
+/// Whether the bracket group at the current token holds names alone,
+/// separated by commas, one of them not a Jinja expression, which could
+/// stand for a column with its type.
+fn at_alias_list(p: &Parser<'_>) -> bool {
+    if p.closer(0).is_none() {
+        return false;
+    }
+    let mut name = true;
+    let mut plain = false;
+    for n in p.group_items(0) {
+        if name {
+            if !names::at_name(p, n) {
+                return false;
+            }
+            plain |= !matches!(p.nth(n), Some(T::JinjaExpr | T::Verbatim));
+        } else if !p.nth_at(n, T::Comma) {
+            return false;
+        }
+        name = !name;
+    }
+    plain && !name
+}
+
+/// How many tokens from the `n`th the `DEFINER = user` and `SQL SECURITY …`
+/// of [`sql_security`] take, in either order, if one starts there.
+fn sql_security_len(p: &Parser<'_>, n: usize) -> Option<usize> {
+    let mut at = n;
+    let mut definer = false;
+    let mut security = false;
+    loop {
+        if !definer && p.nth_at_kw(at, K::Definer) {
+            definer = true;
+            at += 1;
+            if p.nth_at(at, T::Equals) {
+                at += 1;
+            }
+            if p.nth_at_kw(at, K::CurrentUser) || p.nth_at(at, T::StringLiteral) {
+                at += 1;
+            } else if names::at_name(p, at) {
+                at += p.step_len(at);
+                if p.nth_at(at, T::At) {
+                    at += 1 + p.step_len(at + 1);
+                }
+            } else {
+                return None;
+            }
+        } else if !security && p.nth_at_kw(at, K::Sql) && p.nth_at_kw(at + 1, K::Security) {
+            security = true;
+            at += 3;
+        } else {
+            break;
+        }
+    }
+    (at > n).then_some(at - n)
+}
+
+/// Whether `[MATERIALIZED] [TEMPORARY] VIEW` follows at the `n`th token:
+/// `Some(true)` for a materialized view, `Some(false)` for a view.
+fn view_after_security(p: &Parser<'_>, n: usize) -> Option<bool> {
+    if p.nth_at_kw(n, K::Materialized) && p.nth_at_kw(n + 1, K::View) {
+        Some(true)
+    } else if p.nth_at_kw(n, K::View)
+        || (p.nth_at_kw(n, K::Temporary) && p.nth_at_kw(n + 1, K::View))
+    {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 /// [`CreateDatabase`](SyntaxKind::CreateDatabase), as
@@ -172,11 +272,15 @@ fn database(p: &mut Parser<'_>) -> Option<()> {
 
 /// `CREATE [OR REPLACE] [TEMPORARY] <object> [IF NOT EXISTS] name [UUID
 /// '…'] [TO INNER UUID '…'] [ON CLUSTER c]`, where `object` is the keywords
-/// of the object kind.
+/// of the object kind. A view's `DEFINER` and `SQL SECURITY` may come
+/// before them, after `OR REPLACE` (`ParserCreateViewQuery`).
 pub(crate) fn header(p: &mut Parser<'_>, object: &[K]) -> Option<CompletedMarker> {
     let m = p.start();
     p.expect_kw(K::Create)?;
     p.eat_kws(&[K::Or, K::Replace]);
+    if object.contains(&K::View) && sql_security_len(p, 0).is_some() {
+        sql_security(p)?;
+    }
     p.eat_kw(K::Temporary);
     for &keyword in object {
         p.expect_kw(keyword)?;

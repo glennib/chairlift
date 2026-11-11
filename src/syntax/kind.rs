@@ -1028,6 +1028,10 @@ syntax_kinds! {
         /// type (as for [`IndexDef`](Self::IndexDef)) and `GRANULARITY` and
         /// a number.
         CreateIndex: Statement,
+        /// `( aliases )` of a view's columns, after the name or the
+        /// [`TableElementList`](Self::TableElementList): `(`,
+        /// [`Name`](Self::Name)s separated by commas, `)`.
+        ViewAliasList: List,
 
         // ---- Access control -----------------------------------------------
         // Grammar in `grammar/access.rs`. `DROP` of an access entity is a

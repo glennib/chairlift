@@ -1,0 +1,151 @@
+---
+source: src/syntax/grammar/create_other/tests.rs
+expression: "trees(&[\"CREATE VIEW v (a, b) AS SELECT 1, 2\",\n\"CREATE VIEW v (a Int64, b Int64) (x, y) AS SELECT 1, 2\",\n\"CREATE MATERIALIZED VIEW mv (x) ENGINE = Memory AS SELECT 1\",\n\"CREATE OR REPLACE DEFINER = u SQL SECURITY DEFINER VIEW v AS SELECT 1\",\n\"CREATE SQL SECURITY INVOKER MATERIALIZED VIEW mv TO t AS SELECT 1\",])"
+---
+> CREATE VIEW v (a, b) AS SELECT 1, 2
+CreateView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "VIEW"
+    Name
+      BareWord "v"
+  ViewAliasList
+    OpeningRoundBracket "("
+    Name
+      BareWord "a"
+    Comma ","
+    Name
+      BareWord "b"
+    ClosingRoundBracket ")"
+  AsClause
+    Keyword "AS"
+    SelectQuery
+      SelectClause
+        Keyword "SELECT"
+        SelectList
+          Literal
+            Number "1"
+          Comma ","
+          Literal
+            Number "2"
+
+> CREATE VIEW v (a Int64, b Int64) (x, y) AS SELECT 1, 2
+CreateView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "VIEW"
+    Name
+      BareWord "v"
+  TableElementList
+    OpeningRoundBracket "("
+    ColumnDef
+      Name
+        BareWord "a"
+      DataType
+        Name
+          BareWord "Int64"
+    Comma ","
+    ColumnDef
+      Name
+        BareWord "b"
+      DataType
+        Name
+          BareWord "Int64"
+    ClosingRoundBracket ")"
+  ViewAliasList
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    Comma ","
+    Name
+      BareWord "y"
+    ClosingRoundBracket ")"
+  AsClause
+    Keyword "AS"
+    SelectQuery
+      SelectClause
+        Keyword "SELECT"
+        SelectList
+          Literal
+            Number "1"
+          Comma ","
+          Literal
+            Number "2"
+
+> CREATE MATERIALIZED VIEW mv (x) ENGINE = Memory AS SELECT 1
+CreateMaterializedView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "MATERIALIZED"
+    Keyword "VIEW"
+    Name
+      BareWord "mv"
+  ViewAliasList
+    OpeningRoundBracket "("
+    Name
+      BareWord "x"
+    ClosingRoundBracket ")"
+  EngineClause
+    Keyword "ENGINE"
+    Equals "="
+    Name
+      BareWord "Memory"
+  AsClause
+    Keyword "AS"
+    SelectQuery
+      SelectClause
+        Keyword "SELECT"
+        SelectList
+          Literal
+            Number "1"
+
+> CREATE OR REPLACE DEFINER = u SQL SECURITY DEFINER VIEW v AS SELECT 1
+CreateView
+  CreateHeader
+    Keyword "CREATE"
+    Keyword "OR"
+    Keyword "REPLACE"
+    SqlSecurityClause
+      Keyword "DEFINER"
+      Equals "="
+      Name
+        BareWord "u"
+      Keyword "SQL"
+      Keyword "SECURITY"
+      Keyword "DEFINER"
+    Keyword "VIEW"
+    Name
+      BareWord "v"
+  AsClause
+    Keyword "AS"
+    SelectQuery
+      SelectClause
+        Keyword "SELECT"
+        SelectList
+          Literal
+            Number "1"
+
+> CREATE SQL SECURITY INVOKER MATERIALIZED VIEW mv TO t AS SELECT 1
+CreateMaterializedView
+  CreateHeader
+    Keyword "CREATE"
+    SqlSecurityClause
+      Keyword "SQL"
+      Keyword "SECURITY"
+      Keyword "INVOKER"
+    Keyword "MATERIALIZED"
+    Keyword "VIEW"
+    Name
+      BareWord "mv"
+  ToClause
+    Keyword "TO"
+    Name
+      BareWord "t"
+  AsClause
+    Keyword "AS"
+    SelectQuery
+      SelectClause
+        Keyword "SELECT"
+        SelectList
+          Literal
+            Number "1"

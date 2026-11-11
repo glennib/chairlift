@@ -525,10 +525,15 @@ const STATEMENTS: &[&str] = &[
     "DESCRIBE {n}('x')",
     "DESCRIBE t SETTINGS {n} = 1",
     "DESCRIBE t FORMAT {n}",
-    // `CREATE INDEX`.
+    // `CREATE INDEX`, a view's aliases, and `DEFINER` before `VIEW`.
     "CREATE INDEX {n} ON {n}.{n} (a DESC, {w})",
     "CREATE UNIQUE INDEX IF NOT EXISTS {n} ON {n} ON CLUSTER {n} {w} TYPE {n}(1) GRANULARITY 2",
     "CREATE INDEX i ON t a TYPE {n}",
+    "CREATE VIEW {n} ({n}, {n}) AS SELECT 1",
+    "CREATE VIEW v (a UInt8) ({n}) AS SELECT 1",
+    "CREATE MATERIALIZED VIEW {n} ({n}) ENGINE = Memory AS SELECT 1",
+    "CREATE DEFINER = {w} SQL SECURITY DEFINER VIEW {n} AS SELECT 1",
+    "CREATE OR REPLACE SQL SECURITY INVOKER MATERIALIZED VIEW {n} TO {n} AS SELECT 1",
 ];
 
 /// Statements with their keywords in lower case, so that each is re-cased

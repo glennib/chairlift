@@ -58,6 +58,17 @@ fn indexes() {
     ]));
 }
 
+#[test]
+fn view_aliases_and_definer_before_view() {
+    insta::assert_snapshot!(trees(&[
+        "CREATE VIEW v (a, b) AS SELECT 1, 2",
+        "CREATE VIEW v (a Int64, b Int64) (x, y) AS SELECT 1, 2",
+        "CREATE MATERIALIZED VIEW mv (x) ENGINE = Memory AS SELECT 1",
+        "CREATE OR REPLACE DEFINER = u SQL SECURITY DEFINER VIEW v AS SELECT 1",
+        "CREATE SQL SECURITY INVOKER MATERIALIZED VIEW mv TO t AS SELECT 1",
+    ]));
+}
+
 /// Inside `SOURCE`, `LAYOUT`, `LIFETIME` and `RANGE` every word is a name;
 /// a function's name and parameters are names; the re-cased text passes the
 /// verifier.
@@ -88,6 +99,10 @@ fn keyword_slots() {
             "create index index on table (type desc) type set(1) granularity 1",
             "CREATE INDEX index ON table (type DESC) TYPE set(1) GRANULARITY 1",
         ),
+        (
+            "create definer = view sql security invoker view view (index, as) as select 1",
+            "CREATE DEFINER = view SQL SECURITY INVOKER VIEW view (index, as) AS SELECT 1",
+        ),
     ] {
         let out = recased(source, Entry::File);
         assert_eq!(out, expected, "{source}");
@@ -104,6 +119,8 @@ fn what_is_not_parsed_stays_verbatim() {
         "CREATE FUNCTION f",
         "CREATE INDEX i ON t () TYPE minmax",
         "CREATE INDEX i ON t (a) TYPE minmax GRANULARITY x",
+        "CREATE VIEW v (a) (b) AS SELECT 1",
+        "CREATE DEFINER = 'u'@'%' VIEW v AS SELECT 1",
     ] {
         assert_ne!(outcome(source), StatementOutcome::Parsed, "{source}");
     }
