@@ -394,6 +394,15 @@ impl<'s> Builder<'s> {
         }
     }
 
+    /// As [`blank_lines`](Self::blank_lines), also right after `(` and
+    /// right before `)`: for blank lines between statements, where one can
+    /// end `INSERT` data that a statement starting with `)` follows.
+    pub fn blank_lines_at_brackets(&mut self, n: u8) {
+        if n > 0 {
+            self.doc.nodes.push(Node::BlankLinesAtBrackets(n));
+        }
+    }
+
     /// A line break and one blank line (none after `(` or before `)`).
     pub fn blank_line(&mut self) {
         self.hard_line();

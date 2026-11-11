@@ -156,7 +156,9 @@ fn statement(w: &mut Writer<'_>, node: &Node, decision: Decision) {
 /// their own, with up to two blank lines between them and before the
 /// statement, as written.
 fn leading(w: &mut Writer<'_>, trivia: Range<usize>) {
+    w.between_statements = true;
     w.gap(trivia, Sep::Nothing, 2);
+    w.between_statements = false;
 }
 
 /// What comes between two statements: comments trailing the first stay on
@@ -179,7 +181,9 @@ fn between(
         w.b.blank_line_if_broken(previous);
         w.b.blank_line_if_broken(next);
     }
+    w.between_statements = true;
     w.gap(rest, Sep::Nothing, 2);
+    w.between_statements = false;
 }
 
 /// What comes after the last statement.

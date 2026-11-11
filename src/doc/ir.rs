@@ -21,6 +21,8 @@ pub(super) enum Node {
     Line(LineKind),
     /// Keep up to this many blank lines if the boundary breaks.
     BlankLines(u8),
+    /// As [`Node::BlankLines`], also right after `(` and right before `)`.
+    BlankLinesAtBrackets(u8),
     /// One blank line if the group breaks, if the boundary breaks.
     BlankIfBroken(u32),
     /// Whitespace chosen by whether a group broke.

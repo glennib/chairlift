@@ -47,6 +47,8 @@ pub(crate) struct Writer<'s> {
     started: bool,
     /// The tokens frozen, for [`freeze`](Self::freeze).
     frozen: Vec<bool>,
+    /// Between statements, where blank lines are kept next to brackets too.
+    pub(crate) between_statements: bool,
 }
 
 impl<'s> Writer<'s> {
@@ -59,6 +61,7 @@ impl<'s> Writer<'s> {
             blocks: Vec::new(),
             started: false,
             frozen: Vec::new(),
+            between_statements: false,
         }
     }
 
@@ -339,8 +342,12 @@ impl<'s> Writer<'s> {
             return;
         }
         let blank = self.newlines_before(index).saturating_sub(1);
-        self.b
-            .blank_lines(u8::try_from(blank).unwrap_or(u8::MAX).min(max));
+        let blank = u8::try_from(blank).unwrap_or(u8::MAX).min(max);
+        if self.between_statements {
+            self.b.blank_lines_at_brackets(blank);
+        } else {
+            self.b.blank_lines(blank);
+        }
     }
 
     /// Whether token `index` is a Jinja block tag.

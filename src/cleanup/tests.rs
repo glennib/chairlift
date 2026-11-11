@@ -278,6 +278,12 @@ fn format_data_keeps_every_byte() {
         fmt("INSERT INTO t FORMAT CSV\n1\n\n\n\n"),
         "INSERT INTO t FORMAT CSV\n1\n\n"
     );
+    // The blank line that ends the data stays before a statement that
+    // starts with `)`.
+    assert_eq!(
+        fmt("INSERT INTO t FORMAT TSV\n1\t2\n\n)\n"),
+        "INSERT INTO t FORMAT TSV\n1\t2\n\n)\n"
+    );
     // A blank line right after the name leaves no data.
     assert_eq!(
         fmt("INSERT INTO t FORMAT CSV\n\n\n\n\n1,2\n"),

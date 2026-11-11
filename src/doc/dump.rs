@@ -64,6 +64,7 @@ impl fmt::Debug for Doc<'_> {
                 Node::Line(LineKind::Normal) => f.write_str("line")?,
                 Node::Line(LineKind::Hard) => f.write_str("hard-line")?,
                 Node::BlankLines(n) => write!(f, "blank-lines {n}")?,
+                Node::BlankLinesAtBrackets(n) => write!(f, "blank-lines-at-brackets {n}")?,
                 Node::BlankIfBroken(g) => write!(f, "blank-line-if-broken #{g}")?,
                 Node::IfBreak {
                     group,

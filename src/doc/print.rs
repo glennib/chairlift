@@ -133,6 +133,8 @@ struct Pending {
     /// takes the indentation of the next token's scope.
     indent: Option<usize>,
     blank: u8,
+    /// Blank lines kept also next to brackets.
+    blank_at_brackets: u8,
     /// A group whose breaking asks for a blank line, decided after this
     /// place was reached.
     blank_ref: u32,
@@ -147,6 +149,7 @@ impl Default for Pending {
             newline: Newline::None,
             indent: None,
             blank: 0,
+            blank_at_brackets: 0,
             blank_ref: NONE,
             frozen: None,
         }
@@ -259,6 +262,9 @@ impl<'d, 's> Printer<'d, 's> {
             Node::Space => self.pending.space = true,
             Node::Line(kind) => self.line(kind),
             Node::BlankLines(n) => self.pending.blank = self.pending.blank.max(n),
+            Node::BlankLinesAtBrackets(n) => {
+                self.pending.blank_at_brackets = self.pending.blank_at_brackets.max(n);
+            }
             Node::BlankIfBroken(group) => match self.decisions[group as usize] {
                 Decision::Broken => self.pending.blank = self.pending.blank.max(1),
                 Decision::Flat => {}
@@ -502,8 +508,9 @@ impl<'d, 's> Printer<'d, 's> {
             } else {
                 let referred = pending.blank_ref != NONE
                     && self.decisions[pending.blank_ref as usize] == Decision::Broken;
-                pending.blank.max(u8::from(referred)).min(MAX_BLANK_LINES)
+                pending.blank.max(u8::from(referred))
             };
+            let blank = blank.max(pending.blank_at_brackets).min(MAX_BLANK_LINES);
             self.newline(usize::from(blank), indent);
         } else if pending.space || sep == Sep::Glue {
             self.write_spaces(1);
@@ -835,6 +842,7 @@ impl<'d, 's> Printer<'d, 's> {
                     }
                     Node::Line(LineKind::Soft)
                     | Node::BlankLines(_)
+                    | Node::BlankLinesAtBrackets(_)
                     | Node::BlankIfBroken(_)
                     | Node::GroupEnd
                     | Node::ScopeStart(_)
@@ -908,6 +916,7 @@ impl<'d, 's> Printer<'d, 's> {
                     meter.frozen(width, newline);
                 }
                 Node::BlankLines(_)
+                | Node::BlankLinesAtBrackets(_)
                 | Node::BlankIfBroken(_)
                 | Node::GroupStart(_)
                 | Node::GroupEnd
