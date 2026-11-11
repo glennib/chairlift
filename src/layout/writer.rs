@@ -594,6 +594,8 @@ impl<'s> Writer<'s> {
             }
             (S::PrefixExpr, _) => matches!(left, T::Minus | T::Plus),
             (S::MapEntry, _) => right == T::Colon,
+            // JSON paths: `json.^a`, `json.a.:Int64`.
+            (S::QualifiedName, _) => matches!(left, T::Caret | T::Colon),
             _ => false,
         };
         if glued { Sep::Nothing } else { Sep::Space }

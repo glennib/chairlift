@@ -446,6 +446,11 @@ fn between_never_breaks_at_its_and() {
 
 #[test]
 fn spacing_of_expressions() {
+    // JSON paths.
+    assert_eq!(
+        fmt("select json.^a, json.a.:Int64 from t"),
+        "SELECT\n    json.^a,\n    json.a.:Int64\nFROM t\n"
+    );
     assert_eq!(
         fmt(
             "select -x, not y, f(1)(2), a.b, t.*, x::Int8, a[1], x.1, {p:UInt8}, @@v, - -1, {'k': 1}"
