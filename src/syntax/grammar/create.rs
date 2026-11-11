@@ -23,7 +23,6 @@ use crate::lexer::TokenKind as T;
 use crate::syntax::SyntaxKind;
 use crate::syntax::grammar::common;
 use crate::syntax::grammar::exprs;
-use crate::syntax::grammar::exprs::AliasMode;
 use crate::syntax::grammar::fallback;
 use crate::syntax::grammar::names;
 use crate::syntax::grammar::select;
@@ -249,38 +248,12 @@ fn as_clause(p: &mut Parser<'_>) -> Option<()> {
     if select::at_statement(p) {
         select::query(p)?;
     } else if names::at_name(p, 0) && p.nth_at(1, T::OpeningRoundBracket) {
-        table_function(p)?;
+        select::table_function(p)?;
     } else {
         names::compound_name(p)?;
     }
     m.complete(p, SyntaxKind::AsClause);
     Some(())
-}
-
-/// A table function, `remote('host', db, t, SETTINGS a = 1)`, as a
-/// [`FunctionCall`](SyntaxKind::FunctionCall): its name keeps its case, and
-/// its arguments may end with a [`SettingsClause`](SyntaxKind::SettingsClause).
-/// `view(…)` and `viewIfPermitted(…)` take a query.
-fn table_function(p: &mut Parser<'_>) -> Option<CompletedMarker> {
-    let takes_query = ["view", "viewIfPermitted"]
-        .iter()
-        .any(|n| n.eq_ignore_ascii_case(p.nth_text(0)));
-    let name = names::name(p)?;
-    let m = name.precede(p);
-    let args = p.start();
-    p.expect(T::OpeningRoundBracket)?;
-    fallback::comma_separated(p, &fallback::never, &mut |p| {
-        if common::at_settings(p) {
-            common::settings_clause(p, &fallback::never).map(drop)
-        } else if takes_query && (p.at_kw(K::Select) || p.at_kw(K::With)) {
-            select::query(p).map(drop)
-        } else {
-            exprs::expr_with_alias(p, AliasMode::As).map(drop)
-        }
-    });
-    p.expect(T::ClosingRoundBracket)?;
-    args.complete(p, SyntaxKind::ArgList);
-    Some(m.complete(p, SyntaxKind::FunctionCall))
 }
 
 /// `DEFINER = user` and `SQL SECURITY DEFINER|INVOKER|NONE`, in either order,

@@ -376,6 +376,10 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
         "select * from view(select 1)",
         "SELECT * FROM view(SELECT 1)",
     ),
+    (
+        "select * from exists(select 1)",
+        "SELECT * FROM exists(SELECT 1)",
+    ),
     // `ELSE` ends the query of `viewIfPermitted`, and a table function's
     // name follows it.
     (

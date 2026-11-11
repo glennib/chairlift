@@ -9,7 +9,9 @@
 //!   `IN (SELECT …)`, `exists(SELECT …)`, `x = ANY (SELECT …)`;
 //! - [`query`] wherever a query follows without parentheses of its own, such
 //!   as `CREATE MATERIALIZED VIEW … AS SELECT …`;
-//! - [`projection_subquery`] for `PROJECTION name (SELECT …)`.
+//! - [`projection_subquery`] for `PROJECTION name (SELECT …)`;
+//! - [`table_function`] for `CREATE TABLE … AS f(…)`, which takes the
+//!   table functions `FROM` does.
 //!
 //! # Clauses
 //!
@@ -49,6 +51,8 @@
 //!   `ORDER BY` unless a comma follows it, are keywords.
 
 mod tables;
+
+pub(crate) use tables::table_function_call as table_function;
 
 use crate::keyword::Keyword as K;
 use crate::lexer::TokenKind as T;

@@ -164,7 +164,11 @@ fn as_forms() {
         // Any query may end with `FORMAT`.
         "CREATE TABLE t (a Int8) ENGINE = Memory FORMAT Null",
     ]));
+    // The table functions are those of `FROM`.
     assert_parses("CREATE TABLE t AS view(SELECT 1)");
+    assert_parses("CREATE TABLE t AS remote('h', view(SELECT 1))");
+    assert_parses("CREATE TABLE t AS eval(SELECT 1)");
+    assert_parses("CREATE TABLE t AS viewIfPermitted(SELECT 1 FROM u ELSE null('a UInt8'))");
 }
 
 #[test]
@@ -416,6 +420,10 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
     (
         "create table t as remote('a', db, t, settings x = 1)",
         "CREATE TABLE t AS remote('a', db, t, SETTINGS x = 1)",
+    ),
+    (
+        "create table t as viewIfPermitted(SELECT 1 FROM u ELSE limit(1))",
+        "CREATE TABLE t AS viewIfPermitted(SELECT 1 FROM u ELSE limit(1))",
     ),
     (
         "create materialized view v to t as SELECT 1",

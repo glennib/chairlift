@@ -121,7 +121,7 @@ fn table(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         Some(T::OpeningRoundBracket) => p.nested(paren_join),
         Some(T::StringLiteral) => exprs::literal(p),
         _ => {
-            let view = view_at(p, 0);
+            let view = view_at(p, 0, true);
             let name = names::compound_name(p)?;
             if p.at(T::OpeningRoundBracket) {
                 table_function(p, name, view)
@@ -152,17 +152,32 @@ enum QueryArgument {
     Query,
     /// `viewIfPermitted(SELECT … ELSE f(…))`.
     QueryOrElse,
+    /// `exists(SELECT …)` as the table function itself: a
+    /// [`Subquery`](SyntaxKind::Subquery), as in an expression.
+    Exists,
 }
 
-/// What `view(`, `eval(` and `viewIfPermitted(` at the `n`th token take:
-/// a query if one follows the bracket.
-fn view_at(p: &Parser<'_>, n: usize) -> QueryArgument {
-    if !(p.nth_at(n, T::BareWord) && p.nth_at(n + 1, T::OpeningRoundBracket) && at_query(p, n + 2))
-    {
+/// What `view(` and its relatives at the `n`th token take, as ClickHouse's
+/// layers for table functions (`getFunctionLayer`) read them: a query if
+/// one follows the bracket. Where the call is the table function itself
+/// (`table`), `exists(SELECT …)` takes one too (`ExistsLayer`); inside a
+/// table function's arguments, `exists(…)` is an operand that an operator
+/// may follow, which the expression grammar reads.
+fn view_at(p: &Parser<'_>, n: usize, table: bool) -> QueryArgument {
+    if !(p.nth_at(n, T::BareWord) && p.nth_at(n + 1, T::OpeningRoundBracket)) {
         return QueryArgument::None;
     }
     let name = p.nth_text(n);
-    if ["view", "eval", "obfuscate"]
+    if table && name.eq_ignore_ascii_case("exists") {
+        return if select::at_subquery(p, n + 1) {
+            QueryArgument::Exists
+        } else {
+            QueryArgument::None
+        };
+    }
+    if !at_query(p, n + 2) {
+        QueryArgument::None
+    } else if ["view", "eval", "obfuscate"]
         .iter()
         .any(|v| v.eq_ignore_ascii_case(name))
     {
@@ -179,6 +194,15 @@ fn at_query(p: &Parser<'_>, n: usize) -> bool {
     p.nth_at_kw(n, K::Select) || p.nth_at_kw(n, K::With) || select::at_bracketed_from_first(p, n)
 }
 
+/// A table function at the current token, `remote('host', t)` or
+/// `view(SELECT …)`, as ClickHouse reads one after `FROM` and after `CREATE
+/// TABLE … AS` alike (`ParserFunction` for a table function).
+pub(crate) fn table_function_call(p: &mut Parser<'_>) -> Option<CompletedMarker> {
+    let view = view_at(p, 0, true);
+    let name = names::name(p)?;
+    table_function(p, name, view)
+}
+
 /// A table function whose name, `name`, has been parsed: a
 /// [`FunctionCall`](SyntaxKind::FunctionCall) with an
 /// [`ArgList`](SyntaxKind::ArgList). `view` says whether its argument is a
@@ -189,7 +213,11 @@ fn table_function(
     view: QueryArgument,
 ) -> Option<CompletedMarker> {
     let m = name.precede(p);
-    p.nested(|p| table_function_args(p, view))?;
+    if view == QueryArgument::Exists {
+        select::subquery(p)?;
+    } else {
+        p.nested(|p| table_function_args(p, view))?;
+    }
     Some(m.complete(p, SyntaxKind::FunctionCall))
 }
 
@@ -213,7 +241,7 @@ fn table_function_args(p: &mut Parser<'_>, view: QueryArgument) -> Option<()> {
 fn table_function_body(p: &mut Parser<'_>, view: QueryArgument) -> Option<()> {
     if view == QueryArgument::None {
         fallback::comma_separated(p, &fallback::never, &mut |p| {
-            let nested = view_at(p, 0);
+            let nested = view_at(p, 0, false);
             if nested != QueryArgument::None {
                 let name = names::name(p)?;
                 table_function(p, name, nested).map(drop)
