@@ -1,0 +1,68 @@
+---
+source: tests/format.rs
+expression: once
+---
+-- Grants of privileges and of roles.
+GRANT SELECT ON analytics.page_views TO reader;
+
+GRANT SELECT, INSERT, ALTER UPDATE, ALTER DELETE
+    ON analytics.page_views_with_a_rather_long_name
+    TO analytics_writer, backfill_job
+    WITH GRANT OPTION;
+
+GRANT ON CLUSTER '{cluster}' SELECT(visitor_id, site), dictGet
+    ON *.*
+    TO `report-user`@'10.%', currentUser()
+    WITH REPLACE OPTION;
+
+GRANT SELECT ON db.a, INSERT ON db.b TO writer_role;
+GRANT reader, writer TO alice WITH ADMIN OPTION;
+GRANT CURRENT GRANTS(SELECT ON db.*) TO bob;
+REVOKE GRANT OPTION FOR SELECT ON db.* FROM ALL EXCEPT alice;
+REVOKE ADMIN OPTION FOR writer FROM bob;
+
+-- Users and roles.
+CREATE ROLE IF NOT EXISTS events_writer SETTINGS max_threads = 4;
+
+CREATE USER IF NOT EXISTS alice
+    IDENTIFIED WITH sha256_password BY 'p@ss; word'
+    HOST IP '10.0.0.0/8', LOCAL
+    DEFAULT ROLE events_writer
+    DEFAULT DATABASE analytics
+    SETTINGS max_memory_usage = 10000000000 READONLY;
+
+CREATE USER bob
+    IDENTIFIED WITH sha256_hash BY '6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b' SALT 'salty';
+
+ALTER USER alice DEFAULT ROLE ALL EXCEPT events_writer;
+ALTER USER IF EXISTS bob RENAME TO robert DROP host local;
+ALTER ROLE events_writer ON CLUSTER c RENAME TO events_writers;
+SET ROLE ALL EXCEPT events_writer;
+SET DEFAULT ROLE NONE TO alice, CURRENT_USER;
+
+DROP USER IF EXISTS alice, bob@'%' ON CLUSTER c;
+
+DROP ROLE events_writers;
+
+-- Quotas, row policies and settings profiles.
+CREATE QUOTA IF NOT EXISTS q
+    KEYED BY user_name
+    FOR INTERVAL 1 HOUR MAX queries = 100, errors = 10, FOR RANDOMIZED INTERVAL 1 DAY NO LIMITS
+    TO events_writer;
+
+ALTER QUOTA q FOR INTERVAL 1 MONTH TRACKING ONLY;
+
+CREATE ROW POLICY IF NOT EXISTS only_mine ON analytics.page_views
+    AS RESTRICTIVE
+    FOR SELECT
+    USING site = currentUser() AND visitor_id != ''
+    TO ALL EXCEPT admin;
+
+CREATE SETTINGS PROFILE IF NOT EXISTS limited
+    SETTINGS max_threads = 2 MIN 1 MAX 8 CONST, max_execution_time = 30 WRITABLE
+    INHERIT 'default'
+    TO events_writer;
+
+DROP QUOTA IF EXISTS q;
+DROP ROW POLICY IF EXISTS only_mine ON analytics.page_views;
+DROP SETTINGS PROFILE limited;

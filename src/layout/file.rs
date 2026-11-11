@@ -39,6 +39,8 @@ pub(crate) fn rule_for(kind: SyntaxKind) -> Option<Rule> {
         | SyntaxKind::SetQuery
         | SyntaxKind::UseQuery
         | SyntaxKind::CreateFunction => Some(super::simple::statement),
+        SyntaxKind::GrantQuery | SyntaxKind::AccessEntityQuery => Some(super::access::statement),
+        SyntaxKind::SetRoleQuery => Some(super::simple::statement),
         _ => None,
     }
 }

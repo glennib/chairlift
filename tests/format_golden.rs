@@ -81,13 +81,6 @@ fn golden(expected: &str) {
     golden_at(expected, Mode::Sql, 100);
 }
 
-/// Checks that `expected`, whose statements the layout keeps as written,
-/// formats to itself.
-fn kept(expected: &str) {
-    let expected = expected.strip_prefix('\n').unwrap_or(expected);
-    assert_eq!(format(expected, Mode::Sql, 100), expected);
-}
-
 // Section 2a: line width.
 
 #[test]
@@ -126,6 +119,18 @@ fn commas_trail_and_group_by_fits() {
 #[test]
 fn a_statement_on_several_lines_gets_a_blank_line_on_each_side() {
     golden(proposal::BLANK_AROUND_MULTILINE);
+}
+
+#[test]
+fn blank_lines_between_statements_are_kept() {
+    golden(proposal::BLANK_LINES_KEPT);
+}
+
+// Section 2h: GRANT.
+
+#[test]
+fn grant_breaks_before_on_to_and_with_grant_option() {
+    golden(proposal::GRANT);
 }
 
 // Section 2f: comments.
@@ -226,16 +231,6 @@ fn verbatim_text_is_reindented_as_a_block() {
         format(source, Mode::Sql, 100),
         "SELECT\n    a,\n    sum(v) OVER (partition by k\n                 order by ts) AS s\nFROM t\n"
     );
-}
-
-// Statements without a layout rule yet are kept as written; written as the
-// proposal prints them, they stay so.
-
-#[test]
-fn statements_kept_as_written_stay_as_the_proposal_prints_them() {
-    for expected in [proposal::BLANK_LINES_KEPT, proposal::GRANT] {
-        kept(expected);
-    }
 }
 
 #[test]

@@ -32,6 +32,7 @@
 //! | `simple` | `DROP`, `SET`, `RENAME`, `OPTIMIZE` and other statements of a line or two |
 //! | `alter` | `ALTER` and its commands, the lightweight `DELETE` and `UPDATE` |
 //! | `create_other` | `CREATE DATABASE`, the clauses of `CREATE DICTIONARY` |
+//! | `access` | `GRANT`, `REVOKE`, `CREATE` and `ALTER` of users, roles, quotas, row policies and settings profiles |
 //! | `tree` | preorder node numbers and the facts about each node, from one pass |
 //! | `comment_end` | the template line comments the rendering can make run on, which leave the text as it is |
 //!
@@ -87,6 +88,7 @@
 //! is kept as written. Extend it with the node kinds whose rule puts a line
 //! break between children.
 
+mod access;
 mod alter;
 mod comment_end;
 mod create;
@@ -376,6 +378,8 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         S::CastExpr => expr::cast(w, node),
         S::BetweenExpr => expr::between(w, node),
         S::DataType => expr::data_type(w, node),
+        S::UserName | S::RoleKeyword | S::GrantTarget => access::glued(w, node),
+        S::Privilege | S::CurrentGrants => access::privilege(w, node),
         _ if kind.is_list() => {
             let (_, last) = w.range(node);
             if matches!(
