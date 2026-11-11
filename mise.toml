@@ -109,7 +109,10 @@ run = 'cargo fuzz run --target "$(rustc -vV | sed -n "s/^host: //p")" format -- 
 [tasks."fuzz:parser"]
 description = "Fuzz the parser: no panic, lossless tree, re-cased keyword slots verify, parse independent of case (nightly toolchain); pass libFuzzer options after --"
 env = { RUSTUP_TOOLCHAIN = "nightly" }
-run = 'cargo fuzz run --target "$(rustc -vV | sed -n "s/^host: //p")" parser -- -dict=fuzz/parser.dict'
+# New inputs go to fuzz/corpus/parser; fuzz/seeds/parser holds whole
+# statements, whose first byte picks the mode and entry (see the target), so
+# that a fresh run does not start from inputs of a few bytes.
+run = 'mkdir -p fuzz/corpus/parser && cargo fuzz run --target "$(rustc -vV | sed -n "s/^host: //p")" parser fuzz/corpus/parser fuzz/seeds/parser -- -dict=fuzz/parser.dict'
 
 [tasks."fuzz:doc"]
 description = "Fuzz the document printer on generated documents: no panic, every token once, verification holds, idempotent (nightly toolchain); pass libFuzzer options after --"

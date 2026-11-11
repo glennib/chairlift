@@ -1,0 +1,1 @@
+0FROM t select SELECT select, from, (from (y, z)), (with - 1), (with 1 AS q SELECT q), `from` FROM viewIfPermitted(SELECT 1 FROM s ELSE null('a UInt8')) AS settings WHERE limit IN (SELECT format FROM format) SETTINGS limit = 5 FORMAT format

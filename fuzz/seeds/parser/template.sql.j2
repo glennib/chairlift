@@ -1,0 +1,13 @@
+1{{ config(materialized='incremental') }}
+
+SELECT
+    a,
+    {% if x %}b,{% endif %}
+    c -- trailing
+FROM {{ ref('events') }} AS e
+{% if is_incremental() %}
+WHERE a > (SELECT max(a) FROM {{ this }})
+{% else %}
+WHERE a > 0
+{% endif %}
+ORDER BY a
