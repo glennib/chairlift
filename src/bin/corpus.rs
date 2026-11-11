@@ -249,13 +249,31 @@ struct StatementRow {
     verbatim_clauses: usize,
     items: usize,
     verbatim_items: usize,
-    /// For a statement the expression probe parsed: its top-level items, and
-    /// those with a fallback inside.
-    probe_items: Option<(usize, usize)>,
+    /// Its regions kept as written by design.
+    opaque: usize,
+    /// For a statement the expression probe parsed: how its top-level items
+    /// went.
+    probe_items: Option<ProbeItems>,
     /// The reason for the statement's first fallback.
     fallback: Option<String>,
     /// The start of the statement's text, on one line.
     excerpt: String,
+}
+
+/// The top-level items of a statement the expression probe parsed, in the
+/// three classes of [`StatementOutcome`]: parsed whole, parsed with regions
+/// kept as written by design, and with a fallback inside.
+#[derive(Clone, Copy, Debug, Default)]
+struct ProbeItems {
+    parsed: usize,
+    opaque: usize,
+    fallback: usize,
+}
+
+impl ProbeItems {
+    fn all(self) -> usize {
+        self.parsed + self.opaque + self.fallback
+    }
 }
 
 impl Record {
@@ -737,6 +755,7 @@ fn report(parse: &syntax::Parse, source: &str) -> ParseReport {
                 verbatim_clauses: stats.verbatim_clauses,
                 items: stats.items,
                 verbatim_items: stats.verbatim_items,
+                opaque: stats.opaque,
                 probe_items: probe_items(&node),
                 fallback,
                 excerpt: excerpt(&source[stats.range.clone()]),
@@ -765,26 +784,27 @@ fn excerpt(text: &str) -> String {
     out
 }
 
-/// For a statement the expression probe parsed, its top-level items and how
-/// many of them have a fallback inside.
-fn probe_items(statement: &SyntaxNode) -> Option<(usize, usize)> {
+/// For a statement the expression probe parsed, how its top-level items
+/// went.
+fn probe_items(statement: &SyntaxNode) -> Option<ProbeItems> {
     let probe = statement
         .first_child()
         .filter(|n| n.kind() == SyntaxKind::ExpressionProbe)?;
     let list = probe
         .children()
         .find(|n| n.kind() == SyntaxKind::ExprList)?;
-    let items: Vec<SyntaxNode> = list.children().collect();
-    let failed = items
-        .iter()
-        .filter(|item| {
-            item.kind() == SyntaxKind::VerbatimItem
-                || item
-                    .descendants()
-                    .any(|n| n.kind().fallback_level().is_some())
-        })
-        .count();
-    Some((items.len(), failed))
+    let mut items = ProbeItems::default();
+    for item in list.children() {
+        let inside = |test: fn(SyntaxKind) -> bool| item.descendants().any(|n| test(n.kind()));
+        if inside(|k| k.fallback_level().is_some()) {
+            items.fallback += 1;
+        } else if inside(|k| k == SyntaxKind::Opaque) {
+            items.opaque += 1;
+        } else {
+            items.parsed += 1;
+        }
+    }
+    Some(items)
 }
 
 /// Runs the oracle on the input and output of every formatted file.
@@ -1083,6 +1103,7 @@ fn parse_summary(corpora: &[Corpus], records: &[Record], transform: Transform) -
             "statement kind",
             "statements",
             "parsed",
+            "opaque",
             "partial",
             "verbatim",
             "clauses",
@@ -1093,15 +1114,21 @@ fn parse_summary(corpora: &[Corpus], records: &[Record], transform: Transform) -
         .map(str::to_owned)
         .to_vec(),
     ];
+    // Parsed whole, with regions kept as written by design, and with a
+    // fallback: the share of the first two is how much the grammar covers.
     let mut probe_rows = vec![
         [
             "corpus",
             "probed statements",
             "parsed",
-            "%",
+            "opaque",
+            "fallback",
+            "no fallback %",
             "items",
-            "parsed items",
-            "%",
+            "parsed",
+            "opaque",
+            "fallback",
+            "no fallback %",
         ]
         .map(str::to_owned)
         .to_vec(),
@@ -1154,6 +1181,7 @@ fn parse_summary(corpora: &[Corpus], records: &[Record], transform: Transform) -
                 kind,
                 of.len().to_string(),
                 count(StatementOutcome::Parsed).to_string(),
+                count(StatementOutcome::Opaque).to_string(),
                 count(StatementOutcome::Partial).to_string(),
                 count(StatementOutcome::Verbatim).to_string(),
                 sum(&|s| s.clauses).to_string(),
@@ -1162,28 +1190,35 @@ fn parse_summary(corpora: &[Corpus], records: &[Record], transform: Transform) -
                 sum(&|s| s.verbatim_items).to_string(),
             ]);
         }
-        let probed: Vec<(usize, usize, StatementOutcome)> = statements
+        let probed: Vec<(ProbeItems, StatementOutcome)> = statements
             .iter()
-            .filter_map(|s| {
-                s.probe_items
-                    .map(|(items, failed)| (items, failed, s.outcome))
-            })
+            .filter_map(|s| s.probe_items.map(|items| (items, s.outcome)))
             .collect();
         if !probed.is_empty() {
-            let parsed = probed
+            let count = |o: StatementOutcome| probed.iter().filter(|p| p.1 == o).count();
+            let (parsed, opaque) = (
+                count(StatementOutcome::Parsed),
+                count(StatementOutcome::Opaque),
+            );
+            let items = probed
                 .iter()
-                .filter(|p| p.2 == StatementOutcome::Parsed)
-                .count();
-            let items: usize = probed.iter().map(|p| p.0).sum();
-            let failed: usize = probed.iter().map(|p| p.1).sum();
+                .fold(ProbeItems::default(), |a, (b, _)| ProbeItems {
+                    parsed: a.parsed + b.parsed,
+                    opaque: a.opaque + b.opaque,
+                    fallback: a.fallback + b.fallback,
+                });
             probe_rows.push(vec![
                 corpus.name.clone(),
                 probed.len().to_string(),
                 parsed.to_string(),
-                percent(parsed, probed.len()),
-                items.to_string(),
-                (items - failed).to_string(),
-                percent(items - failed, items),
+                opaque.to_string(),
+                (probed.len() - parsed - opaque).to_string(),
+                percent(parsed + opaque, probed.len()),
+                items.all().to_string(),
+                items.parsed.to_string(),
+                items.opaque.to_string(),
+                items.fallback.to_string(),
+                percent(items.parsed + items.opaque, items.all()),
             ]);
         }
         for statement in &statements {
@@ -1247,8 +1282,8 @@ const CSV_COLUMNS: &str = "corpus,path,mode,bytes,tokens,statements,outcome,chan
                            oracle_rejected_empty_query,oracle_rejected_syntax,\
                            oracle_rejected_other,oracle_rejected_failed,oracle_changed,\
                            oracle_changed_judged,round_trip,parsed_statements,\
-                           partial_statements,verbatim_statements,clauses,verbatim_clauses,items,\
-                           verbatim_items,detail";
+                           opaque_statements,partial_statements,verbatim_statements,clauses,\
+                           verbatim_clauses,items,verbatim_items,detail";
 
 fn csv(corpora: &[Corpus], records: &[Record]) -> String {
     let mut out = String::from(CSV_COLUMNS);
@@ -1302,6 +1337,7 @@ fn csv(corpora: &[Corpus], records: &[Record]) -> String {
         fields.extend(
             [
                 count(StatementOutcome::Parsed),
+                count(StatementOutcome::Opaque),
                 count(StatementOutcome::Partial),
                 count(StatementOutcome::Verbatim),
                 sum(|s| s.clauses),
@@ -1322,21 +1358,21 @@ fn csv(corpora: &[Corpus], records: &[Record]) -> String {
 fn statements_csv(corpora: &[Corpus], records: &[Record]) -> String {
     let mut out = String::from(
         "corpus,path,statement,kind,outcome,clauses,verbatim_clauses,items,verbatim_items,\
-         probe_items,probe_verbatim_items,fallback,text\n",
+         opaque,probe_items,probe_opaque_items,probe_fallback_items,fallback,text\n",
     );
     for r in records {
         let Some(parse) = &r.parse else {
             continue;
         };
         for (n, s) in parse.statements.iter().enumerate() {
-            let (probe_items, probe_failed) = s
+            let [probe_items, probe_opaque, probe_failed] = s
                 .probe_items
-                .map_or((String::new(), String::new()), |(a, b)| {
-                    (a.to_string(), b.to_string())
+                .map_or([String::new(), String::new(), String::new()], |items| {
+                    [items.all(), items.opaque, items.fallback].map(|n| n.to_string())
                 });
             let _ = writeln!(
                 out,
-                "{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 quote(&corpora[r.corpus].name),
                 quote(&r.path),
                 n + 1,
@@ -1346,7 +1382,9 @@ fn statements_csv(corpora: &[Corpus], records: &[Record]) -> String {
                 s.verbatim_clauses,
                 s.items,
                 s.verbatim_items,
+                s.opaque,
                 probe_items,
+                probe_opaque,
                 probe_failed,
                 quote(s.fallback.as_deref().unwrap_or("")),
                 quote(&s.excerpt),

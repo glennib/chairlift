@@ -27,6 +27,9 @@ pub struct StatementStats {
     pub items: usize,
     /// Its list items kept verbatim.
     pub verbatim_items: usize,
+    /// Its regions kept as written by design, such as `OVER (…)`: its
+    /// [`Opaque`](SyntaxKind::Opaque) nodes.
+    pub opaque: usize,
 }
 
 /// How much of a statement parsed.
@@ -34,9 +37,13 @@ pub struct StatementStats {
 pub enum StatementOutcome {
     /// Only a `;`.
     Empty,
-    /// Parsed with no verbatim fallback; opaque regions may remain.
+    /// Parsed whole: no fallback, and nothing kept as written.
     Parsed,
-    /// Parsed, with some items or clauses kept verbatim.
+    /// Parsed with no fallback, but with regions kept as written by design
+    /// ([`Opaque`](SyntaxKind::Opaque) nodes, such as `OVER (…)`), which the
+    /// formatter leaves alone.
+    Opaque,
+    /// Parsed, with some items or clauses kept verbatim by a fallback.
     Partial,
     /// Kept verbatim as a whole: a kind the parser does not know, or one
     /// that did not parse.
@@ -50,6 +57,7 @@ impl StatementOutcome {
         match self {
             StatementOutcome::Empty => "empty",
             StatementOutcome::Parsed => "parsed",
+            StatementOutcome::Opaque => "opaque",
             StatementOutcome::Partial => "partial",
             StatementOutcome::Verbatim => "verbatim",
         }
@@ -67,6 +75,7 @@ pub(crate) fn statement_stats(statement: &SyntaxNode) -> StatementStats {
         verbatim_clauses: 0,
         items: 0,
         verbatim_items: 0,
+        opaque: 0,
     };
     let Some(body) = body else {
         return stats;
@@ -91,6 +100,7 @@ pub(crate) fn statement_stats(statement: &SyntaxNode) -> StatementStats {
                 fallback = true;
             }
             Role::Fallback(FallbackLevel::Statement) => fallback = true,
+            Role::Opaque => stats.opaque += 1,
             _ => {}
         }
     }
@@ -98,6 +108,8 @@ pub(crate) fn statement_stats(statement: &SyntaxNode) -> StatementStats {
         StatementOutcome::Verbatim
     } else if fallback {
         StatementOutcome::Partial
+    } else if stats.opaque > 0 {
+        StatementOutcome::Opaque
     } else {
         StatementOutcome::Parsed
     };

@@ -103,6 +103,20 @@ fn statement_kinds_come_from_the_leading_words() {
 }
 
 #[test]
+fn statistics_tell_opaque_regions_from_fallbacks() {
+    let parse = parse_as(
+        "SELECT sum(x) OVER (PARTITION BY y);\nSELECT sum(x) OVER (PARTITION BY y), f(a b)",
+        Mode::Sql,
+        Entry::SelectListProbe,
+    );
+    let stats = parse.statements();
+    assert_eq!(stats[0].outcome, StatementOutcome::Opaque);
+    assert_eq!(stats[0].opaque, 1);
+    assert_eq!(stats[1].outcome, StatementOutcome::Partial);
+    assert_eq!(stats[1].opaque, 1);
+}
+
+#[test]
 fn statistics_count_items_and_fallbacks() {
     let parse = parse_as(
         "SELECT f(a, b c), (1, 2);\nSELECT 1;\nDROP TABLE t;",
