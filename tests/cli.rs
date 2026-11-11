@@ -352,6 +352,20 @@ fn a_read_only_file_is_an_error() {
     // `--check` only reads.
     let output = run(&["--check", "ro.sql"], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+
+    // A writable file in a directory that is not.
+    let sub = dir.join("ro-dir");
+    let file = write(&sub, "rw.sql", MESSY);
+    fs::set_permissions(&sub, fs::Permissions::from_mode(0o555)).unwrap();
+    let output = run(&["ro-dir/rw.sql"], None, Some(&*dir));
+    fs::set_permissions(&sub, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    let errors = stderr(&output);
+    assert!(
+        errors.contains("help: the file's directory is not writable"),
+        "{errors}"
+    );
+    assert_eq!(read(&file), MESSY);
 }
 
 #[test]

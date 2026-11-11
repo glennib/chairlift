@@ -315,7 +315,11 @@ enum FileError {
         error: chairlift::Error,
         text: String,
     },
-    Write(io::Error),
+    /// `directory` when it was the file's directory that refused.
+    Write {
+        error: io::Error,
+        directory: bool,
+    },
     /// The file changed, or went away, after it was read.
     Changed,
     /// `--verify` found that ClickHouse reads the output differently.
@@ -411,17 +415,21 @@ impl FileError {
                      chairlift again"
                 ),
             ),
-            FileError::Write(e) => {
+            FileError::Write { error, directory } => {
                 let diagnostic = Diagnostic::error(
                     "chairlift::write",
-                    format!("{name}: cannot be written: {e}; the file is left as it was"),
+                    format!("{name}: cannot be written: {error}; the file is left as it was"),
                 );
-                if e.kind() == io::ErrorKind::PermissionDenied {
-                    diagnostic.with_help(
+                match (error.kind(), directory) {
+                    (io::ErrorKind::PermissionDenied, false) => diagnostic.with_help(
                         "make the file writable, or use --check or --diff, which only read it",
-                    )
-                } else {
-                    diagnostic
+                    ),
+                    (io::ErrorKind::PermissionDenied, true) => diagnostic.with_help(
+                        "the file's directory is not writable, and chairlift replaces a file by \
+                         writing a new one beside it; make the directory writable, or use \
+                         --check or --diff, which only read the file",
+                    ),
+                    _ => diagnostic,
                 }
             }
         }
@@ -792,7 +800,14 @@ fn finish(
             (Action::Write, Some(path)) => {
                 write_atomically(path, before, after).map_err(|e| match e {
                     WriteError::Changed => FileError::Changed,
-                    WriteError::Io(e) => FileError::Write(e),
+                    WriteError::Directory(e) => FileError::Write {
+                        error: e,
+                        directory: true,
+                    },
+                    WriteError::Io(e) => FileError::Write {
+                        error: e,
+                        directory: false,
+                    },
                 })?;
             }
             (Action::Diff, _) => diff = Some(unified_diff(name, before, after)),
@@ -806,7 +821,19 @@ fn finish(
 enum WriteError {
     /// The file no longer holds the text it was formatted from.
     Changed,
+    /// The file's directory refused the temporary file or the rename.
+    Directory(io::Error),
     Io(io::Error),
+}
+
+/// An error from making or renaming the temporary file, which only the
+/// directory's permissions decide.
+fn in_directory(e: io::Error) -> WriteError {
+    if e.kind() == io::ErrorKind::PermissionDenied {
+        WriteError::Directory(e)
+    } else {
+        WriteError::Io(e)
+    }
 }
 
 impl From<io::Error> for WriteError {
@@ -862,7 +889,7 @@ fn write_atomically(path: &Path, before: &str, contents: &str) -> Result<(), Wri
         &mut options,
         std::os::unix::fs::PermissionsExt::mode(&permissions),
     );
-    let mut file = options.open(&temp)?;
+    let mut file = options.open(&temp).map_err(in_directory)?;
     let result = (|| {
         file.set_permissions(permissions)?;
         file.write_all(contents.as_bytes())?;
@@ -870,7 +897,7 @@ fn write_atomically(path: &Path, before: &str, contents: &str) -> Result<(), Wri
         if fs::read(&target).map_err(gone)? != before.as_bytes() {
             return Err(WriteError::Changed);
         }
-        fs::rename(&temp, &target)?;
+        fs::rename(&temp, &target).map_err(in_directory)?;
         Ok(())
     })();
     if result.is_err() {
