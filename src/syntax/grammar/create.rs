@@ -49,24 +49,55 @@ pub(crate) fn at_statement(p: &Parser<'_>) -> bool {
 /// of the statement.
 pub(crate) fn statement(p: &mut Parser<'_>) -> Option<()> {
     let mut n = 1;
-    while matches!(p.nth_keyword(n), Some(K::Or | K::Replace | K::Temporary)) {
+    let mut object = Object::Table;
+    while let Some(keyword @ (K::Or | K::Replace | K::Temporary)) = p.nth_keyword(n) {
+        if keyword == K::Temporary {
+            object = Object::TemporaryTable;
+        }
         n += 1;
     }
     if p.nth_at_kw(n, K::Materialized) {
         materialized_view(p)
     } else {
-        table(p)
+        table(p, object)
     }
 }
 
+/// What a statement creates, as far as its `AS` cares.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Object {
+    Table,
+    TemporaryTable,
+    View,
+}
+
+/// What a statement holds before a clause, which decides what its `AS`
+/// takes (see [`as_clause`]).
+#[derive(Clone, Copy, Debug)]
+struct Context {
+    object: Object,
+    /// The statement has a column list.
+    columns: bool,
+    /// A storage clause comes before.
+    storage: bool,
+}
+
 /// [`CreateTable`](SyntaxKind::CreateTable).
-fn table(p: &mut Parser<'_>) -> Option<()> {
+fn table(p: &mut Parser<'_>, object: Object) -> Option<()> {
     let m = p.start();
     header(p, &[K::Table])?;
-    if p.at(T::OpeningRoundBracket) {
+    let columns = p.at(T::OpeningRoundBracket);
+    if columns {
         elements::element_list(p)?;
     }
-    clauses(p);
+    clauses(
+        p,
+        Context {
+            object,
+            columns,
+            storage: false,
+        },
+    );
     m.complete(p, SyntaxKind::CreateTable);
     Some(())
 }
@@ -76,14 +107,19 @@ fn table(p: &mut Parser<'_>) -> Option<()> {
 fn materialized_view(p: &mut Parser<'_>) -> Option<()> {
     let m = p.start();
     header(p, &[K::Materialized, K::View])?;
+    let context = Context {
+        object: Object::View,
+        columns: false,
+        storage: false,
+    };
     let before_columns = |p: &Parser<'_>| at_clause(p) || p.at(T::OpeningRoundBracket);
     while p.at_kw(K::Refresh) || at_to(p) {
-        fallback::clause(p, &before_columns, clause);
+        fallback::clause(p, &before_columns, |p| clause(p, context));
     }
     if p.at(T::OpeningRoundBracket) {
         elements::element_list(p)?;
     }
-    clauses(p);
+    clauses(p, context);
     m.complete(p, SyntaxKind::CreateMaterializedView);
     Some(())
 }
@@ -124,9 +160,11 @@ fn uuid(p: &mut Parser<'_>, keywords: usize) -> Option<CompletedMarker> {
 }
 
 /// Clauses up to the end of the statement, each with the clause fallback.
-fn clauses(p: &mut Parser<'_>) {
+fn clauses(p: &mut Parser<'_>, mut context: Context) {
     while !p.at_end() {
-        fallback::clause(p, &at_clause, clause);
+        let storage = storage::at_storage_clause(p);
+        fallback::clause(p, &at_clause, |p| clause(p, context));
+        context.storage |= storage;
     }
 }
 
@@ -189,8 +227,8 @@ fn at_to(p: &Parser<'_>) -> bool {
     p.at_kw(K::To) && names::at_name(p, 1) && !matches!(p.nth_keyword(1), Some(K::Disk | K::Volume))
 }
 
-/// The clause at the current token.
-fn clause(p: &mut Parser<'_>) -> Option<()> {
+/// The clause at the current token, after what `context` says.
+fn clause(p: &mut Parser<'_>, context: Context) -> Option<()> {
     if storage::at_storage_clause(p) {
         return storage::storage_clause(p, &at_clause);
     }
@@ -206,7 +244,7 @@ fn clause(p: &mut Parser<'_>) -> Option<()> {
             Some(())
         }
         Some(K::Definer | K::Sql) => sql_security(p),
-        Some(K::As) => as_clause(p),
+        Some(K::As) => as_clause(p, context),
         Some(K::Refresh) => refresh(p),
         Some(K::To) => to(p),
         Some(K::Format) => {
@@ -238,22 +276,46 @@ fn string(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 }
 
 /// `AS` and a query, a table function or a table, as an
-/// [`AsClause`](SyntaxKind::AsClause). ClickHouse takes a table function
-/// only where it rules out a query (`CREATE TABLE t (…) AS f(…)` without an
-/// engine), and a table only where it rules out both; here the next tokens
-/// decide.
-fn as_clause(p: &mut Parser<'_>) -> Option<()> {
+/// [`AsClause`](SyntaxKind::AsClause), as `ParserCreateTableQuery` and
+/// `ParserCreateViewQuery` decide: a view takes a query; a table with
+/// columns a query if it has a storage clause before or is temporary, and a
+/// table function otherwise, so in `CREATE TABLE t (a UInt8) AS select('x')`
+/// the function is named `select`; a table without columns a query if one
+/// parses, then a table function unless a storage clause comes before, then
+/// a table's name.
+fn as_clause(p: &mut Parser<'_>, context: Context) -> Option<()> {
     let m = p.start();
     p.bump_keyword();
-    if select::at_statement(p) {
+    let has_storage = context.storage || context.object == Object::TemporaryTable;
+    if context.object == Object::View || (context.columns && has_storage) {
         select::query(p)?;
-    } else if names::at_name(p, 0) && p.nth_at(1, T::OpeningRoundBracket) {
+    } else if context.columns {
         select::table_function(p)?;
-    } else {
-        names::compound_name(p)?;
+    } else if !as_query(p)? {
+        if !context.storage && names::at_name(p, 0) && p.nth_at(1, T::OpeningRoundBracket) {
+            select::table_function(p)?;
+        } else {
+            names::compound_name(p)?;
+        }
     }
     m.complete(p, SyntaxKind::AsClause);
     Some(())
+}
+
+/// The query after `AS` of a table without columns, which ClickHouse tries
+/// before a table function or a name: whether one parsed, or `None` if a
+/// query that must be one failed. `select` before `.` or the end names a
+/// table, and a `WITH` clause is a query only if `SELECT` or `FROM` follows
+/// it, so `AS with(1)` calls a table function and `AS with.with` names a
+/// table.
+fn as_query(p: &mut Parser<'_>) -> Option<bool> {
+    if !select::at_statement(p) || (p.at_kw(K::Select) && matches!(p.nth(1), None | Some(T::Dot))) {
+        return Some(false);
+    }
+    if p.at_kw(K::With) {
+        return Some(p.speculate(select::query).is_some());
+    }
+    select::query(p).map(|_| true)
 }
 
 /// `DEFINER = user` and `SQL SECURITY DEFINER|INVOKER|NONE`, in either order,

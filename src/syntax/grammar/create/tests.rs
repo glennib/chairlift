@@ -425,6 +425,26 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
         "create table t as viewIfPermitted(SELECT 1 FROM u ELSE limit(1))",
         "CREATE TABLE t AS viewIfPermitted(SELECT 1 FROM u ELSE limit(1))",
     ),
+    // `AS` takes a query, a table function or a table as ClickHouse decides.
+    ("create table t as with.with", "CREATE TABLE t AS with.with"),
+    ("create table t as with(1)", "CREATE TABLE t AS with(1)"),
+    (
+        "create table t as with engine = Memory",
+        "CREATE TABLE t AS with ENGINE = Memory",
+    ),
+    (
+        "create table t as select.select",
+        "CREATE TABLE t AS select.select",
+    ),
+    ("create table t as select", "CREATE TABLE t AS select"),
+    (
+        "create table t (a UInt8) as select('x')",
+        "CREATE TABLE t (a UInt8) AS select('x')",
+    ),
+    (
+        "create temporary table t (a UInt8) as SELECT 1",
+        "CREATE TEMPORARY TABLE t (a UInt8) AS SELECT 1",
+    ),
     (
         "create materialized view v to t as SELECT 1",
         "CREATE MATERIALIZED VIEW v TO t AS SELECT 1",
