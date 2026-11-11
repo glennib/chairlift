@@ -12,9 +12,9 @@ M9 (chum integration) is not part of this run.
 | M2. Verifier, splitter, safe-cleanup CLI | done | review findings fixed |
 | M3. Parser core | done | both grammar reviews' fixes are on `main` |
 | M4. Formatting rules and printer | done | acceptance measured; reviews' fixes on `main`; style readings await the project owner |
-| M5. Jinja templates | in progress |  |
+| M5. Jinja templates | implemented, unmerged | complete on its own stack; to be rebased onto `main`; not yet reviewed |
 | M6. CLI polish and performance | done | acceptance measured; the CI benchmark check's sensitivity is unproven |
-| M7. Remaining statement kinds | in progress | parts 1 and 2 done; part 3 (access control, `SHOW`, `DESCRIBE`) in progress |
+| M7. Remaining statement kinds | implemented | parts 1–3 on `main`; `CREATE INDEX` and small gaps in progress; not yet reviewed |
 | M8. Hardening and first release | not started | |
 
 ## Resuming the work
@@ -119,6 +119,8 @@ Those assumptions are used unless the project owner decides otherwise:
 - Snapshot review: `insta` snapshots are committed so that every commit passes its tests.
   They are listed here per milestone until reviewed.
   - M0: the inline snapshot of `--help` in `tests/cli.rs`.
+  - M7 part 3: 5 tree snapshots under `src/syntax/grammar/{access,show}/snapshots/`
+    and two new `tests/snapshots/format__statements__*.snap`.
   - M7 part 2: 6 tree snapshots under `src/syntax/grammar/{alter,create_other}/snapshots/`,
     two new `tests/snapshots/format__statements__*.snap`, and the chum initial-schema snapshot,
     whose dictionary and view are now formatted.
@@ -180,6 +182,13 @@ Readings chosen for `ALTER`, the mutations and the other `CREATE` kinds:
 - A long `SOURCE(…)` of a dictionary puts one pair per line and closes with `))` on a line of its own.
 - A `CREATE DATABASE` that does not fit puts its clauses at column 0.
 - A `CREATE FUNCTION` is a one-line statement whose lambda breaks after `->`.
+
+Readings chosen for access control, `SHOW` and `DESCRIBE`:
+
+- A statement that does not fit puts each clause on its own line, one level in.
+- A `GRANT` on one object breaks before `ON`, `TO` and `WITH … OPTION`.
+- `u@'%'`, `SELECT(a, b)` and `CURRENT GRANTS(…)` are written without spaces.
+- `DESCRIBE (subquery)` always spans lines, since a subquery hugs its brackets.
 
 ## Deviations from the plan
 
@@ -641,3 +650,34 @@ Only the tip was checked with `mise run ci` (494 tests).
   (of which `CREATE INDEX` 1,016),
   `PRINT` 1,454, `SHOW` 1,189, `DESCRIBE` 1,059, `DROP` of access entities 727, `ALTER` of access entities 152.
 - Known gaps: `CREATE INDEX`; a view's alias list `(a, b)`; `DEFINER` before `VIEW`; `UNLOCK SNAPSHOT`.
+
+Part 3: `GRANT`, `REVOKE`, the access entities, `SET ROLE`, `SHOW` and `DESCRIBE`.
+Only the tip was checked with `mise run ci` (509 tests).
+
+| Stateless corpus | Statements | Parsed | Opaque by design | Partial | Verbatim |
+| --- | --- | --- | --- | --- | --- |
+| `SHOW` | 1,189 | 850 | 316 | 0 | 23 |
+| `DESCRIBE` | 1,059 | 1,022 | 22 | 5 | 10 |
+| `DROP` of access entities | 717 | 717 | 0 | 0 | 0 |
+| `CREATE` of access entities | 656 | 625 | 31 | 0 | 0 |
+| `ALTER` of access entities | 121 | 102 | 19 | 0 | 0 |
+| `GRANT`, `REVOKE` | 121 | 121 | 0 | 0 | 0 |
+
+- Opaque by design: what follows the keywords of `SHOW CREATE USER` and its kin, the rarer authentication methods,
+  and `ADD`/`DROP`/`MODIFY` inside an `ALTER` of an access entity.
+- A privilege's words are keywords only if every one of them is a ClickHouse keyword,
+  because ClickHouse looks the privilege up as one phrase: `ALTER UPDATE` is upper-cased,
+  while `dictGet` and `system reload dictionary` keep their case.
+- Four wrong keyword slots were found by the position test and fixed: `true` and `false` inside a privilege,
+  `SET role, a = 1` read as `SET ROLE`, `SHOW CREATE user.t`, and `SETTINGS setting = 1`.
+- The proposal's `GRANT` example is a golden now; the DESIGN.md example's `GRANT … TO {{ … }}` parses.
+- Verify and idempotence hold on every corpus file; the oracle judges 270,251 stateless statements, none differing.
+- Still verbatim: `SHOW FULL DATABASES` and the like, `SHOW TABLE x`, `DESCRIBE SELECT …` without brackets,
+  `DESCRIBE (…) AS alias`.
+
+M7 acceptance so far, with parts 1 to 3 together:
+
+- Statements verbatim at statement level on the stateless corpus: 11,351 of 275,515 (4.1%; the target is 5%).
+  By leading keyword: `SYSTEM` 3,887, `EXPLAIN` 2,941, `PRINT` 1,454, other `CREATE` kinds 1,219, `{{` 252, `LET` 145.
+- Every statement in the fixtures and the local corpora parses without statement-level fallback.
+- The oracle finds no differing statement in any corpus.
