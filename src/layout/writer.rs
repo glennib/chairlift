@@ -578,9 +578,22 @@ impl<'s> Writer<'s> {
     /// far as their own rules allow, spaced as [`join`](Self::join) says. The trivia
     /// before the first part is the caller's.
     pub(crate) fn inline(&mut self, parent: SyntaxKind, parts: &[Part]) {
+        self.inline_with(parent, parts, |_, _, _| None);
+    }
+
+    /// [`inline`](Self::inline), with `sep` choosing the separator between
+    /// two parts where it returns one, and [`join`](Self::join) elsewhere.
+    pub(crate) fn inline_with(
+        &mut self,
+        parent: SyntaxKind,
+        parts: &[Part],
+        sep: impl Fn(&Self, &El, &El) -> Option<Sep>,
+    ) {
         for (k, part) in parts.iter().enumerate() {
             if k > 0 {
-                let sep = self.join(parent, &parts[k - 1].el, &part.el);
+                let prev = &parts[k - 1].el;
+                let sep =
+                    sep(self, prev, &part.el).unwrap_or_else(|| self.join(parent, prev, &part.el));
                 self.gap(part.trivia.clone(), sep, 0);
             }
             self.el(&part.el);

@@ -272,22 +272,15 @@ fn keyword_is(w: &Writer<'_>, el: &El, words: &[&str]) -> bool {
 fn breaking(w: &mut Writer<'_>, node: &Node, breaks: impl Fn(&Writer<'_>, &El) -> bool) {
     let parts = w.parts(node);
     let kind = node.kind();
-    let Some(first) = parts.first() else {
+    if parts.is_empty() {
         return;
-    };
+    }
     w.frozen_before(w.range(node).0);
     let group = w.b.open_group();
     let indent = w.b.open_indent();
-    w.el(&first.el);
-    for (k, part) in parts.iter().enumerate().skip(1) {
-        let sep = if breaks(w, &part.el) {
-            Sep::Line
-        } else {
-            w.join(kind, &parts[k - 1].el, &part.el)
-        };
-        w.gap(part.trivia.clone(), sep, 0);
-        w.el(&part.el);
-    }
+    w.inline_with(kind, &parts, |w, _, next| {
+        breaks(w, next).then_some(Sep::Line)
+    });
     w.b.close(indent);
     w.b.close(group);
 }
@@ -296,35 +289,18 @@ fn breaking(w: &mut Writer<'_>, node: &Node, breaks: impl Fn(&Writer<'_>, &El) -
 /// space between them.
 pub(crate) fn codec(w: &mut Writer<'_>, node: &Node) {
     let parts = w.parts(node);
-    for (k, part) in parts.iter().enumerate() {
-        if k > 0 {
-            let sep = if part.el.kind() == SyntaxKind::CodecList {
-                Sep::Nothing
-            } else {
-                w.join(node.kind(), &parts[k - 1].el, &part.el)
-            };
-            w.gap(part.trivia.clone(), sep, 0);
-        }
-        w.el(&part.el);
-    }
+    w.inline_with(node.kind(), &parts, |_, _, next| {
+        (next.kind() == SyntaxKind::CodecList).then_some(Sep::Nothing)
+    });
 }
 
 /// `DEFINER = user@host SQL SECURITY …`: on one line, with no space around
 /// the `@` of a user name.
 pub(crate) fn sql_security(w: &mut Writer<'_>, node: &Node) {
     let parts = w.parts(node);
-    for (k, part) in parts.iter().enumerate() {
-        if k > 0 {
-            let prev = &parts[k - 1].el;
-            let sep = if prev.is_token(SyntaxKind::At) || part.el.is_token(SyntaxKind::At) {
-                Sep::Nothing
-            } else {
-                w.join(node.kind(), prev, &part.el)
-            };
-            w.gap(part.trivia.clone(), sep, 0);
-        }
-        w.el(&part.el);
-    }
+    w.inline_with(node.kind(), &parts, |_, prev, next| {
+        (prev.is_token(SyntaxKind::At) || next.is_token(SyntaxKind::At)).then_some(Sep::Nothing)
+    });
 }
 
 /// Whether `node`, an [`OrderByClause`](SyntaxKind::OrderByClause), is a
@@ -361,13 +337,7 @@ pub(crate) fn order_by_tuple(w: &mut Writer<'_>, node: &Node) {
             _ => flat.push(part.clone()),
         }
     }
-    for (k, part) in parts[..open].iter().enumerate() {
-        if k > 0 {
-            let sep = w.join(node.kind(), &parts[k - 1].el, &part.el);
-            w.gap(part.trivia.clone(), sep, 0);
-        }
-        w.el(&part.el);
-    }
+    w.inline(node.kind(), &parts[..open]);
     if open > 0 {
         w.gap(parts[open].trivia.clone(), Sep::Nothing, 0);
     }
