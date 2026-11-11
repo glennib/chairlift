@@ -137,4 +137,16 @@ fn judgements() {
     ));
     assert!(matches!(judge(&no, &yes("a")), Judgement::Unjudgeable(_)));
     assert!(matches!(judge(&no, &no), Judgement::Unjudgeable(_)));
+    // A crash or a timeout on the output is no evidence against it.
+    let failed = Verdict::Rejected(Rejection {
+        class: RejectionClass::Failed,
+        message: "timed out after 60s".to_owned(),
+    });
+    assert!(matches!(
+        judge(&yes("a"), &failed),
+        Judgement::Unjudgeable(Rejection {
+            class: RejectionClass::Failed,
+            ..
+        })
+    ));
 }

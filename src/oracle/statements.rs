@@ -82,8 +82,9 @@ pub struct Counts {
     pub output_rejected: usize,
     /// Changed statements among those judged.
     pub changed_judged: usize,
-    /// Statements whose input the oracle rejects, indexed by the position of
-    /// their class in [`RejectionClass::ALL`].
+    /// Statements the oracle cannot judge, because it rejects their input or
+    /// failed to run on their output, indexed by the position of the class
+    /// in [`RejectionClass::ALL`].
     rejected: [usize; RejectionClass::ALL.len()],
 }
 
@@ -95,13 +96,13 @@ impl Counts {
         self.same + self.differs + self.output_rejected
     }
 
-    /// Statements whose input the oracle rejects for `class`.
+    /// Statements the oracle cannot judge for `class`.
     #[must_use]
     pub const fn rejected(&self, class: RejectionClass) -> usize {
         self.rejected[class as usize]
     }
 
-    /// Statements whose input the oracle rejects, for any reason.
+    /// Statements the oracle cannot judge, for any reason.
     #[must_use]
     pub fn rejected_total(&self) -> usize {
         self.rejected.iter().sum()

@@ -165,7 +165,9 @@ pub enum Judgement {
     },
     /// The input parses and the output does not: a formatter bug.
     OutputRejected(Rejection),
-    /// The input does not parse, so the oracle cannot judge.
+    /// The input does not parse, or the program failed on the output (a
+    /// [`RejectionClass::Failed`] run says nothing about the text), so the
+    /// oracle cannot judge.
     Unjudgeable(Rejection),
 }
 
@@ -174,6 +176,9 @@ pub enum Judgement {
 pub fn judge(input: &Verdict, output: &Verdict) -> Judgement {
     match (input, output) {
         (Verdict::Rejected(why), _) => Judgement::Unjudgeable(why.clone()),
+        (Verdict::Accepted(_), Verdict::Rejected(why)) if why.class == RejectionClass::Failed => {
+            Judgement::Unjudgeable(why.clone())
+        }
         (Verdict::Accepted(_), Verdict::Rejected(why)) => Judgement::OutputRejected(why.clone()),
         (Verdict::Accepted(a), Verdict::Accepted(b)) if a == b => Judgement::Same,
         (Verdict::Accepted(a), Verdict::Accepted(b)) => Judgement::Differs {
