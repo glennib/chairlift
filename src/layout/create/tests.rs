@@ -234,13 +234,17 @@ fn a_ttl_rule_that_does_not_fit_breaks_before_where_group_by_and_set() {
     );
 }
 
+/// `AS` ends the line of the header, the element list or `EMPTY`, and
+/// otherwise stands on a line of its own, where it cannot read as an alias;
+/// the query starts the next line.
 #[test]
-fn as_a_query_ends_the_line_before_it_and_the_query_starts_a_line() {
+fn as_a_query_starts_a_line_after_as() {
     check(
         "create table t engine = Memory as select a, b from u",
         "
 CREATE TABLE t
-ENGINE = Memory AS
+ENGINE = Memory
+AS
 SELECT
     a,
     b
@@ -248,13 +252,16 @@ FROM u
 ",
     );
     check(
-        "create table t (a Int8) engine = Memory as select 1",
+        "create table t (a Int8) engine = MergeTree order by tuple() settings a = 1 as select 1",
         "
 CREATE TABLE t
 (
     a Int8
 )
-ENGINE = Memory AS
+ENGINE = MergeTree
+ORDER BY tuple()
+SETTINGS a = 1
+AS
 SELECT 1
 ",
     );
@@ -262,12 +269,21 @@ SELECT 1
         "create table t empty as select 1",
         "CREATE TABLE t EMPTY AS\nSELECT 1\n",
     );
+    check(
+        "create table t engine = Memory empty as select 1",
+        "CREATE TABLE t\nENGINE = Memory\nEMPTY AS\nSELECT 1\n",
+    );
+    check(
+        "create table t as select 1",
+        "CREATE TABLE t AS\nSELECT 1\n",
+    );
     // A query alone in brackets hugs them; a union of them does not.
     check(
         "create table t engine = Memory as (select a, b from u)",
         "
 CREATE TABLE t
-ENGINE = Memory AS (
+ENGINE = Memory
+AS (
     SELECT
         a,
         b
@@ -283,7 +299,8 @@ ENGINE = Memory AS (
         "create table t engine = Memory as (select 1) union all (select 2)",
         "
 CREATE TABLE t
-ENGINE = Memory AS
+ENGINE = Memory
+AS
 (
     SELECT 1
 )
@@ -360,7 +377,8 @@ SELECT 1
         "
 CREATE MATERIALIZED VIEW v TO t
 DEFINER = u@'%' SQL SECURITY DEFINER
-COMMENT 'x' AS
+COMMENT 'x'
+AS
 SELECT 1
 ",
     );

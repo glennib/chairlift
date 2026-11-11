@@ -6,10 +6,14 @@
 //! that read as part of it, when they follow the name directly: a view's
 //! `REFRESH` and `TO`, and `EMPTY`, `CLONE`, `POPULATE` and `AS` a table or
 //! table function. They stay on the line if it fits; otherwise each goes on
-//! a line of its own, one level in. `AS` and a query end the line before
-//! them, and the query starts the next line at the statement's indentation,
-//! so that a view's clauses line up as a plain query's do; a query alone in
-//! brackets hugs them, as a subquery does.
+//! a line of its own, one level in.
+//!
+//! `AS` and a query end the line of the header, of the element list's `)`,
+//! or of `EMPTY`, `CLONE` or `POPULATE`: `… TO t AS`. After a storage clause
+//! `AS` goes on a line of its own, where it cannot read as an alias of what
+//! ends the line before. The query starts the next line at the statement's
+//! indentation, so that a view's clauses line up as a plain query's do; a
+//! query alone in brackets hugs them, as a subquery does.
 
 use super::query;
 use super::shapes;
@@ -39,18 +43,35 @@ pub(crate) fn statement(w: &mut Writer<'_>, node: &Node) {
     }
     w.b.close(indent);
     w.b.close(header);
-    for part in &rest[on_line..] {
+    for (k, part) in rest.iter().enumerate().skip(on_line) {
         let (sep, blank) = match part.el.kind() {
             SyntaxKind::TableElementList => (Sep::Hard, 0),
-            // `AS` and a query end the line before them. The header group
-            // counts `AS` in its measure, as it follows the group on its
-            // line.
-            SyntaxKind::AsClause if holds_query(w, part) => (Sep::Space, 0),
+            // The header group counts `AS` in its measure, as it follows
+            // the group on its line.
+            SyntaxKind::AsClause if holds_query(w, part) && ends_line_with_as(&rest[..k]) => {
+                (Sep::Space, 0)
+            }
             _ => (Sep::Hard, 1),
         };
         w.gap(part.trivia.clone(), sep, blank);
         w.el(&part.el);
     }
+}
+
+/// Whether `AS` and a query go at the end of the line of what is before
+/// them, `before` the parts after the header: the header line, the element
+/// list, or `EMPTY`, `CLONE` or `POPULATE`.
+fn ends_line_with_as(before: &[Part]) -> bool {
+    before.last().is_none_or(|part| {
+        matches!(
+            part.el.kind(),
+            SyntaxKind::ToClause
+                | SyntaxKind::RefreshClause
+                | SyntaxKind::PopulateClause
+                | SyntaxKind::AsClause
+                | SyntaxKind::TableElementList
+        )
+    })
 }
 
 /// Whether `part`, a child of a `CREATE` statement after its header, stays
