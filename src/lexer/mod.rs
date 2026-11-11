@@ -401,7 +401,20 @@ pub(crate) fn same_before_newline(
             .collect()
     };
     let mut joined = lex(&[tail, "\n"].concat());
-    joined.pop_if(|&mut (kind, end)| kind == TokenKind::Whitespace && end == tail.len() + 1);
+    if let Some(&(TokenKind::Whitespace, end)) = joined.last()
+        && end == tail.len() + 1
+    {
+        // The newline is a whitespace token of its own, or ends the one the
+        // tail ends with.
+        let start = joined.len().checked_sub(2).map_or(0, |i| joined[i].1);
+        if start < tail.len() {
+            if let Some(last) = joined.last_mut() {
+                last.1 = tail.len();
+            }
+        } else {
+            joined.pop();
+        }
+    }
     joined == lex(tail)
 }
 
