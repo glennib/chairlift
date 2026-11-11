@@ -261,6 +261,7 @@ pub(crate) fn tag_allowed_in(kind: SyntaxKind) -> bool {
                 | SyntaxKind::AndExpr
                 | SyntaxKind::OrExpr
                 | SyntaxKind::CreateTable
+                | SyntaxKind::CreateMaterializedView
                 | SyntaxKind::AsClause
         )
 }

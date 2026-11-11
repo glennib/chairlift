@@ -245,6 +245,82 @@ fn as_a_table_or_a_table_function_stays_on_the_header_line() {
 }
 
 #[test]
+fn a_materialized_view_breaks_its_header_before_to() {
+    check(
+        "create materialized view if not exists db.v on cluster c to db.t as select 1",
+        "CREATE MATERIALIZED VIEW IF NOT EXISTS db.v ON CLUSTER c TO db.t AS\nSELECT 1\n",
+    );
+    check(
+        "create materialized view analytics.page_views_per_hour_materialized_view_name to analytics.page_views_per_hour_target as select 1",
+        "
+CREATE MATERIALIZED VIEW analytics.page_views_per_hour_materialized_view_name
+    TO analytics.page_views_per_hour_target AS
+SELECT 1
+",
+    );
+}
+
+#[test]
+fn a_materialized_view_with_columns_storage_and_other_clauses() {
+    check(
+        "create materialized view v to t (a Int8, b String) as select 1",
+        "
+CREATE MATERIALIZED VIEW v TO t
+(
+    a Int8,
+    b String
+) AS
+SELECT 1
+",
+    );
+    check(
+        "create materialized view v (a Int8) engine = MergeTree order by a populate as select 1",
+        "
+CREATE MATERIALIZED VIEW v
+(
+    a Int8
+)
+ENGINE = MergeTree
+ORDER BY a
+POPULATE AS
+SELECT 1
+",
+    );
+    check(
+        "create materialized view v to t definer = u@'%' sql security definer comment 'x' as select 1",
+        "
+CREATE MATERIALIZED VIEW v TO t
+DEFINER = u@'%' SQL SECURITY DEFINER
+COMMENT 'x' AS
+SELECT 1
+",
+    );
+}
+
+#[test]
+fn a_refresh_clause_stays_on_the_header_line_if_it_fits() {
+    check(
+        "create materialized view v refresh every 1 hour append to t as select 1",
+        "CREATE MATERIALIZED VIEW v REFRESH EVERY 1 HOUR APPEND TO t AS\nSELECT 1\n",
+    );
+    check(
+        "create materialized view v refresh every 1 hour offset 5 minute randomize for 1 minute depends on a, db.b \
+         settings refresh_retries = 1 append to t as select 1",
+        "
+CREATE MATERIALIZED VIEW v
+    REFRESH EVERY 1 HOUR
+        OFFSET 5 MINUTE
+        RANDOMIZE FOR 1 MINUTE
+        DEPENDS ON a, db.b
+        SETTINGS refresh_retries = 1
+        APPEND
+    TO t AS
+SELECT 1
+",
+    );
+}
+
+#[test]
 fn time_series_targets_indent_their_storage_clauses() {
     check(
         "create table ts engine = TimeSeries data db.d tags inner engine = Memory recent samples inner columns (id UUID) \
@@ -298,6 +374,10 @@ SETTINGS
     check(
         "create table t empty\n-- the query\nas -- why\nselect 1",
         "CREATE TABLE t EMPTY\n-- the query\nAS  -- why\nSELECT 1\n",
+    );
+    check(
+        "create materialized view v to t\n-- the query\nas -- why\nselect 1",
+        "CREATE MATERIALIZED VIEW v TO t\n-- the query\nAS  -- why\nSELECT 1\n",
     );
 }
 

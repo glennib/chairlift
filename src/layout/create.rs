@@ -1,13 +1,14 @@
-//! `CREATE TABLE`: the header line, the element list with `(` alone on its
-//! line and one element per line, and the clauses one per line in the
-//! order written.
+//! `CREATE TABLE` and `CREATE MATERIALIZED VIEW`: the header line, the
+//! element list with `(` alone on its line and one element per line, and
+//! the clauses one per line in the order written.
 //!
 //! The header line holds the statement's keywords and name and the clauses
-//! that read as part of it, when they follow the name directly: `EMPTY`,
-//! `CLONE` and `AS` a table or table function. They stay on the line if it
-//! fits; otherwise each goes on a line of its own, one level in. `AS` and a
-//! query end the line before them, and the query starts the next line at
-//! the statement's indentation.
+//! that read as part of it, when they follow the name directly: a view's
+//! `REFRESH` and `TO`, and `EMPTY`, `CLONE`, `POPULATE` and `AS` a table or
+//! table function. They stay on the line if it fits; otherwise each goes on
+//! a line of its own, one level in. `AS` and a query end the line before
+//! them, and the query starts the next line at the statement's indentation,
+//! so that a view's clauses line up as a plain query's do.
 
 use super::query;
 use super::shapes;
@@ -18,7 +19,7 @@ use super::writer::Sep;
 use super::writer::Writer;
 use crate::syntax::SyntaxKind;
 
-/// The body of a `CREATE TABLE` statement.
+/// The body of a `CREATE TABLE` or `CREATE MATERIALIZED VIEW` statement.
 pub(crate) fn statement(w: &mut Writer<'_>, node: &Node) {
     let parts = w.parts(node);
     let Some((first, rest)) = parts.split_first() else {
@@ -55,7 +56,7 @@ pub(crate) fn statement(w: &mut Writer<'_>, node: &Node) {
 /// on the header line when it follows the header directly.
 fn on_header_line(w: &Writer<'_>, part: &Part) -> bool {
     match part.el.kind() {
-        SyntaxKind::PopulateClause => true,
+        SyntaxKind::ToClause | SyntaxKind::RefreshClause | SyntaxKind::PopulateClause => true,
         SyntaxKind::AsClause => !holds_query(w, part),
         _ => false,
     }
@@ -102,7 +103,7 @@ pub(crate) fn as_clause(w: &mut Writer<'_>, node: &Node) {
     }
 }
 
-/// `( elements )` of a table or a `TimeSeries` target: `(` where
+/// `( elements )` of a table, a view or a `TimeSeries` target: `(` where
 /// the caller puts it (alone on its line), each element on a line of its
 /// own, one level in, and `)` at the indentation of `(`.
 pub(crate) fn element_list(w: &mut Writer<'_>, node: &Node) {
@@ -156,6 +157,18 @@ pub(crate) fn column(w: &mut Writer<'_>, node: &Node) {
 /// otherwise a line break, one level in, before `TYPE` and `GRANULARITY`.
 pub(crate) fn index(w: &mut Writer<'_>, node: &Node) {
     breaking(w, node, |w, el| keyword_is(w, el, &["TYPE", "GRANULARITY"]));
+}
+
+/// `REFRESH EVERY interval …`: on one line if it fits; otherwise a line
+/// break, one level in, before `OFFSET`, `RANDOMIZE FOR`, `DEPENDS ON`,
+/// `SETTINGS` and `APPEND`.
+pub(crate) fn refresh(w: &mut Writer<'_>, node: &Node) {
+    breaking(w, node, |w, el| {
+        matches!(
+            el.kind(),
+            SyntaxKind::DependsOn | SyntaxKind::SettingsClause
+        ) || keyword_is(w, el, &["OFFSET", "RANDOMIZE", "APPEND"])
+    });
 }
 
 /// Whether `el` is a keyword token whose text is one of `words`.

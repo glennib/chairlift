@@ -27,7 +27,7 @@
 //! | `shapes` | lists, clauses of a keyword and a list, hugging brackets |
 //! | `expr` | binary operators, `AND`/`OR` runs, `CASE`, lambdas, `?:` |
 //! | `query` | `SELECT` queries, clauses, joins, set operations, `WITH` |
-//! | `create` | `CREATE TABLE`: header line, element list, column definitions, storage clauses, `AS` |
+//! | `create` | `CREATE TABLE` and materialized views: header line, element list, column definitions, storage clauses, `AS` |
 //! | `tree` | preorder node numbers and the facts about each node, from one pass |
 //!
 //! `node` dispatches a node to its rule by kind. A kind without a rule
@@ -317,6 +317,7 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         S::ColumnCodec | S::ColumnStatistics => create::codec(w, node),
         S::OrderByClause if create::is_table_order_by(w, node) => w.generic(node),
         S::OrderByTuple => create::order_by_tuple(w, node),
+        S::RefreshClause => create::refresh(w, node),
         S::SqlSecurityClause => create::sql_security(w, node),
         S::AsClause => create::as_clause(w, node),
         S::ViewTargetClause => create::view_target(w, node),

@@ -20,18 +20,18 @@ ORDER BY (site, hour)
 TTL hour + INTERVAL 90 DAY
 SETTINGS ttl_only_drop_parts = 1;
 
-create materialized view analytics.page_views_1h_mv to analytics.page_views_1h as
-select
-    toStartOfHour(event_time) as hour,
+CREATE MATERIALIZED VIEW analytics.page_views_1h_mv TO analytics.page_views_1h AS
+SELECT
+    toStartOfHour(event_time) AS hour,
     site,
-    count() as views,
-    uniqState(visitor_id) as visitors
-from raw.events
-where true
-    and event_type = 'page_view'
+    count() AS views,
+    uniqState(visitor_id) AS visitors
+FROM raw.events
+WHERE true
+    AND event_type = 'page_view'
     {% if this.cutoff is defined -%}
-    and event_time >= {{ this.cutoff | sql_datetime }}
+    AND event_time >= {{ this.cutoff | sql_datetime }}
     {% endif -%}
-group by hour, site;
+GROUP BY hour, site;
 
 GRANT SELECT ON analytics.page_views_1h TO {{ this.reader_role | sql_ident }};
