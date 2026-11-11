@@ -237,23 +237,29 @@ fn freeze(
         &rendered.inside
     };
     let mut frozen = all.clone();
-    for planned in plan {
-        if planned.decision == Decision::Formatted {
-            continue;
-        }
-        let (first, last) = w.range(&planned.node);
+    // The token ranges of the statements kept as written, in order.
+    let kept: Vec<(usize, usize)> = plan
+        .iter()
+        .filter(|p| p.decision != Decision::Formatted)
+        .map(|p| w.range(&p.node))
+        .collect();
+    for &(first, last) in &kept {
         if let Some(kept) = rendered.kept.get(first..=last) {
             for (f, &k) in frozen[first..=last].iter_mut().zip(kept) {
                 *f |= k;
             }
         }
-        for &(a, b) in parse.facts().verbatim_regions() {
-            if a >= first && b <= last {
-                if frozen.len() <= b {
-                    frozen.resize(b + 1, false);
-                }
-                frozen[a..=b].fill(true);
+    }
+    for &(a, b) in parse.facts().verbatim_regions() {
+        let i = kept.partition_point(|&(_, last)| last < a);
+        if kept
+            .get(i)
+            .is_some_and(|&(first, last)| first <= a && b <= last)
+        {
+            if frozen.len() <= b {
+                frozen.resize(b + 1, false);
             }
+            frozen[a..=b].fill(true);
         }
     }
     let mut indices: Vec<usize> = frozen

@@ -64,6 +64,16 @@ fn comments_after_a_clause_keyword_go_with_its_body() {
     );
 }
 
+/// Text read as written stays so in statements kept as written, found for
+/// each by a search rather than a scan of every statement.
+#[test]
+fn literals_read_as_text_in_kept_statements_keep_their_bytes() {
+    let source = "insert into t values (1);\nselect [1,  2]::String;\n".repeat(3)
+        + "{% if x %}select '{% if y %}', [1,  2]::String;{% endif %}\n";
+    let out = jinja(&source);
+    assert_eq!(out.matches("[1,  2]::String").count(), 4, "{out}");
+}
+
 #[test]
 fn the_list_of_limit_by_follows_the_list_rule() {
     assert_eq!(
