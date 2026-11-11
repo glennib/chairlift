@@ -650,7 +650,7 @@ fn with_clause(p: &mut Parser<'_>, form: Form) -> Option<()> {
 /// bare `select`, any column names in parentheses, `AS`, any
 /// `MATERIALIZED`, and `(`, which no alias can be. Otherwise the item is an
 /// expression with an alias, `expr AS name`.
-fn at_common_table_expr(p: &Parser<'_>) -> bool {
+pub(crate) fn at_common_table_expr(p: &Parser<'_>) -> bool {
     if !matches!(
         p.nth(0),
         Some(T::BareWord | T::QuotedIdentifier | T::JinjaExpr)
@@ -680,7 +680,9 @@ fn at_common_table_expr(p: &Parser<'_>) -> bool {
         || (p.nth_at_kw(n + 1, K::Materialized) && p.nth_at(n + 2, T::OpeningRoundBracket))
 }
 
-fn common_table_expr(p: &mut Parser<'_>) -> Option<()> {
+/// A [`CommonTableExpr`](SyntaxKind::CommonTableExpr), where
+/// [`at_common_table_expr`] says one starts.
+pub(crate) fn common_table_expr(p: &mut Parser<'_>) -> Option<()> {
     let m = p.start();
     names::name(p)?;
     if p.at(T::OpeningRoundBracket) {

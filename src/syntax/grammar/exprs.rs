@@ -435,7 +435,8 @@ fn apply(p: &mut Parser<'_>, lhs: CompletedMarker, op: Op) -> Option<CompletedMa
 
 /// `.` after an operand: `x.1`, `f(x).name`, `t.*`, `t.COLUMNS(…)`, and
 /// any other operand ClickHouse takes as an element, `x.-1` or `x.(e)`.
-fn dot(p: &mut Parser<'_>, lhs: CompletedMarker) -> Option<CompletedMarker> {
+/// `lhs` is the operand, and the current token the `.`.
+pub(crate) fn dot(p: &mut Parser<'_>, lhs: CompletedMarker) -> Option<CompletedMarker> {
     match p.nth(1) {
         Some(T::Asterisk) => asterisk(p, Some(lhs)),
         _ if p.nth_text(1) == "COLUMNS" && at_columns_matcher(p, 1) => {
