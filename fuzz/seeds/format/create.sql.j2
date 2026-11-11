@@ -1,0 +1,11 @@
+create table t ( {##} a UInt8 default {{ x }} , -- c
+    {% if x %} b String codec(ZSTD(1)), {% endif %}
+    c Nullable(String) /* c */
+) engine = MergeTree
+-- why
+order by (a, c)
+{%- if y %} ttl c + interval 1 day {% endif %}
+settings index_granularity = 8192;
+
+create materialized view v to t as
+select a from s where b = 1

@@ -109,7 +109,9 @@ run = 'cargo fuzz run --target "$(rustc -vV | sed -n "s/^host: //p")" lexer -- -
 [tasks."fuzz:format"]
 description = "Fuzz chairlift::format: no panic, verification holds, idempotent (nightly toolchain); pass libFuzzer options after --"
 env = { RUSTUP_TOOLCHAIN = "nightly" }
-run = 'cargo fuzz run --target "$(rustc -vV | sed -n "s/^host: //p")" format -- -dict=fuzz/format.dict'
+# New inputs go to fuzz/corpus/format; fuzz/seeds/format holds whole
+# templates and statements.
+run = 'mkdir -p fuzz/corpus/format && cargo fuzz run --target "$(rustc -vV | sed -n "s/^host: //p")" format fuzz/corpus/format fuzz/seeds/format -- -dict=fuzz/format.dict'
 
 [tasks."fuzz:parser"]
 description = "Fuzz the parser: no panic, lossless tree, re-cased keyword slots verify, parse independent of case (nightly toolchain); pass libFuzzer options after --"

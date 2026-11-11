@@ -1,0 +1,16 @@
+{# header #}
+select a /* c */ , -- trailing
+    e,
+    {%- if x %} b, {% endif -%}
+    {% for i in xs %} c{{ i }}, {% endfor %}
+    f( {##} a ), [{{ x }},2]::String, '{{ y }}'::String,
+    json.^a, json.:Int64, x::Array(String)
+from t
+where a > 0
+    {% if y %} and (b or c) {% endif %}
+    and d = 1 -- c
+group by a, b
+order by a desc
+limit 3 by a;
+
+select 1;;
