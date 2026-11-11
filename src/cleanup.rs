@@ -62,15 +62,15 @@ pub(crate) struct Rendered {
     /// For each token, whether it lies inside a token of the rendered text
     /// together with other tokens.
     pub(crate) inside: Vec<bool>,
-    /// For each token, whether it lies in or after `INSERT` data that the
-    /// rendered text holds or a branch can make. With
-    /// [`inside`](Self::inside), the part of [`kept`](Self::kept) that does
-    /// not depend on the whitespace next to block and comment tags, which the
-    /// layout handles itself.
+    /// For each token, whether it lies in `INSERT` data that the rendered
+    /// text holds or a branch can make, or between such data and the blank
+    /// line that ends it in every render. With [`inside`](Self::inside), the
+    /// part of [`kept`](Self::kept) that does not depend on the whitespace
+    /// next to block and comment tags, which the layout handles itself.
     pub(crate) data: Vec<bool>,
     /// The end of the text stays as it is: the rendered text ends in
     /// `INSERT` data in a format other than `Values`, with nothing but
-    /// whitespace after it, or a branch can move where such data ends.
+    /// whitespace after it, or a branch can move such data to the end.
     pub(crate) open_data: bool,
 }
 
@@ -225,34 +225,58 @@ fn inside_rendered_tokens(
     // Leaving out a branch can move where data in a format other than
     // `Values` starts or ends: a blank line or the end of the file can fall
     // elsewhere, and the rows of one branch can become another's data. The
-    // rendered text with every branch taken does not show this, so from an
-    // `INSERT` with a `FORMAT` after it to the end, a template with block
-    // tags stays as it is: where the `FORMAT` is in the `INSERT`'s statement,
-    // or a block tag between the `INSERT` and the end of its statement can
-    // leave out what ends it.
+    // rendered text with every branch taken does not show this, so a
+    // template with block tags stays as it is from an `INSERT` with a
+    // `FORMAT` after it up to a blank line that ends the data in every render
+    // (see `sure_blank_line`), or to the end where there is none, or where a
+    // block tag between the `INSERT` and the end of its statement can leave
+    // out what ends it and a `FORMAT` follows.
     let mut open_data = open_data;
-    let blocks: Vec<usize> = jinja::tags(source)
+    let blocks: Vec<jinja::Tag> = jinja::tags(source)
         .filter(|t| t.kind == TagKind::Block)
-        .map(|t| t.range.start)
         .collect();
     if !blocks.is_empty() {
-        let statements = rendered_split.statements();
-        let insert = statements.iter().find_map(|statement| {
+        for statement in rendered_split.statements() {
             let range = statement.tokens.clone();
-            let insert = range
+            // The `INSERT`, or the start of a statement whose head can render
+            // as one (`{{ verb }} INTO t FORMAT CSV`).
+            let head = rendered_tokens[range.start];
+            let opaque_head = head.kind() == TokenKind::JinjaExpr
+                || (head.kind() == TokenKind::BareWord && head.text(&text).contains("{{"));
+            let Some(insert) = range
                 .clone()
-                .find(|&i| word(&rendered_tokens[i], "INSERT"))?;
-            let has_format = (insert..range.end).any(|i| word(&rendered_tokens[i], "FORMAT"));
+                .find(|&i| word(&rendered_tokens[i], "INSERT"))
+                .or_else(|| opaque_head.then_some(range.start))
+            else {
+                continue;
+            };
+            let format = (insert..range.end).find(|&i| word(&rendered_tokens[i], "FORMAT"));
             let start = to_source(rendered_tokens[insert].start());
             let end = to_source(rendered_tokens[range.end - 1].end() - 1) + 1;
-            let open_end = blocks.iter().any(|&tag| start < tag && tag < end);
+            let open_end = blocks
+                .iter()
+                .any(|tag| start < tag.range.start && tag.range.start < end);
             let format_later = rendered_tokens[insert..].iter().any(|t| word(t, "FORMAT"));
-            (has_format || (open_end && format_later)).then_some(start)
-        });
-        if let Some(start) = insert {
+            let until = match format {
+                Some(format) if !open_end => {
+                    let after = to_source(rendered_tokens[format].start());
+                    sure_blank_line(source, &blocks, start, after)
+                }
+                Some(_) => None,
+                None if open_end && format_later => None,
+                None => continue,
+            };
             let first = tokens.partition_point(|t| t.end() <= start);
-            kept[first..].fill(true);
-            open_data = true;
+            if let Some(until) = until
+                && until < source.len()
+            {
+                let last = tokens.partition_point(|t| t.start() < until);
+                kept[first..last].fill(true);
+            } else {
+                kept[first..].fill(true);
+                open_data = true;
+                break;
+            }
         }
     }
     let data = kept;
@@ -266,6 +290,80 @@ fn inside_rendered_tokens(
         data,
         open_data,
     }
+}
+
+/// The end of the first run of whitespace after offset `after` of `source`
+/// that holds a `\n\n` which every render holding the text at offset
+/// `insert` renders too: outside tags, in the same branch of the same blocks
+/// as `insert` (so that the renders holding one hold the other, and a loop
+/// renders both in the same pass), and with no `-` marker on a tag next to
+/// the run to strip it. Data that starts between `insert` and that run ends
+/// at its `\n\n` or before, in every render. `blocks` are the block tags of
+/// `source`.
+fn sure_blank_line(
+    source: &str,
+    blocks: &[jinja::Tag],
+    insert: usize,
+    after: usize,
+) -> Option<usize> {
+    use crate::layout::TagRole;
+    use crate::lexer::jinja::WhitespaceControl;
+
+    // The open blocks, outermost first: a number for each and the branch it
+    // is in.
+    let mut path: Vec<(usize, usize)> = Vec::new();
+    let mut opened = 0;
+    let mut insert_path = None;
+    let mut pos = 0;
+    let mut strips_after = false;
+    let tags: Vec<jinja::Tag> = jinja::tags(source).collect();
+    let mut blocks = blocks.iter().peekable();
+    for k in 0..=tags.len() {
+        let tag = tags.get(k);
+        let end = tag.map_or(source.len(), |t| t.range.start);
+        if insert_path.is_none() && insert < end {
+            insert_path = Some(path.clone());
+        }
+        if insert_path.as_ref() == Some(&path) && end > after {
+            let strips_before =
+                tag.is_some_and(|t| t.whitespace_control(source).0 == WhitespaceControl::Strip);
+            let mut from = pos.max(after);
+            while let Some(p) = source[from..end].find("\n\n") {
+                let p = from + p;
+                let start = pos + source[pos..p].trim_end().len();
+                let stop = end - source[p..end].trim_start().len();
+                let stripped = (start == pos && strips_after) || (stop == end && strips_before);
+                if !stripped {
+                    return Some(stop);
+                }
+                from = stop;
+            }
+        }
+        let Some(tag) = tag else {
+            break;
+        };
+        if blocks.peek().is_some_and(|b| b.range == tag.range) {
+            blocks.next();
+            match crate::layout::tag_role(&source[tag.range.clone()]) {
+                TagRole::Open => {
+                    path.push((opened, 0));
+                    opened += 1;
+                }
+                TagRole::Middle => {
+                    if let Some(top) = path.last_mut() {
+                        top.1 += 1;
+                    }
+                }
+                TagRole::Close => {
+                    path.pop();
+                }
+                TagRole::Other => {}
+            }
+        }
+        strips_after = tag.whitespace_control(source).1 == WhitespaceControl::Strip;
+        pos = tag.range.end;
+    }
+    None
 }
 
 #[cfg(test)]
