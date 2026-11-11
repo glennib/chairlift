@@ -10,8 +10,8 @@ M9 (chum integration) is not part of this run.
 | M0. Repository scaffolding | done | CI green |
 | M1. Lossless lexer | done | reviewed; CI green |
 | M2. Verifier, splitter, safe-cleanup CLI | done | review findings fixed |
-| M3. Parser core | in progress | part 1 done, review fixes in progress; part 3 (`CREATE TABLE`, materialized views) done; part 2 (`SELECT`) in progress |
-| M4. Formatting rules and printer | not started | |
+| M3. Parser core | implemented | all three parts and the part 1 review fixes are in; review of the `SELECT` and `CREATE` grammars running |
+| M4. Formatting rules and printer | in progress | part 1: document IR and printer |
 | M5. Jinja templates | not started | |
 | M6. CLI polish and performance | not started | |
 | M7. Remaining statement kinds | not started | |
@@ -60,6 +60,7 @@ Those assumptions are used unless the project owner decides otherwise:
 - Snapshot review: `insta` snapshots are committed so that every commit passes its tests.
   They are listed here per milestone until reviewed.
   - M0: the inline snapshot of `--help` in `tests/cli.rs`.
+  - M3 part 2: 11 tree-dump snapshots under `src/syntax/grammar/select/snapshots/`.
   - M3 part 3: 10 tree-dump snapshots under `src/syntax/grammar/create/snapshots/`.
   - M3 part 1: 24 tree-dump snapshots under `src/syntax/snapshots/`
     and `src/syntax/grammar/{exprs,types,common,fallback}/snapshots/`.
@@ -233,7 +234,8 @@ Part 1: parser infrastructure, syntax tree, expression grammar, keyword-slot rec
 - Known gaps: a `{{ config() }}` before a statement makes the statement verbatim until M5;
   there is no typed layer over the tree.
 
-Review of part 1: a sound base for the printer, with fixes in progress for:
+Review of part 1: a sound base for the printer.
+It found the following, all since fixed:
 
 - Wrong keyword slots in four positions, none of which occurs in a corpus: `COLUMNS(…)` where it is the function,
   the arguments of `* EXCEPT` and `APPLY`, `SOME`/`ALL(…)` with other than one argument,
@@ -262,3 +264,38 @@ Part 3: `CREATE TABLE` and `CREATE MATERIALIZED VIEW`.
   `AUTO_INCREMENT` is parsed.
 - Known gaps: `SETTINGS name` without a value, `INTO OUTFILE` after a `CREATE`, and `ATTACH TABLE` and `REPLACE TABLE`,
   which stay verbatim statements.
+
+Part 2: `SELECT` and `WITH`.
+The numbers are for the whole of M3, with the part 1 review fixes in.
+
+| Stateless corpus | Parsed | Opaque by design | Partial | Verbatim | Without fallback |
+| --- | --- | --- | --- | --- | --- |
+| `SELECT` | 134,928 | 6,496 | 624 | 14 | 99.55% |
+| `WITH` | 2,783 | 108 | 24 | 9 | 98.9% |
+| `CREATE TABLE` | 21,454 | 3 | 67 | 0 | 99.69% |
+| `CREATE MATERIALIZED VIEW` | 536 | 2 | 3 | 0 | 99.45% |
+
+- The plan's targets are 90% for `SELECT` and 95% for `CREATE TABLE`.
+  "Opaque by design" is `(EXPLAIN …)` subqueries, `OVER (…)`, window definitions and `INTO OUTFILE` options.
+- The DESIGN.md example, the chum fixtures and the local corpora parse every `SELECT`,
+  `CREATE TABLE` and materialized view without fallback.
+  The dbt models start with `{{ config() }}` and stay verbatim until M5.
+- Keyword slots: `tests/keyword_positions.rs` puts every keyword and literal word into every position the grammars know
+  (197,493 cases, 7,546 judged by the oracle, none failing); `mise run test:keyword-positions` runs it.
+  Over the corpora, re-casing changes 29,183 statements; the oracle judges 28,995 and none differs.
+- The oracle sweep judges 270,259 stateless statements the same and none differing;
+  verify and idempotence hold on every file.
+- Parsing work is bounded: at most 64 looks per token plus 4,096 per statement, past which a statement stays verbatim.
+  Real statements need at most 26 looks per token.
+  All 67 pathological 1 MB inputs parse in 128 ms or less.
+- `--check` over the stateless corpus takes 1.6–1.8 s; per file the median is 98 µs, p95 568 µs, the maximum 38 ms.
+- Remaining `SELECT` fallbacks: Trino-dialect tests (228), Jinja (M5), JSON path operators `.^` and `.:` (84),
+  pipe syntax `|>` (72), `INSERT` after `WITH` (13).
+- Tree shapes the printer must know:
+  - A run of binary operators of one priority is one n-ary `BinaryExpr`; `AndExpr` and `OrExpr` are flat runs.
+  - `UnionQuery` is a flat run of operands and `SetOperator` nodes, and also wraps a lone query in parentheses.
+  - Joins are sibling clauses of `FromClause`; a comma join after a join is a `JoinClause` starting with `,`.
+  - `WITH TOTALS` and the like sit in a `GroupByModifier` inside `GroupByClause`.
+  - A projection's query has its own entry point: ClickHouse reads `distinct`, `all` and `top` as names there.
+- Differences from the plan: joins sit beside `FROM`, not inside it;
+  `INTO OUTFILE` parses its keywords and keeps only the file name and options opaque; pipe syntax is not parsed.
