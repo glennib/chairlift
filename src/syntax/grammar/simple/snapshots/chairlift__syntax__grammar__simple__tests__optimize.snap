@@ -1,0 +1,133 @@
+---
+source: src/syntax/grammar/simple/tests.rs
+expression: "trees(&[\"OPTIMIZE TABLE db.t ON CLUSTER c PARTITION tuple() FINAL DEDUPLICATE BY a, COLUMNS('b') EXCEPT c, * EXCEPT (d)\",\n\"OPTIMIZE TABLE t PARTITION ID '202601' FORCE CLEANUP\",\n\"OPTIMIZE TABLE t PARTITION ALL\",\n\"OPTIMIZE TABLE t PARTITION (2026, 'a') DRY RUN PARTS 'all_1_1_0', 'all_2_2_0'\",\n\"OPTIMIZE TABLE t PARTITION ID {p:String} SETTINGS optimize_throw_if_noop = 1\",])"
+---
+> OPTIMIZE TABLE db.t ON CLUSTER c PARTITION tuple() FINAL DEDUPLICATE BY a, COLUMNS('b') EXCEPT c, * EXCEPT (d)
+OptimizeQuery
+  Keyword "OPTIMIZE"
+  Keyword "TABLE"
+  QualifiedName
+    Name
+      BareWord "db"
+    Dot "."
+    Name
+      BareWord "t"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+  Partition
+    Keyword "PARTITION"
+    FunctionCall
+      Name
+        BareWord "tuple"
+      ArgList
+        OpeningRoundBracket "("
+        ClosingRoundBracket ")"
+  Keyword "FINAL"
+  Keyword "DEDUPLICATE"
+  Keyword "BY"
+  ExprList
+    Name
+      BareWord "a"
+    Comma ","
+    ColumnsMatcher
+      Keyword "COLUMNS"
+      ColumnList
+        OpeningRoundBracket "("
+        Literal
+          StringLiteral "'b'"
+        ClosingRoundBracket ")"
+      ColumnTransformer
+        Keyword "EXCEPT"
+        Name
+          BareWord "c"
+    Comma ","
+    AsteriskExpr
+      Asterisk "*"
+      ColumnTransformer
+        Keyword "EXCEPT"
+        ColumnList
+          OpeningRoundBracket "("
+          Name
+            BareWord "d"
+          ClosingRoundBracket ")"
+
+> OPTIMIZE TABLE t PARTITION ID '202601' FORCE CLEANUP
+OptimizeQuery
+  Keyword "OPTIMIZE"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  Partition
+    Keyword "PARTITION"
+    Keyword "ID"
+    Literal
+      StringLiteral "'202601'"
+  Keyword "FORCE"
+  Keyword "CLEANUP"
+
+> OPTIMIZE TABLE t PARTITION ALL
+OptimizeQuery
+  Keyword "OPTIMIZE"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  Partition
+    Keyword "PARTITION"
+    Keyword "ALL"
+
+> OPTIMIZE TABLE t PARTITION (2026, 'a') DRY RUN PARTS 'all_1_1_0', 'all_2_2_0'
+OptimizeQuery
+  Keyword "OPTIMIZE"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  Partition
+    Keyword "PARTITION"
+    TupleExpr
+      OpeningRoundBracket "("
+      Literal
+        Number "2026"
+      Comma ","
+      Literal
+        StringLiteral "'a'"
+      ClosingRoundBracket ")"
+  Keyword "DRY"
+  Keyword "RUN"
+  Keyword "PARTS"
+  ExprList
+    Literal
+      StringLiteral "'all_1_1_0'"
+    Comma ","
+    Literal
+      StringLiteral "'all_2_2_0'"
+
+> OPTIMIZE TABLE t PARTITION ID {p:String} SETTINGS optimize_throw_if_noop = 1
+OptimizeQuery
+  Keyword "OPTIMIZE"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  Partition
+    Keyword "PARTITION"
+    Keyword "ID"
+    QueryParameter
+      OpeningCurlyBrace "{"
+      Name
+        BareWord "p"
+      Colon ":"
+      DataType
+        Name
+          BareWord "String"
+      ClosingCurlyBrace "}"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "optimize_throw_if_noop"
+        Equals "="
+        Literal
+          Number "1"

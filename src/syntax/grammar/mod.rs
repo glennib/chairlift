@@ -13,6 +13,7 @@
 //! | [`select`] | `SELECT` queries and subqueries |
 //! | [`create`] | `CREATE TABLE`, `CREATE MATERIALIZED VIEW` |
 //! | [`insert`] | `INSERT`, with the `WITH` clause before it |
+//! | [`simple`] | `DROP`, `DETACH`, `TRUNCATE`, `UNDROP`, `ATTACH`, `RENAME`, `EXCHANGE`, `OPTIMIZE`, `SET`, `USE` |
 //! | [`probe`] | the `SELECT <list>` expression probe |
 //!
 //! # Writing grammar
@@ -101,7 +102,8 @@
 //!   ones; for others, open a node and call [`fallback::comma_separated`].
 //! - Clause parts: [`common::at_settings`] and [`common::settings_clause`]
 //!   (`SETTINGS` opens a clause before a setting's name), [`common::on_cluster`],
-//!   [`common::if_not_exists`], [`common::if_exists`].
+//!   [`common::if_not_exists`], [`common::if_exists`], and
+//!   [`simple::partition`] (`PARTITION ID '…'`, `ALL` or an expression).
 //! - Queries: [`select::query`], [`select::subquery`] and
 //!   [`select::at_subquery`], which the `SELECT` grammar fills in.
 //!
@@ -112,8 +114,8 @@
 //!    each clause [`Role::Clause`](crate::syntax::Role), each list
 //!    [`Role::List`](crate::syntax::Role).
 //! 2. Recognise it in an `at_statement` function by its leading keywords
-//!    and call it from [`statement`] (`select`, `create` and `insert` are
-//!    dispatched already).
+//!    and call it from [`statement`] (`select`, `create`, `insert` and
+//!    `simple` are dispatched already).
 //! 3. Parse its head, then its clauses in a loop: while the current token
 //!    starts a clause, parse it with [`fallback::clause`], passing a
 //!    predicate that recognises every clause keyword of the statement, so
@@ -146,6 +148,7 @@ pub(crate) mod insert;
 pub(crate) mod names;
 pub(crate) mod probe;
 pub(crate) mod select;
+pub(crate) mod simple;
 pub(crate) mod types;
 
 use crate::keyword::Keyword as K;
@@ -173,6 +176,8 @@ pub(crate) fn statement(p: &mut Parser<'_>, entry: Entry) {
                 fallback::statement(p, select::statement);
             } else if create::at_statement(p) {
                 fallback::statement(p, create::statement);
+            } else if simple::at_statement(p) {
+                fallback::statement(p, simple::statement);
             } else {
                 fallback::verbatim_statement(p);
             }

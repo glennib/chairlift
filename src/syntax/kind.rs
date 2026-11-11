@@ -852,6 +852,65 @@ syntax_kinds! {
         /// `FORMAT` and the format's [`Name`](Self::Name), then the data as
         /// one [`InsertData`](Self::InsertData) token if any follows.
         InsertFormat: Clause,
+
+        // ---- Statements of a line or two ----------------------------------
+        // Grammar in `grammar/simple.rs`. A statement holds its keywords as
+        // tokens and its names, lists and clauses as nodes, in the order
+        // written. Those ClickHouse reads with `ParserQueryWithOutput` end
+        // with any output clauses (`IntoOutfileClause`, `FormatClause`,
+        // `SettingsClause`).
+        /// `DROP`, `DETACH`, `TRUNCATE` or `UNDROP`, and the object's
+        /// keywords (`[TEMPORARY] TABLE`, `VIEW`, `DICTIONARY`, `DATABASE`,
+        /// `FUNCTION`, `NAMED COLLECTION`, `INDEX`, `WORKLOAD`,
+        /// `RESOURCE`, `HANDLER`, `[ALL] TABLES FROM`) as tokens; any
+        /// [`IfExists`](Self::IfExists) and `IF EMPTY`; the name, a
+        /// [`Name`](Self::Name) or [`QualifiedName`](Self::QualifiedName),
+        /// or for `DROP` of tables a [`NameList`](Self::NameList); `ON` and
+        /// the table of `DROP INDEX`; `[NOT] LIKE|ILIKE` and a string
+        /// [`Literal`](Self::Literal) after `TABLES FROM`; a
+        /// [`TableUuid`](Self::TableUuid) after `UNDROP`'s name; then any
+        /// [`OnCluster`](Self::OnCluster), `PERMANENTLY`, `SYNC` or `NO
+        /// DELAY`, and output clauses.
+        DropQuery: Statement,
+        /// `ATTACH` and `[TEMPORARY] TABLE`, `[MATERIALIZED] VIEW`,
+        /// `DICTIONARY` or `DATABASE`, any
+        /// [`IfNotExists`](Self::IfNotExists), the name, any
+        /// [`TableUuid`](Self::TableUuid), `FROM` and a string
+        /// [`Literal`](Self::Literal) or `AS [NOT] REPLICATED`, any
+        /// [`OnCluster`](Self::OnCluster), and the definition that may follow,
+        /// [`Opaque`](Self::Opaque).
+        AttachQuery: Statement,
+        /// `RENAME [TABLE | DICTIONARY | DATABASE]` or `EXCHANGE TABLES |
+        /// DICTIONARIES`, a [`RenameList`](Self::RenameList), any
+        /// [`OnCluster`](Self::OnCluster), then output clauses.
+        RenameQuery: Statement,
+        /// [`RenamePair`](Self::RenamePair)s separated by commas.
+        RenameList: List,
+        /// `[IF EXISTS] a TO b`, or `a AND b` to exchange: an
+        /// [`IfExists`](Self::IfExists), and two names, each a
+        /// [`Name`](Self::Name) or [`QualifiedName`](Self::QualifiedName).
+        RenamePair: Node,
+        /// `OPTIMIZE TABLE` and a name, then in this order any of an
+        /// [`OnCluster`](Self::OnCluster), a [`Partition`](Self::Partition),
+        /// `DRY RUN PARTS` and an [`ExprList`](Self::ExprList) of strings,
+        /// `FINAL` or `FORCE`, `DEDUPLICATE`, `CLEANUP`, `MANIFEST`, and `BY`
+        /// and an `ExprList` of names,
+        /// [`AsteriskExpr`](Self::AsteriskExpr)s and
+        /// [`ColumnsMatcher`](Self::ColumnsMatcher)s; then output clauses.
+        OptimizeQuery: Statement,
+        /// `PARTITION` and `ID` with a string [`Literal`](Self::Literal) or a
+        /// [`QueryParameter`](Self::QueryParameter), `ALL`, or an
+        /// expression.
+        Partition: Node,
+        /// `SET` and a [`SettingsList`](Self::SettingsList), or `SET TIME
+        /// ZONE`, any `=`, and a [`Literal`](Self::Literal) or a
+        /// [`MapExpr`](Self::MapExpr).
+        SetQuery: Statement,
+        /// `USE`, any `DATABASE`, and a [`Name`](Self::Name).
+        UseQuery: Statement,
+        /// Names ([`Name`](Self::Name)s or
+        /// [`QualifiedName`](Self::QualifiedName)s) separated by commas.
+        NameList: List,
     }
 }
 

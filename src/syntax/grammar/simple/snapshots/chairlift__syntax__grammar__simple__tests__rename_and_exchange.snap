@@ -1,0 +1,116 @@
+---
+source: src/syntax/grammar/simple/tests.rs
+expression: "trees(&[\"RENAME TABLE IF EXISTS db.a TO db.b, c TO d ON CLUSTER c\",\n\"RENAME a TO b\", \"RENAME DICTIONARY d TO e\",\n\"RENAME DATABASE IF EXISTS a TO b ON CLUSTER c\", \"EXCHANGE TABLES a AND db.b\",\n\"EXCHANGE DICTIONARIES a AND b, c AND d\",])"
+---
+> RENAME TABLE IF EXISTS db.a TO db.b, c TO d ON CLUSTER c
+RenameQuery
+  Keyword "RENAME"
+  Keyword "TABLE"
+  RenameList
+    RenamePair
+      IfExists
+        Keyword "IF"
+        Keyword "EXISTS"
+      QualifiedName
+        Name
+          BareWord "db"
+        Dot "."
+        Name
+          BareWord "a"
+      Keyword "TO"
+      QualifiedName
+        Name
+          BareWord "db"
+        Dot "."
+        Name
+          BareWord "b"
+    Comma ","
+    RenamePair
+      Name
+        BareWord "c"
+      Keyword "TO"
+      Name
+        BareWord "d"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+
+> RENAME a TO b
+RenameQuery
+  Keyword "RENAME"
+  RenameList
+    RenamePair
+      Name
+        BareWord "a"
+      Keyword "TO"
+      Name
+        BareWord "b"
+
+> RENAME DICTIONARY d TO e
+RenameQuery
+  Keyword "RENAME"
+  Keyword "DICTIONARY"
+  RenameList
+    RenamePair
+      Name
+        BareWord "d"
+      Keyword "TO"
+      Name
+        BareWord "e"
+
+> RENAME DATABASE IF EXISTS a TO b ON CLUSTER c
+RenameQuery
+  Keyword "RENAME"
+  Keyword "DATABASE"
+  RenameList
+    RenamePair
+      IfExists
+        Keyword "IF"
+        Keyword "EXISTS"
+      Name
+        BareWord "a"
+      Keyword "TO"
+      Name
+        BareWord "b"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+
+> EXCHANGE TABLES a AND db.b
+RenameQuery
+  Keyword "EXCHANGE"
+  Keyword "TABLES"
+  RenameList
+    RenamePair
+      Name
+        BareWord "a"
+      Keyword "AND"
+      QualifiedName
+        Name
+          BareWord "db"
+        Dot "."
+        Name
+          BareWord "b"
+
+> EXCHANGE DICTIONARIES a AND b, c AND d
+RenameQuery
+  Keyword "EXCHANGE"
+  Keyword "DICTIONARIES"
+  RenameList
+    RenamePair
+      Name
+        BareWord "a"
+      Keyword "AND"
+      Name
+        BareWord "b"
+    Comma ","
+    RenamePair
+      Name
+        BareWord "c"
+      Keyword "AND"
+      Name
+        BareWord "d"

@@ -351,7 +351,7 @@ const SHAPES: &[Shape] = &[
         "a = 1, ",
         "b",
     ),
-    // INSERT.
+    // INSERT, and the statements of a line or two.
     run("INSERT INTO t (", "a, ", "b) VALUES (1)"),
     run("INSERT INTO t (", "a b, ", "b) SELECT 1"),
     run("INSERT INTO t (", "t.* EXCEPT (a), ", "b) SELECT 1"),
@@ -367,6 +367,17 @@ const SHAPES: &[Shape] = &[
     unclosed("INSERT INTO t ", "("),
     unclosed("INSERT INTO t (a) ", "(SELECT "),
     unclosed("WITH x AS (SELECT 1) INSERT INTO t ", "("),
+    run("DROP TABLE ", "a, ", "b"),
+    run("DROP TABLE ", "a b, ", "b"),
+    run("DROP TABLE t", " FORMAT Null", ""),
+    run("RENAME TABLE ", "a TO b, ", "c TO d"),
+    run("EXCHANGE TABLES ", "a AND b, ", "c AND d"),
+    run("SET ", "a = 1, ", "b = 2"),
+    run("OPTIMIZE TABLE t DEDUPLICATE BY ", "a, ", "b"),
+    run("OPTIMIZE TABLE t DRY RUN PARTS ", "'a', ", "'b'"),
+    statement("OPTIMIZE TABLE t PARTITION ", "(", "1", ")", " FINAL"),
+    unclosed("OPTIMIZE TABLE t PARTITION ", "("),
+    run("ATTACH TABLE t ", "(a UInt8) ", ""),
 ];
 
 /// A statement of `head` and `open` repeated, never closed, at lengths

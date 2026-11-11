@@ -271,7 +271,7 @@ impl Parse {
 /// use chairlift::syntax::{debug_tree, parse};
 ///
 /// let tree = debug_tree(&parse("DROP TABLE t;", Mode::Sql).syntax());
-/// assert!(tree.starts_with("Root@0..13\n  Statement@0..13\n    VerbatimStatement@0..12\n"));
+/// assert!(tree.starts_with("Root@0..13\n  Statement@0..13\n    DropQuery@0..12\n"));
 /// ```
 #[must_use]
 pub fn debug_tree(node: &SyntaxNode) -> String {

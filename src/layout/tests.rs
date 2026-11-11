@@ -703,7 +703,7 @@ fn expressions_are_atoms_and_keep_their_adjacency() {
 fn statements_the_parser_does_not_know_are_kept() {
     assert_eq!(
         decisions(
-            "select 1; create table t (a Int8) engine = Memory; drop table t; ;",
+            "select 1; create table t (a Int8) engine = Memory; system flush logs; ;",
             false
         ),
         [

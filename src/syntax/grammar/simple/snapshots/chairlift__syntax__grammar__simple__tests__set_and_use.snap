@@ -1,0 +1,106 @@
+---
+source: src/syntax/grammar/simple/tests.rs
+expression: "trees(&[\"SET max_threads = 1, send_logs_level = 'error', max_block_size = DEFAULT, enable_analyzer\",\n\"SET param_x = [1, 2], additional_table_filters = {'t': 'x > 1'}\",\n\"SET TIME ZONE 'Europe/Oslo'\", \"SET time_zone = 'UTC'\", \"USE system\",\n\"USE DATABASE db\", \"USE database\", \"USE {{ db }}\",])"
+---
+> SET max_threads = 1, send_logs_level = 'error', max_block_size = DEFAULT, enable_analyzer
+SetQuery
+  Keyword "SET"
+  SettingsList
+    SettingItem
+      Name
+        BareWord "max_threads"
+      Equals "="
+      Literal
+        Number "1"
+    Comma ","
+    SettingItem
+      Name
+        BareWord "send_logs_level"
+      Equals "="
+      Literal
+        StringLiteral "'error'"
+    Comma ","
+    SettingItem
+      Name
+        BareWord "max_block_size"
+      Equals "="
+      Keyword "DEFAULT"
+    Comma ","
+    SettingItem
+      Name
+        BareWord "enable_analyzer"
+
+> SET param_x = [1, 2], additional_table_filters = {'t': 'x > 1'}
+SetQuery
+  Keyword "SET"
+  SettingsList
+    SettingItem
+      Name
+        BareWord "param_x"
+      Equals "="
+      ArrayExpr
+        OpeningSquareBracket "["
+        Literal
+          Number "1"
+        Comma ","
+        Literal
+          Number "2"
+        ClosingSquareBracket "]"
+    Comma ","
+    SettingItem
+      Name
+        BareWord "additional_table_filters"
+      Equals "="
+      MapExpr
+        OpeningCurlyBrace "{"
+        MapEntry
+          Literal
+            StringLiteral "'t'"
+          Colon ":"
+          Literal
+            StringLiteral "'x > 1'"
+        ClosingCurlyBrace "}"
+
+> SET TIME ZONE 'Europe/Oslo'
+SetQuery
+  Keyword "SET"
+  Keyword "TIME"
+  Keyword "ZONE"
+  Literal
+    StringLiteral "'Europe/Oslo'"
+
+> SET time_zone = 'UTC'
+SetQuery
+  Keyword "SET"
+  SettingsList
+    SettingItem
+      Name
+        BareWord "time_zone"
+      Equals "="
+      Literal
+        StringLiteral "'UTC'"
+
+> USE system
+UseQuery
+  Keyword "USE"
+  Name
+    BareWord "system"
+
+> USE DATABASE db
+UseQuery
+  Keyword "USE"
+  Keyword "DATABASE"
+  Name
+    BareWord "db"
+
+> USE database
+UseQuery
+  Keyword "USE"
+  Name
+    BareWord "database"
+
+> USE {{ db }}
+UseQuery
+  Keyword "USE"
+  Name
+    JinjaExpr "{{ db }}"

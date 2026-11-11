@@ -98,9 +98,9 @@ fn each_statement_is_formatted_or_kept_with_a_reason() {
     use chairlift::layout::Decision;
     use chairlift::layout::Kept;
     let (output, statements) =
-        chairlift::format_with_statements("select 1; drop table t; ;", &Options::default())
+        chairlift::format_with_statements("select 1; system flush logs; ;", &Options::default())
             .unwrap();
-    assert_eq!(output, "SELECT 1;\ndrop table t; ;\n");
+    assert_eq!(output, "SELECT 1;\nsystem flush logs; ;\n");
     let decisions: Vec<Decision> = statements.iter().map(|s| s.decision).collect();
     assert_eq!(
         decisions,

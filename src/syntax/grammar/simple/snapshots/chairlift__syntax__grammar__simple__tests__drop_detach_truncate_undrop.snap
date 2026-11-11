@@ -1,0 +1,248 @@
+---
+source: src/syntax/grammar/simple/tests.rs
+expression: "trees(&[\"DROP TABLE IF EXISTS db.a, b ON CLUSTER '{cluster}' SYNC\",\n\"drop temporary table if empty t no delay\", \"DROP VIEW v\",\n\"DROP DICTIONARY IF EXISTS {{ db }}.d\",\n\"DROP DATABASE IF EXISTS {db:Identifier} ON CLUSTER c\",\n\"DROP FUNCTION IF EXISTS f ON CLUSTER c\",\n\"DROP NAMED COLLECTION IF EXISTS nc\", \"DROP INDEX IF EXISTS i ON db.t\",\n\"DROP WORKLOAD w\", \"DROP HANDLER IF EXISTS h\",\n\"DETACH TABLE t ON CLUSTER c PERMANENTLY SYNC\", \"DETACH DATABASE d\",\n\"TRUNCATE t\", \"TRUNCATE TABLE IF EXISTS db.t ON CLUSTER c\",\n\"TRUNCATE ALL TABLES FROM IF EXISTS db NOT LIKE 'tmp%'\",\n\"UNDROP TABLE db.t UUID '00000000-0000-0000-0000-000000000001' ON CLUSTER c\",\n\"DROP TABLE t FORMAT Null SETTINGS max_execution_time = 1\",])"
+---
+> DROP TABLE IF EXISTS db.a, b ON CLUSTER '{cluster}' SYNC
+DropQuery
+  Keyword "DROP"
+  Keyword "TABLE"
+  IfExists
+    Keyword "IF"
+    Keyword "EXISTS"
+  NameList
+    QualifiedName
+      Name
+        BareWord "db"
+      Dot "."
+      Name
+        BareWord "a"
+    Comma ","
+    Name
+      BareWord "b"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Literal
+      StringLiteral "'{cluster}'"
+  Keyword "SYNC"
+
+> drop temporary table if empty t no delay
+DropQuery
+  Keyword "drop"
+  Keyword "temporary"
+  Keyword "table"
+  Keyword "if"
+  Keyword "empty"
+  NameList
+    Name
+      BareWord "t"
+  Keyword "no"
+  Keyword "delay"
+
+> DROP VIEW v
+DropQuery
+  Keyword "DROP"
+  Keyword "VIEW"
+  NameList
+    Name
+      BareWord "v"
+
+> DROP DICTIONARY IF EXISTS {{ db }}.d
+DropQuery
+  Keyword "DROP"
+  Keyword "DICTIONARY"
+  IfExists
+    Keyword "IF"
+    Keyword "EXISTS"
+  NameList
+    QualifiedName
+      Name
+        JinjaExpr "{{ db }}"
+      Dot "."
+      Name
+        BareWord "d"
+
+> DROP DATABASE IF EXISTS {db:Identifier} ON CLUSTER c
+DropQuery
+  Keyword "DROP"
+  Keyword "DATABASE"
+  IfExists
+    Keyword "IF"
+    Keyword "EXISTS"
+  QueryParameter
+    OpeningCurlyBrace "{"
+    Name
+      BareWord "db"
+    Colon ":"
+    DataType
+      Name
+        BareWord "Identifier"
+    ClosingCurlyBrace "}"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+
+> DROP FUNCTION IF EXISTS f ON CLUSTER c
+DropQuery
+  Keyword "DROP"
+  Keyword "FUNCTION"
+  IfExists
+    Keyword "IF"
+    Keyword "EXISTS"
+  Name
+    BareWord "f"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+
+> DROP NAMED COLLECTION IF EXISTS nc
+DropQuery
+  Keyword "DROP"
+  Keyword "NAMED"
+  Keyword "COLLECTION"
+  IfExists
+    Keyword "IF"
+    Keyword "EXISTS"
+  Name
+    BareWord "nc"
+
+> DROP INDEX IF EXISTS i ON db.t
+DropQuery
+  Keyword "DROP"
+  Keyword "INDEX"
+  IfExists
+    Keyword "IF"
+    Keyword "EXISTS"
+  Name
+    BareWord "i"
+  Keyword "ON"
+  QualifiedName
+    Name
+      BareWord "db"
+    Dot "."
+    Name
+      BareWord "t"
+
+> DROP WORKLOAD w
+DropQuery
+  Keyword "DROP"
+  Keyword "WORKLOAD"
+  Name
+    BareWord "w"
+
+> DROP HANDLER IF EXISTS h
+DropQuery
+  Keyword "DROP"
+  Keyword "HANDLER"
+  IfExists
+    Keyword "IF"
+    Keyword "EXISTS"
+  Name
+    BareWord "h"
+
+> DETACH TABLE t ON CLUSTER c PERMANENTLY SYNC
+DropQuery
+  Keyword "DETACH"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+  Keyword "PERMANENTLY"
+  Keyword "SYNC"
+
+> DETACH DATABASE d
+DropQuery
+  Keyword "DETACH"
+  Keyword "DATABASE"
+  Name
+    BareWord "d"
+
+> TRUNCATE t
+DropQuery
+  Keyword "TRUNCATE"
+  Name
+    BareWord "t"
+
+> TRUNCATE TABLE IF EXISTS db.t ON CLUSTER c
+DropQuery
+  Keyword "TRUNCATE"
+  Keyword "TABLE"
+  IfExists
+    Keyword "IF"
+    Keyword "EXISTS"
+  QualifiedName
+    Name
+      BareWord "db"
+    Dot "."
+    Name
+      BareWord "t"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+
+> TRUNCATE ALL TABLES FROM IF EXISTS db NOT LIKE 'tmp%'
+DropQuery
+  Keyword "TRUNCATE"
+  Keyword "ALL"
+  Keyword "TABLES"
+  Keyword "FROM"
+  IfExists
+    Keyword "IF"
+    Keyword "EXISTS"
+  Name
+    BareWord "db"
+  Keyword "NOT"
+  Keyword "LIKE"
+  Literal
+    StringLiteral "'tmp%'"
+
+> UNDROP TABLE db.t UUID '00000000-0000-0000-0000-000000000001' ON CLUSTER c
+DropQuery
+  Keyword "UNDROP"
+  Keyword "TABLE"
+  QualifiedName
+    Name
+      BareWord "db"
+    Dot "."
+    Name
+      BareWord "t"
+  TableUuid
+    Keyword "UUID"
+    Literal
+      StringLiteral "'00000000-0000-0000-0000-000000000001'"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+
+> DROP TABLE t FORMAT Null SETTINGS max_execution_time = 1
+DropQuery
+  Keyword "DROP"
+  Keyword "TABLE"
+  NameList
+    Name
+      BareWord "t"
+  FormatClause
+    Keyword "FORMAT"
+    Name
+      BareWord "Null"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "max_execution_time"
+        Equals "="
+        Literal
+          Number "1"

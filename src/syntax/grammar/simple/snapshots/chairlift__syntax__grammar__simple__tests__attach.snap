@@ -1,0 +1,113 @@
+---
+source: src/syntax/grammar/simple/tests.rs
+expression: "trees(&[\"ATTACH TABLE IF NOT EXISTS db.t ON CLUSTER c\",\n\"ATTACH TABLE t UUID '00000000-0000-0000-0000-000000000001' AS NOT REPLICATED\",\n\"ATTACH DICTIONARY d\", \"ATTACH DATABASE {db:Identifier}\",\n\"ATTACH MATERIALIZED VIEW mv\", \"ATTACH TABLE t (a UInt8) ENGINE = Memory\",\n\"ATTACH TABLE t FROM '/data/t' (a UInt8) ENGINE = MergeTree ORDER BY a\",\n\"ATTACH DATABASE d ENGINE = Atomic\",])"
+---
+> ATTACH TABLE IF NOT EXISTS db.t ON CLUSTER c
+AttachQuery
+  Keyword "ATTACH"
+  Keyword "TABLE"
+  IfNotExists
+    Keyword "IF"
+    Keyword "NOT"
+    Keyword "EXISTS"
+  QualifiedName
+    Name
+      BareWord "db"
+    Dot "."
+    Name
+      BareWord "t"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+
+> ATTACH TABLE t UUID '00000000-0000-0000-0000-000000000001' AS NOT REPLICATED
+AttachQuery
+  Keyword "ATTACH"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  TableUuid
+    Keyword "UUID"
+    Literal
+      StringLiteral "'00000000-0000-0000-0000-000000000001'"
+  Keyword "AS"
+  Keyword "NOT"
+  Keyword "REPLICATED"
+
+> ATTACH DICTIONARY d
+AttachQuery
+  Keyword "ATTACH"
+  Keyword "DICTIONARY"
+  Name
+    BareWord "d"
+
+> ATTACH DATABASE {db:Identifier}
+AttachQuery
+  Keyword "ATTACH"
+  Keyword "DATABASE"
+  QueryParameter
+    OpeningCurlyBrace "{"
+    Name
+      BareWord "db"
+    Colon ":"
+    DataType
+      Name
+        BareWord "Identifier"
+    ClosingCurlyBrace "}"
+
+> ATTACH MATERIALIZED VIEW mv
+AttachQuery
+  Keyword "ATTACH"
+  Keyword "MATERIALIZED"
+  Keyword "VIEW"
+  Name
+    BareWord "mv"
+
+> ATTACH TABLE t (a UInt8) ENGINE = Memory
+AttachQuery
+  Keyword "ATTACH"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  Opaque
+    OpeningRoundBracket "("
+    BareWord "a"
+    BareWord "UInt8"
+    ClosingRoundBracket ")"
+    BareWord "ENGINE"
+    Equals "="
+    BareWord "Memory"
+
+> ATTACH TABLE t FROM '/data/t' (a UInt8) ENGINE = MergeTree ORDER BY a
+AttachQuery
+  Keyword "ATTACH"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  Keyword "FROM"
+  Literal
+    StringLiteral "'/data/t'"
+  Opaque
+    OpeningRoundBracket "("
+    BareWord "a"
+    BareWord "UInt8"
+    ClosingRoundBracket ")"
+    BareWord "ENGINE"
+    Equals "="
+    BareWord "MergeTree"
+    BareWord "ORDER"
+    BareWord "BY"
+    BareWord "a"
+
+> ATTACH DATABASE d ENGINE = Atomic
+AttachQuery
+  Keyword "ATTACH"
+  Keyword "DATABASE"
+  Name
+    BareWord "d"
+  Opaque
+    BareWord "ENGINE"
+    Equals "="
+    BareWord "Atomic"
