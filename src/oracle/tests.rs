@@ -200,10 +200,14 @@ fn a_template_is_judged_per_render() {
 
 #[test]
 fn output_is_read_up_to_a_limit() {
-    let (kept, more) = read_limited(&mut &b"abcdef"[..], 4);
-    assert_eq!((kept.as_slice(), more), (&b"abcd"[..], true));
-    let (kept, more) = read_limited(&mut &b"abcd"[..], 4);
-    assert_eq!((kept.as_slice(), more), (&b"abcd"[..], false));
+    for drain in [false, true] {
+        let mut reader = &b"abcdef"[..];
+        let (kept, more) = read_limited(&mut reader, 4, drain);
+        assert_eq!((kept.as_slice(), more), (&b"abcd"[..], true));
+        assert_eq!(reader.len(), usize::from(!drain));
+        let (kept, more) = read_limited(&mut &b"abcd"[..], 4, drain);
+        assert_eq!((kept.as_slice(), more), (&b"abcd"[..], false));
+    }
 }
 
 #[test]
@@ -319,11 +323,93 @@ mod misbehaving {
         assert!(started.elapsed() < Duration::from_secs(9));
     }
 
+    /// A program that prints without end is stopped as soon as it passes the
+    /// limit, not at the timeout.
     #[test]
-    fn endless_output_costs_no_memory() {
-        let mut oracle = Oracle::new(script("endless", "exec yes"));
-        oracle.timeout = Duration::from_millis(500);
+    fn endless_output_fails_at_once() {
+        let mut oracle = Oracle::new(script("endless-fast", "exec yes"));
+        oracle.timeout = Duration::from_secs(30);
+        let started = Instant::now();
+        assert!(failure(&oracle).starts_with("printed more than"));
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    /// Whether the process `pid` has gone, or is a zombie waiting to be
+    /// reaped; waits a little for it.
+    fn is_gone(pid: &str) -> bool {
+        let stat = format!("/proc/{pid}/stat");
+        for _ in 0..100 {
+            match fs::read_to_string(&stat) {
+                Err(_) => return true,
+                Ok(s)
+                    if s.rsplit(')')
+                        .next()
+                        .is_some_and(|r| r.trim_start().starts_with('Z')) =>
+                {
+                    return true;
+                }
+                Ok(_) => thread::sleep(Duration::from_millis(20)),
+            }
+        }
+        false
+    }
+
+    /// A process the program started is killed with it on a timeout, also
+    /// one that left the program's process.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_timeout_kills_what_the_program_started() {
+        let pids =
+            std::env::temp_dir().join(format!("chairlift-oracle-{}-pids", std::process::id()));
+        let _ = fs::remove_file(&pids);
+        let mut oracle = Oracle::new(script(
+            "grandchild",
+            &format!("(sleep 1000 & echo $! > '{}'); sleep 1000", pids.display()),
+        ));
+        oracle.timeout = Duration::from_millis(300);
         assert!(failure(&oracle).starts_with("timed out"));
+        let pid = fs::read_to_string(&pids).unwrap();
+        let _ = fs::remove_file(&pids);
+        assert!(is_gone(pid.trim()), "process {pid} is still running");
+    }
+
+    /// After a few timeouts in a row, the program is not run any more: a
+    /// program that hangs on every input costs a few timeouts, not one per
+    /// text.
+    #[test]
+    fn a_program_that_keeps_timing_out_is_given_up() {
+        let mut oracle = Oracle::new(script("hangs-always", "exec sleep 30"));
+        oracle.timeout = Duration::from_millis(200);
+        oracle.jobs = 1;
+        let started = Instant::now();
+        let verdicts = oracle.canonical(&["select 1"; 20]);
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(oracle.gave_up());
+        let messages: Vec<&str> = verdicts
+            .iter()
+            .map(|v| match v {
+                Verdict::Rejected(Rejection {
+                    class: RejectionClass::Failed,
+                    message,
+                }) => message.as_str(),
+                other => panic!("expected a failure, got {other:?}"),
+            })
+            .collect();
+        assert!(
+            messages.iter().any(|m| m.starts_with("not run")),
+            "{messages:?}"
+        );
+        // A program that times out only now and then is not given up.
+        let mut oracle = Oracle::new(script(
+            "hangs-sometimes",
+            r#"input=$(cat); case "$input" in *hang*) exec sleep 30 ;; esac; echo 'SELECT 1;'"#,
+        ));
+        oracle.timeout = Duration::from_millis(200);
+        oracle.jobs = 1;
+        oracle.batch_files = 1;
+        let verdicts = oracle.canonical(&["hang", "select 1", "hang", "select 1", "hang"]);
+        assert!(!oracle.gave_up());
+        assert_eq!(verdicts[3], Verdict::Accepted("SELECT 1;\n".to_owned()));
     }
 
     #[test]

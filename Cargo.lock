@@ -194,6 +194,7 @@ dependencies = [
  "criterion",
  "ignore",
  "insta",
+ "libc",
  "miette",
  "minijinja",
  "proptest",

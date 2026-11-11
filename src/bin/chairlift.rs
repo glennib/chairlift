@@ -83,6 +83,11 @@ struct Cli {
     #[arg(long, value_name = "PATH", requires = "verify")]
     clickhouse_binary: Option<PathBuf>,
 
+    /// How long one run of `clickhouse-format` may take, in seconds; for
+    /// tests.
+    #[arg(long, value_name = "SECONDS", requires = "verify", hide = true)]
+    verify_timeout: Option<f64>,
+
     /// The width to lay lines out to.
     #[arg(long, value_name = "WIDTH", default_value_t = Options::DEFAULT_LINE_WIDTH,
           value_parser = clap::value_parser!(u16).range(1..))]
@@ -197,6 +202,8 @@ struct Verification {
     unrendered: usize,
     /// Notes and warnings per item.
     notes: Vec<Vec<Diagnostic>>,
+    /// The error saying the oracle stopped running, if it did.
+    gave_up: Option<Diagnostic>,
 }
 
 /// Judges the changed files among `items` with the oracle, turning each one
@@ -224,6 +231,7 @@ fn verify(verifier: &Verifier, items: &mut [Item]) -> Verification {
         counts: Counts::default(),
         unrendered: 0,
         notes: items.iter().map(|_| Vec::new()).collect(),
+        gave_up: verifier.gave_up(),
     };
     for (i, verdict) in changed.into_iter().zip(verdicts) {
         verification.counts.add(&verdict.counts);
@@ -242,8 +250,10 @@ fn verify(verifier: &Verifier, items: &mut [Item]) -> Verification {
         }
         let failed = verdict.counts.rejected(RejectionClass::Failed);
         // A file the oracle judged nothing of has not been verified at all,
-        // which `--verify` must not pass in silence.
-        let unjudged = failed > 0 && verdict.counts.judged() == 0;
+        // which `--verify` must not pass in silence; once the oracle gave
+        // up, what it failed on was not even tried.
+        let unjudged =
+            failed > 0 && (verdict.counts.judged() == 0 || verification.gave_up.is_some());
         if failed > 0 && !unjudged {
             notes.push(
                 Diagnostic::warning(
@@ -261,13 +271,22 @@ fn verify(verifier: &Verifier, items: &mut [Item]) -> Verification {
         if let Some(bug) = verdict.bug {
             items[i].result = Err(FileError::Oracle(Box::new(bug)));
         } else if unjudged {
-            items[i].result = Err(FileError::Oracle(Box::new(Diagnostic::error(
-                "chairlift::verify::failed",
+            let message = if verification.gave_up.is_some() {
+                format!(
+                    "{name}: {} not judged, as --verify stopped running clickhouse-format, so the \
+                     file is left unchanged",
+                    statements(failed)
+                )
+            } else {
                 format!(
                     "{name}: clickhouse-format judged none of its statements, as it failed \
                      (crashed, timed out or printed too much) on {failed}, so the file is left \
                      unchanged"
-                ),
+                )
+            };
+            items[i].result = Err(FileError::Oracle(Box::new(Diagnostic::error(
+                "chairlift::verify::failed",
+                message,
             ))));
         }
     }
@@ -443,7 +462,10 @@ fn main() -> ExitCode {
     }
     let jobs = cli.jobs.map_or_else(parallel::default_jobs, usize::from);
     let verifier = if cli.verify {
-        match Verifier::new(cli.clickhouse_binary, jobs) {
+        let timeout = cli
+            .verify_timeout
+            .and_then(|s| std::time::Duration::try_from_secs_f64(s).ok());
+        match Verifier::new(cli.clickhouse_binary, jobs, timeout) {
             Ok(verifier) => Some(verifier),
             Err(diagnostic) => {
                 report(reporter, &diagnostic);
@@ -483,6 +505,9 @@ fn stdin(
         let verification = verify(verifier, &mut items);
         for note in verification.notes.iter().flatten() {
             report(reporter, note);
+        }
+        if let Some(gave_up) = &verification.gave_up {
+            report(reporter, gave_up);
         }
         if reporter.verbosity == Verbosity::Verbose {
             eprintln!(
@@ -638,6 +663,10 @@ fn files(
         }
     }
     drop(stdout);
+    if let Some(gave_up) = verification.as_ref().and_then(|v| v.gave_up.as_ref()) {
+        report(reporter, gave_up);
+        errors += 1;
+    }
     let summary = summary(settings.action, changed, unchanged, refused, errors);
     match reporter.verbosity {
         Verbosity::Quiet => {}

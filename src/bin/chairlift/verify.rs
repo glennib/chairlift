@@ -13,6 +13,7 @@
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use chairlift::lexer::Mode;
 use chairlift::oracle;
@@ -22,6 +23,7 @@ use chairlift::oracle::Oracle;
 use chairlift::oracle::Pair;
 use chairlift::oracle::RejectionClass;
 use chairlift::oracle::Report;
+use chairlift::oracle::TIMEOUTS_IN_A_ROW;
 
 use crate::diagnostic;
 use crate::diagnostic::Diagnostic;
@@ -62,9 +64,19 @@ impl Verifier {
     /// The oracle run as `program`, or as `clickhouse-format` found on
     /// `PATH`, with up to `jobs` processes at a time; an error if it does
     /// not run or does not behave like `clickhouse-format`.
-    pub fn new(program: Option<PathBuf>, jobs: usize) -> Result<Verifier, Diagnostic> {
+    pub fn new(
+        program: Option<PathBuf>,
+        jobs: usize,
+        timeout: Option<Duration>,
+    ) -> Result<Verifier, Diagnostic> {
         let mut oracle = Oracle::new(program.unwrap_or_else(|| PathBuf::from(DEFAULT_BINARY)));
         oracle.jobs = jobs.max(1);
+        if let Some(timeout) = timeout {
+            oracle.timeout = timeout;
+        }
+        // The oracle's processes lead groups of their own, which Ctrl-C does
+        // not reach.
+        oracle::stop_running_on_signals();
         match oracle.probe() {
             Ok(()) => Ok(Verifier { oracle }),
             Err(e) => Err(Diagnostic::error(
@@ -78,6 +90,20 @@ impl Verifier {
                  `clickhouse` binary",
             )),
         }
+    }
+
+    /// The diagnostic saying that the oracle stopped running the program,
+    /// if it did: then no statement it failed on was really tried.
+    pub fn gave_up(&self) -> Option<Diagnostic> {
+        self.oracle.gave_up().then(|| {
+            Diagnostic::error(
+                "chairlift::verify::gave_up",
+                format!(
+                    "clickhouse-format timed out {TIMEOUTS_IN_A_ROW} times in a row, so --verify \
+                     stopped running it"
+                ),
+            )
+        })
     }
 
     /// The verdict on each job, in order.

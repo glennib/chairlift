@@ -60,9 +60,13 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
 use std::sync::PoisonError;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -74,8 +78,11 @@ use crate::lexer::tokenize;
 use crate::split::DataFormat;
 use crate::split::split;
 
+mod process;
 mod statements;
 
+pub use process::kill_running;
+pub use process::stop_running_on_signals;
 pub use statements::Counts;
 pub use statements::Mismatch;
 pub use statements::Pair;
@@ -98,6 +105,18 @@ pub struct Oracle {
     pub timeout: Duration,
     /// How many processes run at once.
     pub jobs: usize,
+    /// Timeouts in a row, shared by clones.
+    breaker: Arc<Breaker>,
+}
+
+/// Runs that timed out in a row, after which [`Oracle`] gives up.
+pub const TIMEOUTS_IN_A_ROW: usize = 3;
+
+/// Counts the runs that time out in a row.
+#[derive(Debug, Default)]
+struct Breaker {
+    timeouts: AtomicUsize,
+    tripped: AtomicBool,
 }
 
 /// What the oracle made of a text.
@@ -336,7 +355,16 @@ impl Oracle {
             batch_bytes: 32 << 10,
             timeout: Duration::from_secs(60),
             jobs: thread::available_parallelism().map_or(1, usize::from),
+            breaker: Arc::default(),
         }
+    }
+
+    /// Whether the oracle has stopped running the program, because it timed
+    /// out [`TIMEOUTS_IN_A_ROW`] times in a row: from then on every text
+    /// fails with [`RejectionClass::Failed`] at once.
+    #[must_use]
+    pub fn gave_up(&self) -> bool {
+        self.breaker.tripped.load(Ordering::SeqCst)
     }
 
     /// Whether the program runs and formats `SELECT 1`.
@@ -527,6 +555,16 @@ impl Oracle {
         }
     }
 
+    /// Counts a run that ended, by timing out or otherwise.
+    fn ran(&self, timed_out: bool) {
+        let breaker = &self.breaker;
+        if !timed_out {
+            breaker.timeouts.store(0, Ordering::SeqCst);
+        } else if breaker.timeouts.fetch_add(1, Ordering::SeqCst) + 1 >= TIMEOUTS_IN_A_ROW {
+            breaker.tripped.store(true, Ordering::SeqCst);
+        }
+    }
+
     /// Runs the program on `input`, with the timeout.
     fn run(&self, input: &str) -> Result<Run, RunError> {
         self.run_for(input, self.timeout)
@@ -534,31 +572,42 @@ impl Oracle {
 
     /// Runs the program on `input`.
     ///
-    /// The program is killed when it runs past `timeout`. What it prints is
-    /// kept up to a limit, a multiple of the input's size for stdout, and
-    /// the rest is read and dropped, so that a program that prints without
-    /// end costs time up to the timeout but no memory; more stdout than the
-    /// limit fails the run.
+    /// The program runs in a process group of its own, which is killed when
+    /// the program runs past `timeout`, so that what it started dies with
+    /// it. What it prints is kept up to a limit, a multiple of the input's
+    /// size for stdout; more stdout than that kills it and fails the run, at
+    /// once, and more stderr is read and dropped.
+    ///
+    /// After [`TIMEOUTS_IN_A_ROW`] runs in a row time out, the program is
+    /// not run any more ([`Oracle::gave_up`]): one that hangs on every input
+    /// would otherwise cost a timeout per text, and then again per text the
+    /// fallbacks split off.
     ///
     /// The pipes are fed and read on threads of their own that this does
-    /// not wait for past the timeout: a process the program started, such as
-    /// one a wrapper script runs, can hold them open after the program is
-    /// killed, and the threads end only when it exits.
+    /// not wait for past the timeout: a process that left the group can
+    /// hold them open after the program is killed, and the threads end only
+    /// when it exits.
     fn run_for(&self, input: &str, timeout: Duration) -> Result<Run, RunError> {
+        if self.gave_up() {
+            return Err(RunError::Other(format!(
+                "not run, as it timed out {TIMEOUTS_IN_A_ROW} times in a row"
+            )));
+        }
         let mut command = Command::new(&self.program);
         if is_multi_call(&self.program) {
             command.arg("format");
         }
-        let mut child = command
+        command
             .args(["-n", "--oneline", "--show_secrets"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(RunError::Spawn)?;
+            .stderr(Stdio::piped());
+        process::own_group(&mut command);
+        let mut child = command.spawn().map_err(RunError::Spawn)?;
+        let group = process::Group::of(&child);
         let pipes = (child.stdin.take(), child.stdout.take(), child.stderr.take());
         let (Some(mut stdin), Some(mut stdout), Some(mut stderr)) = pipes else {
-            let _ = child.kill();
+            group.kill(&mut child);
             let _ = child.wait();
             return Err(RunError::Other("the process has no pipes".to_owned()));
         };
@@ -571,43 +620,61 @@ impl Oracle {
         });
         let (out_sender, out) = mpsc::channel();
         let (err_sender, err) = mpsc::channel();
-        thread::spawn(move || out_sender.send(read_limited(&mut stdout, stdout_limit)));
-        thread::spawn(move || err_sender.send(read_limited(&mut stderr, STDERR_LIMIT)));
-        let timed_out = || RunError::Other(format!("timed out after {timeout:?}"));
+        thread::spawn(move || out_sender.send(read_limited(&mut stdout, stdout_limit, false)));
+        thread::spawn(move || err_sender.send(read_limited(&mut stderr, STDERR_LIMIT, true)));
+        let too_much = || RunError::Other(format!("printed more than {stdout_limit} bytes"));
         let deadline = Instant::now() + timeout;
+        let mut printed = None;
         let status = loop {
+            if printed.is_none()
+                && let Ok(read) = out.try_recv()
+            {
+                if read.1 {
+                    group.kill(&mut child);
+                    let _ = child.wait();
+                    self.ran(false);
+                    return Err(too_much());
+                }
+                printed = Some(read);
+            }
             match child.try_wait() {
                 Ok(Some(status)) => break status,
                 Ok(None) if Instant::now() >= deadline => {
-                    let _ = child.kill();
+                    group.kill(&mut child);
                     let _ = child.wait();
-                    return Err(timed_out());
+                    self.ran(true);
+                    return Err(RunError::Other(format!("timed out after {timeout:?}")));
                 }
                 Ok(None) => thread::sleep(Duration::from_millis(2)),
                 Err(e) => {
-                    let _ = child.kill();
+                    group.kill(&mut child);
                     let _ = child.wait();
                     return Err(RunError::Other(e.to_string()));
                 }
             }
         };
+        self.ran(false);
         // The program has exited; what is left in the pipes takes moments
         // to read, unless something else holds them open.
         let drained = Instant::now() + PIPE_GRACE;
-        let receive = |from: &mpsc::Receiver<(Vec<u8>, bool)>| {
+        let mut receive = |from: &mpsc::Receiver<(Vec<u8>, bool)>| {
             from.recv_timeout(drained.saturating_duration_since(Instant::now()))
                 .map_err(|_| {
+                    // Unless it left, what holds them is of the group, whose
+                    // id is then still taken and cannot name another group.
+                    group.kill(&mut child);
                     RunError::Other(
                         "exited, but a process it started holds its output open".to_owned(),
                     )
                 })
         };
-        let (stdout, stdout_cut) = receive(&out)?;
+        let (stdout, stdout_cut) = match printed {
+            Some(read) => read,
+            None => receive(&out)?,
+        };
         let (stderr, _) = receive(&err)?;
         if stdout_cut {
-            return Err(RunError::Other(format!(
-                "printed more than {stdout_limit} bytes"
-            )));
+            return Err(too_much());
         }
         Ok(Run {
             success: status.success(),
@@ -628,15 +695,20 @@ const STDERR_LIMIT: usize = 64 << 10;
 /// How long the pipes are read after the program exits.
 const PIPE_GRACE: Duration = Duration::from_secs(5);
 
-/// Reads `reader` to its end, keeping the first `limit` bytes; whether
-/// there were more.
-fn read_limited(reader: &mut impl Read, limit: usize) -> (Vec<u8>, bool) {
+/// Reads the first `limit` bytes of `reader`, and whether there are more:
+/// with `drain`, reading on to the end and dropping the rest, and without,
+/// stopping at the first byte past the limit.
+fn read_limited(reader: &mut impl Read, limit: usize, drain: bool) -> (Vec<u8>, bool) {
     let mut kept = Vec::new();
     let _ = reader
         .by_ref()
         .take(u64::try_from(limit).unwrap_or(u64::MAX))
         .read_to_end(&mut kept);
-    let more = io::copy(reader, &mut io::sink()).is_ok_and(|n| n > 0);
+    let more = if drain {
+        io::copy(reader, &mut io::sink()).is_ok_and(|n| n > 0)
+    } else {
+        reader.read(&mut [0]).is_ok_and(|n| n > 0)
+    };
     (kept, more)
 }
 

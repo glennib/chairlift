@@ -64,8 +64,9 @@ default = ["cli"]
 # uses the library can disable default features.
 cli = ["oracle", "dep:clap", "dep:ignore", "dep:miette", "dep:rayon", "dep:similar"]
 # `chairlift::oracle`, which runs `clickhouse-format` to check formatting kept
-# a text's meaning, for the binary's `--verify`. No dependencies.
-oracle = []
+# a text's meaning, for the binary's `--verify`. On Unix it needs `libc` to kill
+# the process groups it starts.
+oracle = ["dep:libc"]
 # `chairlift::template`, which renders templates once per combination of
 # their branches, as chum does, to check that formatting kept every render.
 # A development and test harness; it adds minijinja.
@@ -88,6 +89,9 @@ rayon = { version = "1.12", optional = true }
 similar = { version = "2.7", optional = true }
 # The renderer behind the `template` feature, at the version chum pins.
 minijinja = { version = "~3.1.0", default-features = false, features = ["builtins", "macros", "loop_controls", "fuel"], optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2.191", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }

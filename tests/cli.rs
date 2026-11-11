@@ -1115,8 +1115,8 @@ fn verify_rejects_a_file_the_oracle_reads_differently() {
     );
 }
 
-/// An oracle that crashes on everything but the check that it formats
-/// judges nothing: each changed file is an error and
+/// An oracle that crashes, or prints without end, on everything but the
+/// check that it formats judges nothing: each changed file is an error and
 /// is left as it is, also with `--quiet`.
 #[cfg(unix)]
 #[test]
@@ -1124,7 +1124,7 @@ fn verify_fails_a_file_the_oracle_cannot_judge() {
     let dir = temp_dir("verify-crash");
     let file = write(&dir, "q.sql", "select a from t;\n");
     let clean = write(&dir, "clean.sql", "SELECT 1;\n");
-    for misbehaviour in ["kill -SEGV $$"] {
+    for misbehaviour in ["kill -SEGV $$", "exec yes SELECT"] {
         let fake = fake_oracle(
             &dir,
             &format!(
@@ -1170,6 +1170,148 @@ if [ "$input" = "select 1" ]; then echo 'SELECT 1;'; else {misbehaviour}; fi"#
         assert_eq!(read(&file), "select a from t;\n");
         assert_eq!(read(&clean), "SELECT 1;\n");
     }
+}
+
+/// Whether the process `pid` has gone, or is a zombie waiting to be
+/// reaped; waits a little for it.
+#[cfg(target_os = "linux")]
+fn is_gone(pid: &str) -> bool {
+    let stat = format!("/proc/{pid}/stat");
+    for _ in 0..100 {
+        match fs::read_to_string(&stat) {
+            Err(_) => return true,
+            Ok(s)
+                if s.rsplit(')')
+                    .next()
+                    .is_some_and(|r| r.trim_start().starts_with('Z')) =>
+            {
+                return true;
+            }
+            Ok(_) => std::thread::sleep(std::time::Duration::from_millis(20)),
+        }
+    }
+    false
+}
+
+/// An oracle that hangs on everything but the check that it formats, and
+/// leaves a process of its own hanging: after a few timeouts `--verify`
+/// stops running it, every file it did not judge is an error and is left
+/// as it is, and no process it started is left behind.
+#[cfg(target_os = "linux")]
+#[test]
+fn verify_gives_up_on_an_oracle_that_hangs() {
+    let dir = temp_dir("verify-hang");
+    let pids = dir.join("pids");
+    let fake = fake_oracle(
+        &dir,
+        &format!(
+            r#"input=$(cat)
+if [ "$input" = "select 1" ]; then echo 'SELECT 1;'; exit; fi
+(sleep 1000 & echo $! >> '{}'); sleep 1000"#,
+            pids.display()
+        ),
+    );
+    let fake = fake.to_str().unwrap();
+    let files: Vec<PathBuf> = (1..=4)
+        .map(|n| {
+            write(
+                &dir,
+                &format!("q{n}.sql"),
+                &format!("select {n};\nselect a;\n"),
+            )
+        })
+        .collect();
+    let started = std::time::Instant::now();
+    let output = run(
+        &[
+            "--verify",
+            "--verify-timeout",
+            "0.3",
+            "-j",
+            "1",
+            "--clickhouse-binary",
+            fake,
+            ".",
+        ],
+        None,
+        Some(&*dir),
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    let errors = stderr(&output);
+    assert!(
+        errors.contains(
+            "× clickhouse-format timed out 3 times in a row, so --verify stopped running it"
+        ),
+        "{errors}"
+    );
+    assert_eq!(errors.matches("× ./q").count(), 4, "{errors}");
+    for (n, file) in files.iter().enumerate() {
+        assert_eq!(read(file), format!("select {};\nselect a;\n", n + 1));
+    }
+    for pid in read(&pids).lines() {
+        assert!(is_gone(pid), "process {pid} is still running");
+    }
+}
+
+/// `SIGTERM` stops chairlift and the oracle processes it is waiting for,
+/// with what they started.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_signal_stops_the_oracle_too() {
+    let dir = temp_dir("verify-signal");
+    let pids = dir.join("pids");
+    let fake = fake_oracle(
+        &dir,
+        &format!(
+            r#"input=$(cat)
+if [ "$input" = "select 1" ]; then echo 'SELECT 1;'; exit; fi
+echo $$ >> '{0}'; (sleep 1000 & echo $! >> '{0}'); sleep 1000"#,
+            pids.display()
+        ),
+    );
+    let file = write(&dir, "q.sql", "select a;\n");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_chairlift"))
+        .args([
+            "--verify",
+            "-j",
+            "1",
+            "--clickhouse-binary",
+            fake.to_str().unwrap(),
+        ])
+        .arg(&file)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    // Both the oracle and its own process have started.
+    for _ in 0..500 {
+        if fs::read_to_string(&pids).is_ok_and(|p| p.lines().count() >= 2) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let status = Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let status = child.wait().unwrap();
+    assert_eq!(
+        std::os::unix::process::ExitStatusExt::signal(&status),
+        Some(15)
+    );
+    let pids = read(&pids);
+    assert!(pids.lines().count() >= 2, "{pids}");
+    for pid in pids.lines() {
+        assert!(is_gone(pid), "process {pid} is still running");
+    }
+    assert_eq!(read(&file), "select a;\n");
 }
 
 /// An oracle that crashes on some statements of a file and judges others:
