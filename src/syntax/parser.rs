@@ -81,6 +81,7 @@ pub(crate) struct Checkpoint {
     fallbacks: usize,
     preceded: usize,
     no_in: bool,
+    else_ends_query: bool,
     fuel: usize,
 }
 
@@ -129,6 +130,9 @@ pub(crate) struct Parser<'t> {
     /// Whether `IN` is not an operator here, as in the first argument of
     /// `POSITION(a IN b)`; see [`Parser::with_no_in`].
     no_in: bool,
+    /// Whether `ELSE` ends the query here, as in `viewIfPermitted(SELECT …
+    /// ELSE f())`; see [`Parser::with_else_ending_query`].
+    else_ends_query: bool,
     /// For each significant token of the statement that opens a bracket, the
     /// index of the one that closes it, or [`UNMATCHED`]; indexed from the
     /// statement's first token. Brackets pair by nesting alone, whatever
@@ -159,6 +163,7 @@ impl<'t> Parser<'t> {
             budget: std::cell::Cell::new(0),
             speculating: 0,
             no_in: false,
+            else_ends_query: false,
             pairs: Vec::new(),
             fuel: std::cell::Cell::new(0),
             fuel_given: 0,
@@ -176,6 +181,7 @@ impl<'t> Parser<'t> {
         self.expected = None;
         self.depth = 0;
         self.no_in = false;
+        self.else_ends_query = false;
         self.budget
             .set(tokens.saturating_mul(SPECULATION_PER_TOKEN) + FUEL_BASE);
         self.fuel_given = tokens.saturating_mul(FUEL_PER_TOKEN) + FUEL_BASE;
@@ -578,6 +584,7 @@ impl<'t> Parser<'t> {
             fallbacks: self.fallbacks.len(),
             preceded: self.preceded.len(),
             no_in: self.no_in,
+            else_ends_query: self.else_ends_query,
             fuel: self.fuel.get(),
         }
     }
@@ -595,6 +602,7 @@ impl<'t> Parser<'t> {
         self.events.truncate(checkpoint.events);
         self.fallbacks.truncate(checkpoint.fallbacks);
         self.no_in = checkpoint.no_in;
+        self.else_ends_query = checkpoint.else_ends_query;
         self.pos = checkpoint.pos;
     }
 
@@ -647,6 +655,25 @@ impl<'t> Parser<'t> {
         let outer = std::mem::replace(&mut self.no_in, no_in);
         let result = parse(self);
         self.no_in = outer;
+        result
+    }
+
+    /// Whether `ELSE` ends the query here.
+    pub(crate) fn else_ends_query(&self) -> bool {
+        self.else_ends_query
+    }
+
+    /// Runs `parse` with `ELSE` ending the query, if `ends` is set, or not,
+    /// as inside a subquery's brackets; the mode is restored however `parse`
+    /// ends.
+    pub(crate) fn with_else_ending_query<T>(
+        &mut self,
+        ends: bool,
+        parse: impl FnOnce(&mut Self) -> Option<T>,
+    ) -> Option<T> {
+        let outer = std::mem::replace(&mut self.else_ends_query, ends);
+        let result = parse(self);
+        self.else_ends_query = outer;
         result
     }
 

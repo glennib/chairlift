@@ -199,7 +199,11 @@ fn table_function(
 fn table_function_args(p: &mut Parser<'_>, view: QueryArgument) -> Option<()> {
     let m = p.start();
     p.expect(T::OpeningRoundBracket)?;
-    p.with_no_in(false, |p| table_function_body(p, view))?;
+    p.with_no_in(false, |p| {
+        p.with_else_ending_query(view == QueryArgument::QueryOrElse, |p| {
+            table_function_body(p, view)
+        })
+    })?;
     p.expect(T::ClosingRoundBracket)?;
     m.complete(p, SyntaxKind::ArgList);
     Some(())

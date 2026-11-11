@@ -225,13 +225,17 @@ SelectQuery
               SelectClause
                 Keyword "SELECT"
                 SelectList
-                  VerbatimItem
+                  Literal
                     Number "1"
-                    BareWord "ELSE"
-                    BareWord "null"
-                    OpeningRoundBracket "("
-                    StringLiteral "'x UInt8'"
-                    ClosingRoundBracket ")"
+            Keyword "ELSE"
+            FunctionCall
+              Name
+                BareWord "null"
+              ArgList
+                OpeningRoundBracket "("
+                Literal
+                  StringLiteral "'x UInt8'"
+                ClosingRoundBracket ")"
             ClosingRoundBracket ")"
 
 > SELECT * FROM file('a.csv', SETTINGS format_csv_delimiter = ';', input_format_csv_skip_first_lines = 1)

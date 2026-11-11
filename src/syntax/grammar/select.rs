@@ -253,16 +253,18 @@ pub(crate) fn subquery(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     let m = p.start();
     p.expect(T::OpeningRoundBracket)?;
     p.with_no_in(false, |p| {
-        if p.at_kw(K::Explain) {
-            fallback::opaque_until(p, &fallback::never)
-        } else if p.at_kw(K::Values) && p.nth_at(1, T::OpeningRoundBracket) {
-            let values = p.start();
-            p.bump_keyword();
-            list(p, SyntaxKind::ExprList, &mut |p| exprs::expr(p).map(drop))
-                .map(|_| values.complete(p, SyntaxKind::ValuesRows))
-        } else {
-            query(p)
-        }
+        p.with_else_ending_query(false, |p| {
+            if p.at_kw(K::Explain) {
+                fallback::opaque_until(p, &fallback::never)
+            } else if p.at_kw(K::Values) && p.nth_at(1, T::OpeningRoundBracket) {
+                let values = p.start();
+                p.bump_keyword();
+                list(p, SyntaxKind::ExprList, &mut |p| exprs::expr(p).map(drop))
+                    .map(|_| values.complete(p, SyntaxKind::ValuesRows))
+            } else {
+                query(p)
+            }
+        })
     })?;
     p.expect(T::ClosingRoundBracket)?;
     Some(m.complete(p, SyntaxKind::Subquery))
@@ -378,12 +380,14 @@ fn clause_at(p: &Parser<'_>) -> Option<Clause> {
 }
 
 /// Whether a query's clause, list or verbatim region ends here: at a clause
-/// keyword, a set operator, or `COMMENT 'text'`, which ends the query of a
-/// `CREATE VIEW`.
+/// keyword, a set operator, `COMMENT 'text'`, which ends the query of a
+/// `CREATE VIEW`, or `ELSE` where it ends the query of
+/// `viewIfPermitted(SELECT … ELSE f())`.
 fn at_clause(p: &Parser<'_>) -> bool {
     clause_at(p).is_some()
         || at_set_operator(p)
         || (p.at_kw(K::Comment) && p.nth_at(1, T::StringLiteral))
+        || (p.else_ends_query() && p.at_kw(K::Else))
 }
 
 /// [`at_clause`], or a comma, which may follow a join to join another table.

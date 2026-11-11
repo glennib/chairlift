@@ -376,6 +376,20 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
         "select * from view(select 1)",
         "SELECT * FROM view(SELECT 1)",
     ),
+    // `ELSE` ends the query of `viewIfPermitted`, and a table function's
+    // name follows it.
+    (
+        "select * from viewIfPermitted(select 1 from t else null('a UInt8'))",
+        "SELECT * FROM viewIfPermitted(SELECT 1 FROM t ELSE null('a UInt8'))",
+    ),
+    (
+        "select * from viewIfPermitted(select 1 else limit(1))",
+        "SELECT * FROM viewIfPermitted(SELECT 1 ELSE limit(1))",
+    ),
+    (
+        "select * from viewIfPermitted(select a from t where x else where(1))",
+        "SELECT * FROM viewIfPermitted(SELECT a FROM t WHERE x ELSE where(1))",
+    ),
     (
         "select 1 except select 2 intersect distinct select 3",
         "SELECT 1 EXCEPT SELECT 2 INTERSECT DISTINCT SELECT 3",
