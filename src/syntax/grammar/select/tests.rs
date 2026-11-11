@@ -380,6 +380,15 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
         "SELECT (from BETWEEN 0 AND 2)",
     ),
     ("select * from (from t)", "SELECT * FROM (FROM t)"),
+    // `FROM` starts a query only before a table, and brackets after it hold
+    // one only if they hold a query or joins.
+    ("select (from (1))", "SELECT (from (1))"),
+    ("select (from (x))", "SELECT (from (x))"),
+    ("select (from (x, y))", "SELECT (FROM (x, y))"),
+    ("from and select 1", "FROM and SELECT 1"),
+    ("from in select 1", "FROM in SELECT 1"),
+    ("from 'f.csv' select 1", "FROM 'f.csv' SELECT 1"),
+    ("create table t as from(1)", "CREATE TABLE t AS from(1)"),
     // `ALL` and `DISTINCT` right after `SELECT` are always modifiers.
     ("select all in (1)", "SELECT ALL in (1)"),
     ("select all is null", "SELECT ALL is null"),

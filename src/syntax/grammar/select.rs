@@ -65,14 +65,18 @@ pub(crate) fn at_statement(p: &Parser<'_>) -> bool {
 }
 
 /// Whether the `n`th token starts the `FROM`-first form of a query, `FROM t
-/// …`, rather than an expression over a column named `from`: as in
-/// ClickHouse (`parenthesesHoldExpressionOverColumnNamedFrom`), `from`
-/// followed by an operator is a column, so `(from BETWEEN 0 AND 2)` is no
-/// subquery.
+/// …`: `FROM` and a table, whatever word names it, so `FROM and SELECT 1`
+/// selects from a table named `and`.
 fn at_from_first(p: &Parser<'_>, n: usize) -> bool {
-    p.nth_at_kw(n, K::From)
-        && (names::at_name(p, n + 1) || p.nth_at(n + 1, T::OpeningRoundBracket))
-        && !at_operator(p, n + 1)
+    p.nth_at_kw(n, K::From) && tables::at_table(p, n + 1)
+}
+
+/// [`at_from_first`] right after an opening bracket, where ClickHouse
+/// (`parenthesesHoldExpressionOverColumnNamedFrom`) reads an expression over
+/// a column named `from` if an operator follows it, so `(from BETWEEN 0 AND
+/// 2)` is no subquery.
+fn at_bracketed_from_first(p: &Parser<'_>, n: usize) -> bool {
+    at_from_first(p, n) && !at_operator(p, n + 1)
 }
 
 /// Whether the `n`th token starts a binary or postfix operator
@@ -215,7 +219,7 @@ pub(crate) fn at_subquery(p: &Parser<'_>, n: usize) -> bool {
                     && (keyword != K::With || select_follows_with(p, n))
             }
             Some(K::Values) => p.nth_at(n + 2, T::OpeningRoundBracket),
-            Some(K::From) => at_from_first(p, n + 1),
+            Some(K::From) => at_bracketed_from_first(p, n + 1),
             _ => false,
         }
 }

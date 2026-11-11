@@ -60,6 +60,30 @@ fn table_expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     Some(m.complete(p, SyntaxKind::TableExpr))
 }
 
+/// Whether a table can start at the `n`th token (`ParserTableExpression`): a
+/// name, whatever word it is, a file name as a string, or brackets that are
+/// closed and may hold a query or joins, which is what `SELECT`, `WITH`,
+/// `FROM`, `VALUES`, `EXPLAIN` or `(` first, or a comma or `JOIN` outside
+/// further brackets, say. `(1)` holds neither, so `from (1)` calls a
+/// function named `from`. It looks no further into the brackets, so that
+/// nested brackets cost one look each.
+pub(super) fn at_table(p: &Parser<'_>, n: usize) -> bool {
+    match p.nth(n) {
+        Some(T::OpeningRoundBracket) => {
+            p.closer(n).is_some()
+                && (p.nth_at(n + 1, T::OpeningRoundBracket)
+                    || matches!(
+                        p.nth_keyword(n + 1),
+                        Some(K::Select | K::With | K::From | K::Values | K::Explain)
+                    )
+                    || p.group_items(n)
+                        .any(|i| p.nth_at(i, T::Comma) || p.nth_at_kw(i, K::Join)))
+        }
+        Some(T::StringLiteral) => true,
+        _ => names::at_name(p, n),
+    }
+}
+
 /// The table itself: a subquery, joins in parentheses, a table function, a
 /// name, or a file name as a string.
 fn table(p: &mut Parser<'_>) -> Option<CompletedMarker> {
@@ -123,7 +147,7 @@ fn view_at(p: &Parser<'_>, n: usize) -> QueryArgument {
 
 /// Whether the `n`th token starts a query without parentheses.
 fn at_query(p: &Parser<'_>, n: usize) -> bool {
-    p.nth_at_kw(n, K::Select) || p.nth_at_kw(n, K::With) || select::at_from_first(p, n)
+    p.nth_at_kw(n, K::Select) || p.nth_at_kw(n, K::With) || select::at_bracketed_from_first(p, n)
 }
 
 /// A table function whose name, `name`, has been parsed: a

@@ -55,7 +55,7 @@ const POSITIONS: &[&str] = &[
     // Collections, and brackets that hold a query only where ClickHouse reads
     // one.
     "[{w}]", "({w}, 1)", "({w})", "{{'a': {w}}}", "({w} - 1)", "({w} [1])", "({w} in (1))",
-    "({w} and x)", "({w} is null)", "x in ({w} - 1)",
+    "({w} and x)", "({w} is null)", "x in ({w} - 1)", "({w} (1))", "({w} (x))", "({w} (x, y))",
     // CASE, INTERVAL, parameters.
     "case {w} when {w} then {w} else {w} end", "case when {w} then 1 end",
     "interval {w} day", "interval 1 {w}", "{{{w}:String}}", "{{x:{w}}}",
