@@ -47,6 +47,33 @@ jobs:
       - name: Run CI checks
         run: mise run ci
 
+  # Fails when `chairlift::format` got more than 10% slower than at the base
+  # commit: the pull request's base, or the commit a push started from. Both
+  # are built and timed in this one job; scripts/bench-compare.sh says how
+  # the comparison stays steady on a shared runner.
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compare the format benchmark with the base commit
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ]; then
+            echo "::notice::no base commit to compare with"
+            exit 0
+          fi
+          scripts/bench-compare.sh "$BASE" 10
+
   corpus:
     runs-on: ubuntu-latest
 

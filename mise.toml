@@ -95,6 +95,10 @@ run = "cargo build --lib --no-default-features"
 description = "Run benchmarks"
 run = "cargo bench --bench throughput"
 
+[tasks."bench:compare"]
+description = "Compare the format benchmark with a base revision or directory given after --, as CI does; fails when more than 10% slower"
+run = "scripts/bench-compare.sh"
+
 [tasks."fuzz:check"]
 description = "Check that the fuzz targets compile"
 run = "cargo check --manifest-path fuzz/Cargo.toml"
