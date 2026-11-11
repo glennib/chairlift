@@ -12,19 +12,39 @@ M9 (chum integration) is not part of this run.
 | M2. Verifier, splitter, safe-cleanup CLI | done | review findings fixed |
 | M3. Parser core | done | both grammar reviews' fixes are on `main` |
 | M4. Formatting rules and printer | done | acceptance measured; reviews' fixes on `main`; style readings await the project owner |
-| M5. Jinja templates | implemented, unmerged | complete on its own stack; to be rebased onto `main`; not yet reviewed |
+| M5. Jinja templates | implemented | on `main`; acceptance measured; not yet reviewed |
 | M6. CLI polish and performance | done | acceptance measured; the CI benchmark check's sensitivity is unproven |
 | M7. Remaining statement kinds | implemented | on `main`; acceptance met; not yet reviewed |
 | M8. Hardening and first release | not started | |
 
 ## Resuming the work
 
-Everything finished is on `main`; there is no unmerged branch.
-In progress: M5 (Jinja templates) and the last two parts of M7
-(`ALTER TABLE` with the other `CREATE` kinds; access control with `SHOW` and `DESCRIBE`).
-M8 comes last.
+The run was paused on 2026-11-11 with M0–M7 on `main` and no unmerged branch.
+Nothing is running.
+Only the tip of each landed stack was checked with `mise run ci`, not every commit.
 
-Only the tip of a branch is checked with `mise run ci`, not every commit.
+What remains, in order:
+
+1. **An independent review of M5, M6 and M7.**
+   None of the three has had one, and every review of an earlier milestone found real defects.
+   Aim it at:
+   - templates: renders for every branch combination against the new statement kinds
+     (`corpus:templates`, `test:templates`),
+     the two templates still refused, the 102 statements kept because a tag is glued into a word;
+   - keyword slots in the M7 statements
+     (`mise run test:keyword-positions`), secrets in access-control statements, `INSERT` data kept byte for byte;
+   - the CLI: exit codes, `--verify` with and without the `template` feature, parallel output order;
+   - idempotence and style on generated input for the M7 layouts, and reading real output.
+2. **M8**: fuzz targets run for an hour, the docs-examples corpus in the oracle sweep, the README
+   (installation, usage, style summary, editor setup, pre-commit),
+   `CHANGELOG.md` through release-plz, and `--version` printing the keyword-list version.
+3. **For the project owner**: the style questions and the snapshots listed below, and the release itself.
+
+Known loose ends:
+
+- The CI benchmark check never fails on identical builds, but did not reliably catch a build made twice as slow.
+- `SYSTEM`, `EXPLAIN` and KQL `PRINT` statements stay verbatim, as planned.
+- In plain SQL, `{map} AS m` does not upper-case `as`.
 
 ### Setup
 
@@ -36,32 +56,11 @@ Only the tip of a branch is checked with `mise run ci`, not every commit.
 - Tasks: `mise run ci`, `test:corpus`, `test:keyword-positions`, `test:templates`, `corpus`, `corpus:oracle`,
   `corpus:recase`, `corpus:expressions`, `tree -- FILE`, `fuzz:lexer`, `fuzz:parser`, `fuzz:format`, `fuzz:doc`.
 
-### Notes for M5, M7 and M8
+### Notes for M8
 
-M5 (Jinja templates), in addition to its scope in `MILESTONES.md`:
-
-- The verifier models one render, with every `{% if %}` branch taken.
-  The template defects found so far were invisible to it.
-  `mise run test:templates` renders generated templates for every branch combination and loop counts
-  and compares the renders, including the text of `::` literals;
-  it fails when any of the three template defects is put back.
-  Extend it rather than start again, and plug rendered variants into the oracle at `oracle::variants`.
-- A file where rendering can remove the line break that ends a line comment is left unchanged and reported
-  (`Error::Template`, exit 2),
-  unless rendering resumes right after a block tag or Jinja comment that ends its line without a marker.
-  Two stateless templates are refused: a comment ending a macro body before `{%- endmacro %}`.
-- An implicit table alias must not cross a block tag.
-  With alternative `SELECT` branches under `{% if %}`/`{% else %}`,
-  the first branch's table takes the next `select` as its alias, which is how ClickHouse reads the unrendered text.
-- A `{{ config() }}` before a statement makes the whole statement verbatim; all dbt models start that way.
-- In a template with block tags, everything from an `INSERT … FORMAT` to the end of the file is left as it is.
-  The rule is broader than it needs to be.
-
-M7: the grammar and layout guides are the rustdoc at the top of `src/syntax/grammar/mod.rs` and `src/layout/mod.rs`.
-Add every new keyword position to `tests/keyword_positions.rs`.
-
-M8: no release has been made and no release workflow runs.
+No release has been made and no release workflow runs.
 `dist generate --mode=ci` creates the cargo-dist workflow, and `release-plz.yml` runs on manual dispatch only.
+The grammar and layout guides are the rustdoc at the top of `src/syntax/grammar/mod.rs` and `src/layout/mod.rs`.
 
 ### How the work was checked
 
@@ -189,6 +188,12 @@ Readings chosen for access control, `SHOW` and `DESCRIBE`:
 - A `GRANT` on one object breaks before `ON`, `TO` and `WITH … OPTION`.
 - `u@'%'`, `SELECT(a, b)` and `CURRENT GRANTS(…)` are written without spaces.
 - `DESCRIBE (subquery)` always spans lines, since a subquery hugs its brackets.
+
+Readings chosen for templates:
+
+- `{% endif %};` puts the `;` on its own line after the tag.
+- A header (`{{ config() }}`, `{% set %}`) keeps at most one blank line after it.
+- A `{{ … }}` that follows the previous `;` on its line stays there, so a test hint stays with its statement.
 
 ## Deviations from the plan
 
@@ -690,3 +695,42 @@ Only the tip was checked with `mise run ci` (513 tests).
   By leading keyword: `SYSTEM` 3,887, `EXPLAIN` 2,941, `PRINT` 1,454, `{{` 252, `CREATE` 204
   (`WORKLOAD`, `NAMED COLLECTION`, `HANDLER`, `RESOURCE` and hypothetical indexes).
 - Verify and idempotence hold on every corpus file; the oracle judges 270,251 statements, none differing.
+
+### M5
+
+On `main`.
+Only the tip was checked with `mise run ci` (536 tests).
+Not independently reviewed.
+
+- **Render harness**: `chairlift::template`, behind the `template` feature,
+  renders a template once per combination of its `{% if %}` branches
+  (all up to 16, a fixed sample beyond)
+  and with each `{% for %}` running 0, 1 and 3 times,
+  in chum's environment with stub filters and stubs for dbt's `config`, `ref`, `source`, `is_incremental` and `var`.
+  The corpus tool compares the renders of input and output token by token and sends each distinct pair to the oracle.
+  `mise run corpus:templates` runs it; `corpus:oracle` includes it.
+  With the feature on, `--verify` judges a template through its renders.
+
+| Corpora together | Result |
+| --- | --- |
+| Templates rendered | 283, in 934 variants |
+| Token-stream differences between input and output renders | 0 |
+| Variants the oracle judged | 801, all accepted, none differing |
+
+- A `{{ … }}` or `{% set %}` on lines of its own before a statement is a header at column 0.
+- An alias without `AS` never crosses a block tag, so alternative `SELECT` branches parse.
+- Block tags are allowed after clause keywords, inside subqueries, and between an `ALTER`'s head and its commands.
+- A templated `INSERT` is laid out when every render has the same data and no block
+  or comment tag sits in the statement.
+  Template text after `INSERT … FORMAT` data is kept only up to a blank line that every render keeps.
+- Acceptance: every statement in chum's template fixtures is formatted
+  (16 of 16),
+  the DESIGN.md example included; 41 of 42 dbt statements,
+  the other being a macro file whose only statement is `{{ print() }}`.
+  The local corpora hold no template.
+- Stateless templates: 6,735 of 7,102 statements formatted.
+  Kept as written: 102 with a tag glued into a word, 11 with data that differs between renders,
+  4 where a render joins tokens, 3 with a tag inside an expression.
+  Two templates are refused.
+- Four defects the harness found were fixed, among them a left-out branch joining `end` and `and` into `ENDAND`.
+- Verify and idempotence hold on every corpus file; the oracle judges 270,251 stateless statements, none differing.
