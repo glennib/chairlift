@@ -600,6 +600,10 @@ impl<'s> Writer<'s> {
                 matches!(right, T::OpeningSquareBracket | T::OpeningRoundBracket)
             }
             (S::PrefixExpr, _) => matches!(left, T::Minus | T::Plus),
+            // `REFERENCES db.t(a)`: a table and its columns, written as a call.
+            (S::ForeignKeyDef, _) => {
+                right == T::OpeningRoundBracket && matches!(prev.kind(), S::Name | S::QualifiedName)
+            }
             (S::MapEntry, _) => right == T::Colon,
             // JSON paths: `json.^a`, `json.a.:Int64`.
             (S::QualifiedName, _) => matches!(left, T::Caret | T::Colon),
