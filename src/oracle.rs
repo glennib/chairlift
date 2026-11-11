@@ -473,7 +473,12 @@ impl Oracle {
                 .collect();
             workers
                 .into_iter()
-                .map(|w| w.join().unwrap_or_default())
+                // A panic is a bug here, not a verdict on a text: it must not
+                // pass as "not judged".
+                .map(|w| {
+                    w.join()
+                        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+                })
                 .collect()
         });
         for (k, verdict) in results.into_iter().flatten() {
@@ -481,14 +486,7 @@ impl Oracle {
         }
         verdicts
             .into_iter()
-            .map(|v| {
-                v.unwrap_or_else(|| {
-                    Verdict::Rejected(Rejection {
-                        class: RejectionClass::Failed,
-                        message: "the oracle's worker thread panicked".to_owned(),
-                    })
-                })
-            })
+            .map(|v| v.expect("every task leaves a verdict or more tasks"))
             .collect()
     }
 
