@@ -5,6 +5,15 @@
 //! back or diffed ([`finish`]), giving an [`Outcome`] or a [`FileError`];
 //! files are handled in parallel, and reported in path order afterwards.
 
+/// `eprintln!` that does not panic when stderr is closed or a broken pipe,
+/// as when it is piped into `head`: what cannot be said is dropped, and the
+/// run goes on to the exit status it would have had.
+macro_rules! say {
+    ($($arg:tt)*) => {{
+        let _ = writeln!(std::io::stderr(), $($arg)*);
+    }};
+}
+
 #[path = "chairlift/diagnostic.rs"]
 mod diagnostic;
 #[path = "chairlift/parallel.rs"]
@@ -461,11 +470,11 @@ fn main() -> ExitCode {
     };
     if cli.paths.iter().any(|p| p.as_os_str() == "-") {
         if cli.paths.len() > 1 {
-            eprintln!("error: `-` (stdin) cannot be combined with other paths");
+            say!("error: `-` (stdin) cannot be combined with other paths");
             return ExitCode::from(2);
         }
     } else if cli.stdin_filename.is_some() {
-        eprintln!("error: --stdin-filename names the file on stdin, so it needs `-` as the path");
+        say!("error: --stdin-filename names the file on stdin, so it needs `-` as the path");
         return ExitCode::from(2);
     }
     let jobs = cli.jobs.map_or_else(parallel::default_jobs, usize::from);
@@ -518,7 +527,7 @@ fn stdin(
             report(reporter, gave_up);
         }
         if reporter.verbosity == Verbosity::Verbose {
-            eprintln!(
+            say!(
                 "{}",
                 verify::summary(&verification.counts, verification.unrendered)
             );
@@ -549,9 +558,14 @@ fn stdin(
         (_, Some(diff)) => stdout.write_all(diff.as_bytes()),
         (Action::Check | Action::Diff, None) => Ok(()),
     };
-    if let Err(e) = written.and_then(|()| stdout.flush()) {
-        eprintln!("error: cannot write to stdout: {e}");
-        return ExitCode::from(2);
+    match written.and_then(|()| stdout.flush()) {
+        // Whoever reads stdout stopped reading: as for `head`, that is
+        // theirs to decide.
+        Err(e) if e.kind() != io::ErrorKind::BrokenPipe => {
+            say!("error: cannot write to stdout: {e}");
+            return ExitCode::from(2);
+        }
+        _ => {}
     }
     if settings.action != Action::Write && outcome.changed {
         ExitCode::from(1)
@@ -579,7 +593,7 @@ fn not_utf8(e: std::string::FromUtf8Error) -> FileError {
 /// Prints `diagnostic` to stderr, unless the verbosity leaves it out.
 fn report(reporter: Reporter, diagnostic: &Diagnostic) {
     if let Some(text) = reporter.render(diagnostic) {
-        eprint!("{text}");
+        let _ = io::stderr().write_all(text.as_bytes());
     }
 }
 
@@ -624,6 +638,7 @@ fn files(
     let mut unchanged = 0;
     let mut refused = 0;
     let mut stdout = io::stdout().lock();
+    let mut stdout_closed = false;
     for (i, (path, outcome)) in files.iter().zip(outcomes).enumerate() {
         let shown = path.display().to_string();
         let notes = verification.as_ref().and_then(|v| v.notes.get(i));
@@ -634,7 +649,7 @@ fn files(
             Ok(Outcome { changed: false, .. }) => {
                 unchanged += 1;
                 if reporter.verbosity == Verbosity::Verbose {
-                    eprintln!("{shown}: already formatted");
+                    say!("{shown}: already formatted");
                 }
             }
             Ok(Outcome {
@@ -644,20 +659,28 @@ fn files(
                 changed += 1;
                 if reporter.verbosity == Verbosity::Verbose {
                     match settings.action {
-                        Action::Write => eprintln!("{shown}: reformatted"),
+                        Action::Write => say!("{shown}: reformatted"),
                         Action::Check | Action::Diff => {
-                            eprintln!("{shown}: would be reformatted");
+                            say!("{shown}: would be reformatted");
                         }
                     }
                 }
                 let written = match (settings.action, diff) {
+                    _ if stdout_closed => Ok(()),
                     (Action::Check, _) => writeln!(stdout, "Would reformat: {shown}"),
                     (_, Some(diff)) => stdout.write_all(diff.as_bytes()),
                     (_, None) => Ok(()),
                 };
-                if let Err(e) = written {
-                    eprintln!("error: cannot write to stdout: {e}");
-                    return ExitCode::from(2);
+                match written {
+                    // Whoever reads stdout stopped reading, as `head` does:
+                    // the rest goes unprinted, and the run ends as it would
+                    // have.
+                    Err(e) if e.kind() == io::ErrorKind::BrokenPipe => stdout_closed = true,
+                    Err(e) => {
+                        say!("error: cannot write to stdout: {e}");
+                        return ExitCode::from(2);
+                    }
+                    Ok(()) => {}
                 }
             }
             Err(e) => {
@@ -678,13 +701,13 @@ fn files(
     let summary = summary(settings.action, changed, unchanged, refused, errors);
     match reporter.verbosity {
         Verbosity::Quiet => {}
-        Verbosity::Normal => eprintln!("{summary}"),
-        Verbosity::Verbose => eprintln!("{summary} in {:.2} s", started.elapsed().as_secs_f64()),
+        Verbosity::Normal => say!("{summary}"),
+        Verbosity::Verbose => say!("{summary} in {:.2} s", started.elapsed().as_secs_f64()),
     }
     if let Some(verification) = verification
         && reporter.verbosity != Verbosity::Quiet
     {
-        eprintln!(
+        say!(
             "{}",
             verify::summary(&verification.counts, verification.unrendered)
         );

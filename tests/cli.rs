@@ -519,6 +519,45 @@ fn a_file_with_the_longest_name_is_written() {
     assert_eq!(read(&file), CLEAN);
 }
 
+/// A reader of stdout or stderr that stops reading, as `head` does, stops
+/// the output quietly: no panic, no error, and the exit status the run
+/// would have had.
+#[test]
+fn a_closed_pipe_stops_the_output_quietly() {
+    let dir = temp_dir("pipe");
+    for n in 0..3000 {
+        write(&dir, &format!("f{n}.sql"), "select 1");
+    }
+    for (args, closed) in [(&["--check"][..], "stdout"), (&["--check", "-v"], "stderr")] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_chairlift"));
+        command.args(args).arg(&*dir).stdin(Stdio::null());
+        if closed == "stdout" {
+            command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        } else {
+            command.stdout(Stdio::null()).stderr(Stdio::piped());
+        }
+        let mut child = command.spawn().unwrap();
+        // More than a pipe holds goes to the closed pipe.
+        let mut stderr = String::new();
+        if closed == "stdout" {
+            drop(child.stdout.take());
+            std::io::Read::read_to_string(&mut child.stderr.take().unwrap(), &mut stderr).unwrap();
+        } else {
+            drop(child.stderr.take());
+        }
+        let status = child.wait().unwrap();
+        assert_eq!(status.code(), Some(1), "{closed}: {stderr}");
+        assert_eq!(
+            stderr,
+            if closed == "stdout" {
+                "3000 files would be reformatted, 0 files already formatted\n"
+            } else {
+                ""
+            }
+        );
+    }
+}
+
 #[test]
 fn jinja_mode_by_name() {
     let dir = temp_dir("jinja");
