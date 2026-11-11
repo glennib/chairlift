@@ -30,6 +30,7 @@
 //! | `create` | `CREATE TABLE` and materialized views: header line, element list, column definitions, storage clauses, `AS` |
 //! | `insert` | `INSERT`: header line, data, the query after it |
 //! | `simple` | `DROP`, `SET`, `RENAME`, `OPTIMIZE` and other statements of a line or two |
+//! | `alter` | `ALTER` and its commands, the lightweight `DELETE` and `UPDATE` |
 //! | `tree` | preorder node numbers and the facts about each node, from one pass |
 //! | `comment_end` | the template line comments the rendering can make run on, which leave the text as it is |
 //!
@@ -85,6 +86,7 @@
 //! is kept as written. Extend it with the node kinds whose rule puts a line
 //! break between children.
 
+mod alter;
 mod comment_end;
 mod create;
 mod expr;
@@ -349,6 +351,7 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         S::TtlElement => create::ttl_rule(w, node),
         S::SqlSecurityClause => create::sql_security(w, node),
         S::AsClause => create::as_clause(w, node),
+        S::AlterCommand => alter::command(w, node),
         S::ViewTargetClause => create::view_target(w, node),
         S::FromClause
         | S::ArrayJoinClause
@@ -356,7 +359,8 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         | S::SettingsClause
         | S::WindowClause
         | S::TtlClause
-        | S::LimitByClause => query::list_clause(w, node),
+        | S::LimitByClause
+        | S::UpdateSetClause => query::list_clause(w, node),
         S::GroupByClause => query::group_by(w, node),
         S::JoinClause => query::join(w, node),
         S::ParenJoin => query::paren_join(w, node),

@@ -55,7 +55,7 @@ fn insert_data_is_one_token() {
 
 #[test]
 fn every_statement_is_verbatim_until_its_grammar_exists() {
-    for source in ["SYSTEM FLUSH LOGS", "ALTER TABLE t ADD COLUMN a Int8"] {
+    for source in ["SYSTEM FLUSH LOGS", "EXPLAIN SELECT 1"] {
         let parse = parse(source, Mode::Sql);
         let [statement] = &parse.statements()[..] else {
             panic!("{source}: one statement");

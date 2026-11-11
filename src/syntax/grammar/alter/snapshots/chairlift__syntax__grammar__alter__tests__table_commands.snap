@@ -1,0 +1,300 @@
+---
+source: src/syntax/grammar/alter/tests.rs
+expression: "trees(&[\"ALTER TABLE t MODIFY ORDER BY (a, b), MODIFY SAMPLE BY c, REMOVE SAMPLE BY\",\n\"ALTER TABLE t MODIFY TTL d + INTERVAL 1 DAY DELETE, d + INTERVAL 1 HOUR TO VOLUME 'v'\",\n\"ALTER TABLE t REMOVE TTL, MATERIALIZE TTL IN PARTITION 2, REWRITE PARTS\",\n\"ALTER TABLE t MODIFY SETTING a = 1, b = 'x'\",\n\"ALTER TABLE t RESET SETTING a, b\",\n\"ALTER TABLE t MODIFY COMMENT 'x', APPLY DELETED MASK IN PARTITION 1, APPLY PATCHES\",\n\"ALTER TABLE mv MODIFY QUERY SELECT a FROM t WHERE b\",\n\"ALTER TABLE mv MODIFY REFRESH EVERY 1 DAY, MODIFY SQL SECURITY INVOKER\",\n\"ALTER DATABASE d ON CLUSTER c MODIFY SETTING a = 1\",\n\"ALTER DATABASE d MODIFY COMMENT 'x'\",\n\"ALTER TEMPORARY TABLE t DROP COLUMN a\",\n\"ALTER TABLE t (ADD COLUMN a Int8), (DROP COLUMN b)\",])"
+---
+> ALTER TABLE t MODIFY ORDER BY (a, b), MODIFY SAMPLE BY c, REMOVE SAMPLE BY
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "MODIFY"
+      OrderByClause
+        Keyword "ORDER"
+        Keyword "BY"
+        TupleExpr
+          OpeningRoundBracket "("
+          Name
+            BareWord "a"
+          Comma ","
+          Name
+            BareWord "b"
+          ClosingRoundBracket ")"
+    Comma ","
+    AlterCommand
+      Keyword "MODIFY"
+      SampleByClause
+        Keyword "SAMPLE"
+        Keyword "BY"
+        Name
+          BareWord "c"
+    Comma ","
+    AlterCommand
+      Keyword "REMOVE"
+      Keyword "SAMPLE"
+      Keyword "BY"
+
+> ALTER TABLE t MODIFY TTL d + INTERVAL 1 DAY DELETE, d + INTERVAL 1 HOUR TO VOLUME 'v'
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "MODIFY"
+      TtlClause
+        Keyword "TTL"
+        TtlList
+          TtlElement
+            BinaryExpr
+              Name
+                BareWord "d"
+              Plus "+"
+              IntervalExpr
+                Keyword "INTERVAL"
+                Literal
+                  Number "1"
+                IntervalUnit
+                  Keyword "DAY"
+            Keyword "DELETE"
+          Comma ","
+          TtlElement
+            BinaryExpr
+              Name
+                BareWord "d"
+              Plus "+"
+              IntervalExpr
+                Keyword "INTERVAL"
+                Literal
+                  Number "1"
+                IntervalUnit
+                  Keyword "HOUR"
+            Keyword "TO"
+            Keyword "VOLUME"
+            Literal
+              StringLiteral "'v'"
+
+> ALTER TABLE t REMOVE TTL, MATERIALIZE TTL IN PARTITION 2, REWRITE PARTS
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "REMOVE"
+      Keyword "TTL"
+    Comma ","
+    AlterCommand
+      Keyword "MATERIALIZE"
+      Keyword "TTL"
+      InPartition
+        Keyword "IN"
+        Keyword "PARTITION"
+        Literal
+          Number "2"
+    Comma ","
+    AlterCommand
+      Keyword "REWRITE"
+      Keyword "PARTS"
+
+> ALTER TABLE t MODIFY SETTING a = 1, b = 'x'
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "MODIFY"
+      Keyword "SETTING"
+      SettingsList
+        SettingItem
+          Name
+            BareWord "a"
+          Equals "="
+          Literal
+            Number "1"
+        Comma ","
+        SettingItem
+          Name
+            BareWord "b"
+          Equals "="
+          Literal
+            StringLiteral "'x'"
+
+> ALTER TABLE t RESET SETTING a, b
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "RESET"
+      Keyword "SETTING"
+      NameList
+        Name
+          BareWord "a"
+        Comma ","
+        Name
+          BareWord "b"
+
+> ALTER TABLE t MODIFY COMMENT 'x', APPLY DELETED MASK IN PARTITION 1, APPLY PATCHES
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "MODIFY"
+      Keyword "COMMENT"
+      Literal
+        StringLiteral "'x'"
+    Comma ","
+    AlterCommand
+      Keyword "APPLY"
+      Keyword "DELETED"
+      Keyword "MASK"
+      InPartition
+        Keyword "IN"
+        Keyword "PARTITION"
+        Literal
+          Number "1"
+    Comma ","
+    AlterCommand
+      Keyword "APPLY"
+      Keyword "PATCHES"
+
+> ALTER TABLE mv MODIFY QUERY SELECT a FROM t WHERE b
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "mv"
+  AlterCommandList
+    AlterCommand
+      Keyword "MODIFY"
+      Keyword "QUERY"
+      SelectQuery
+        SelectClause
+          Keyword "SELECT"
+          SelectList
+            Name
+              BareWord "a"
+        FromClause
+          Keyword "FROM"
+          TableList
+            TableExpr
+              Name
+                BareWord "t"
+        WhereClause
+          Keyword "WHERE"
+          Name
+            BareWord "b"
+
+> ALTER TABLE mv MODIFY REFRESH EVERY 1 DAY, MODIFY SQL SECURITY INVOKER
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "mv"
+  AlterCommandList
+    AlterCommand
+      Keyword "MODIFY"
+      RefreshClause
+        Keyword "REFRESH"
+        Keyword "EVERY"
+        TimeInterval
+          Literal
+            Number "1"
+          IntervalUnit
+            Keyword "DAY"
+    Comma ","
+    AlterCommand
+      Keyword "MODIFY"
+      SqlSecurityClause
+        Keyword "SQL"
+        Keyword "SECURITY"
+        Keyword "INVOKER"
+
+> ALTER DATABASE d ON CLUSTER c MODIFY SETTING a = 1
+AlterQuery
+  Keyword "ALTER"
+  Keyword "DATABASE"
+  Name
+    BareWord "d"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+  AlterCommandList
+    AlterCommand
+      Keyword "MODIFY"
+      Keyword "SETTING"
+      SettingsList
+        SettingItem
+          Name
+            BareWord "a"
+          Equals "="
+          Literal
+            Number "1"
+
+> ALTER DATABASE d MODIFY COMMENT 'x'
+AlterQuery
+  Keyword "ALTER"
+  Keyword "DATABASE"
+  Name
+    BareWord "d"
+  AlterCommandList
+    AlterCommand
+      Keyword "MODIFY"
+      Keyword "COMMENT"
+      Literal
+        StringLiteral "'x'"
+
+> ALTER TEMPORARY TABLE t DROP COLUMN a
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TEMPORARY"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "DROP"
+      Keyword "COLUMN"
+      Name
+        BareWord "a"
+
+> ALTER TABLE t (ADD COLUMN a Int8), (DROP COLUMN b)
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      OpeningRoundBracket "("
+      Keyword "ADD"
+      Keyword "COLUMN"
+      ColumnDef
+        Name
+          BareWord "a"
+        DataType
+          Name
+            BareWord "Int8"
+      ClosingRoundBracket ")"
+    Comma ","
+    AlterCommand
+      OpeningRoundBracket "("
+      Keyword "DROP"
+      Keyword "COLUMN"
+      Name
+        BareWord "b"
+      ClosingRoundBracket ")"

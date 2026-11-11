@@ -233,14 +233,19 @@ fn verbatim_text_is_reindented_as_a_block() {
 
 #[test]
 fn statements_kept_as_written_stay_as_the_proposal_prints_them() {
-    for expected in [
-        proposal::IN_LIST,
-        proposal::BLANK_LINES_KEPT,
-        proposal::ALTER_TABLE,
-        proposal::GRANT,
-    ] {
+    for expected in [proposal::BLANK_LINES_KEPT, proposal::GRANT] {
         kept(expected);
     }
+}
+
+#[test]
+fn alter_table_commands_are_a_list() {
+    golden(proposal::ALTER_TABLE);
+}
+
+#[test]
+fn a_delete_condition_breaks_as_a_where_clause_does() {
+    golden(proposal::IN_LIST);
 }
 
 // The `CREATE` examples of sections 2 and 3, and the DESIGN.md example of
@@ -342,4 +347,35 @@ fn inserts_in_the_proposal_s_style() {
 #[test]
 fn statements_of_a_line_or_two_in_the_proposal_s_style() {
     golden(ONE_LINE_STATEMENTS);
+}
+
+const ALTERS_AND_MUTATIONS: &str = "
+ALTER TABLE analytics.page_views MODIFY SETTING ttl_only_drop_parts = 1;
+ALTER TABLE raw.events DELETE WHERE event_type = 'test' SETTINGS mutations_sync = 2;
+
+ALTER TABLE raw.events ON CLUSTER '{cluster}'
+    MODIFY COLUMN visitor_id String DEFAULT '' CODEC(ZSTD(1)),
+    ADD INDEX visitor_bf visitor_id TYPE bloom_filter(0.01) GRANULARITY 4,
+    DROP PARTITION '2025-12',
+    UPDATE site = lower(site) WHERE site != lower(site);
+
+ALTER TABLE analytics.page_views_mv MODIFY QUERY
+SELECT
+    toStartOfHour(event_time) AS hour,
+    site,
+    count() AS views
+FROM raw.events
+GROUP BY hour, site;
+
+DELETE FROM raw.events ON CLUSTER '{cluster}'
+WHERE event_time < now() - INTERVAL 13 MONTH;
+
+UPDATE raw.events
+SET site = 'nordlys', event_type = 'page_view'
+WHERE site = 'Nordlys';
+";
+
+#[test]
+fn alters_and_mutations_in_the_proposal_s_style() {
+    golden(ALTERS_AND_MUTATIONS);
 }

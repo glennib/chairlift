@@ -1,0 +1,344 @@
+---
+source: src/syntax/grammar/alter/tests.rs
+expression: "trees(&[\"ALTER TABLE t DELETE WHERE a = 1 AND b SETTINGS mutations_sync = 2\",\n\"ALTER TABLE t DELETE IN PARTITION 1, ID '2' WHERE a\",\n\"ALTER TABLE t UPDATE a = a + 1, b = 'x' IN PARTITION tuple() WHERE c\",\n\"ALTER TABLE t DROP PARTITION 202601, DROP PART 'all_1_1_0', DROP DETACHED PARTITION ALL\",\n\"ALTER TABLE t DETACH PARTITION ID '1', ATTACH PARTITION 1 FROM db.u, ATTACH PART 'p' FROM 'x'\",\n\"ALTER TABLE t REPLACE PARTITION 1 FROM u, MOVE PARTITION 2 TO TABLE v, MOVE PART 'p' TO DISK 'd'\",\n\"ALTER TABLE t FETCH PARTITION 1 FROM '/clickhouse/t', FORGET PARTITION 2\",\n\"ALTER TABLE t FREEZE PARTITION 1 WITH NAME 'b', UNFREEZE WITH NAME 'b', FREEZE\",\n\"ALTER TABLE t EXECUTE expire_snapshots('2026-01-01')\",\n\"DELETE FROM db.t ON CLUSTER c IN PARTITION 1 WHERE a = 1 SETTINGS lightweight_deletes_sync = 0\",\n\"UPDATE t SET a = 1, b = b + 1 IN PARTITION 2 WHERE c\",])"
+---
+> ALTER TABLE t DELETE WHERE a = 1 AND b SETTINGS mutations_sync = 2
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "DELETE"
+      WhereClause
+        Keyword "WHERE"
+        AndExpr
+          BinaryExpr
+            Name
+              BareWord "a"
+            Equals "="
+            Literal
+              Number "1"
+          Keyword "AND"
+          Name
+            BareWord "b"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "mutations_sync"
+        Equals "="
+        Literal
+          Number "2"
+
+> ALTER TABLE t DELETE IN PARTITION 1, ID '2' WHERE a
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "DELETE"
+      InPartition
+        Keyword "IN"
+        Keyword "PARTITION"
+        Literal
+          Number "1"
+        Comma ","
+        Keyword "ID"
+        Literal
+          StringLiteral "'2'"
+      WhereClause
+        Keyword "WHERE"
+        Name
+          BareWord "a"
+
+> ALTER TABLE t UPDATE a = a + 1, b = 'x' IN PARTITION tuple() WHERE c
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "UPDATE"
+      AssignmentList
+        Assignment
+          Name
+            BareWord "a"
+          Equals "="
+          BinaryExpr
+            Name
+              BareWord "a"
+            Plus "+"
+            Literal
+              Number "1"
+        Comma ","
+        Assignment
+          Name
+            BareWord "b"
+          Equals "="
+          Literal
+            StringLiteral "'x'"
+      InPartition
+        Keyword "IN"
+        Keyword "PARTITION"
+        FunctionCall
+          Name
+            BareWord "tuple"
+          ArgList
+            OpeningRoundBracket "("
+            ClosingRoundBracket ")"
+      WhereClause
+        Keyword "WHERE"
+        Name
+          BareWord "c"
+
+> ALTER TABLE t DROP PARTITION 202601, DROP PART 'all_1_1_0', DROP DETACHED PARTITION ALL
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "DROP"
+      Partition
+        Keyword "PARTITION"
+        Literal
+          Number "202601"
+    Comma ","
+    AlterCommand
+      Keyword "DROP"
+      Keyword "PART"
+      Literal
+        StringLiteral "'all_1_1_0'"
+    Comma ","
+    AlterCommand
+      Keyword "DROP"
+      Keyword "DETACHED"
+      Partition
+        Keyword "PARTITION"
+        Keyword "ALL"
+
+> ALTER TABLE t DETACH PARTITION ID '1', ATTACH PARTITION 1 FROM db.u, ATTACH PART 'p' FROM 'x'
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "DETACH"
+      Partition
+        Keyword "PARTITION"
+        Keyword "ID"
+        Literal
+          StringLiteral "'1'"
+    Comma ","
+    AlterCommand
+      Keyword "ATTACH"
+      Partition
+        Keyword "PARTITION"
+        Literal
+          Number "1"
+      Keyword "FROM"
+      QualifiedName
+        Name
+          BareWord "db"
+        Dot "."
+        Name
+          BareWord "u"
+    Comma ","
+    AlterCommand
+      Keyword "ATTACH"
+      Keyword "PART"
+      Literal
+        StringLiteral "'p'"
+      Keyword "FROM"
+      Literal
+        StringLiteral "'x'"
+
+> ALTER TABLE t REPLACE PARTITION 1 FROM u, MOVE PARTITION 2 TO TABLE v, MOVE PART 'p' TO DISK 'd'
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "REPLACE"
+      Partition
+        Keyword "PARTITION"
+        Literal
+          Number "1"
+      Keyword "FROM"
+      Name
+        BareWord "u"
+    Comma ","
+    AlterCommand
+      Keyword "MOVE"
+      Partition
+        Keyword "PARTITION"
+        Literal
+          Number "2"
+      Keyword "TO"
+      Keyword "TABLE"
+      Name
+        BareWord "v"
+    Comma ","
+    AlterCommand
+      Keyword "MOVE"
+      Keyword "PART"
+      Literal
+        StringLiteral "'p'"
+      Keyword "TO"
+      Keyword "DISK"
+      Literal
+        StringLiteral "'d'"
+
+> ALTER TABLE t FETCH PARTITION 1 FROM '/clickhouse/t', FORGET PARTITION 2
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "FETCH"
+      Partition
+        Keyword "PARTITION"
+        Literal
+          Number "1"
+      Keyword "FROM"
+      Literal
+        StringLiteral "'/clickhouse/t'"
+    Comma ","
+    AlterCommand
+      Keyword "FORGET"
+      Partition
+        Keyword "PARTITION"
+        Literal
+          Number "2"
+
+> ALTER TABLE t FREEZE PARTITION 1 WITH NAME 'b', UNFREEZE WITH NAME 'b', FREEZE
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "FREEZE"
+      Partition
+        Keyword "PARTITION"
+        Literal
+          Number "1"
+      Keyword "WITH"
+      Keyword "NAME"
+      Literal
+        StringLiteral "'b'"
+    Comma ","
+    AlterCommand
+      Keyword "UNFREEZE"
+      Keyword "WITH"
+      Keyword "NAME"
+      Literal
+        StringLiteral "'b'"
+    Comma ","
+    AlterCommand
+      Keyword "FREEZE"
+
+> ALTER TABLE t EXECUTE expire_snapshots('2026-01-01')
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "EXECUTE"
+      FunctionCall
+        Name
+          BareWord "expire_snapshots"
+        ArgList
+          OpeningRoundBracket "("
+          Literal
+            StringLiteral "'2026-01-01'"
+          ClosingRoundBracket ")"
+
+> DELETE FROM db.t ON CLUSTER c IN PARTITION 1 WHERE a = 1 SETTINGS lightweight_deletes_sync = 0
+DeleteQuery
+  Keyword "DELETE"
+  Keyword "FROM"
+  QualifiedName
+    Name
+      BareWord "db"
+    Dot "."
+    Name
+      BareWord "t"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+  InPartition
+    Keyword "IN"
+    Keyword "PARTITION"
+    Literal
+      Number "1"
+  WhereClause
+    Keyword "WHERE"
+    BinaryExpr
+      Name
+        BareWord "a"
+      Equals "="
+      Literal
+        Number "1"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "lightweight_deletes_sync"
+        Equals "="
+        Literal
+          Number "0"
+
+> UPDATE t SET a = 1, b = b + 1 IN PARTITION 2 WHERE c
+UpdateQuery
+  Keyword "UPDATE"
+  Name
+    BareWord "t"
+  UpdateSetClause
+    Keyword "SET"
+    AssignmentList
+      Assignment
+        Name
+          BareWord "a"
+        Equals "="
+        Literal
+          Number "1"
+      Comma ","
+      Assignment
+        Name
+          BareWord "b"
+        Equals "="
+        BinaryExpr
+          Name
+            BareWord "b"
+          Plus "+"
+          Literal
+            Number "1"
+  InPartition
+    Keyword "IN"
+    Keyword "PARTITION"
+    Literal
+      Number "2"
+  WhereClause
+    Keyword "WHERE"
+    Name
+      BareWord "c"

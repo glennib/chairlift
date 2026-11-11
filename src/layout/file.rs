@@ -28,6 +28,8 @@ pub(crate) fn rule_for(kind: SyntaxKind) -> Option<Rule> {
             Some(super::create::statement)
         }
         SyntaxKind::InsertQuery => Some(super::insert::statement),
+        SyntaxKind::AlterQuery => Some(super::alter::statement),
+        SyntaxKind::DeleteQuery | SyntaxKind::UpdateQuery => Some(super::alter::mutation),
         SyntaxKind::DropQuery
         | SyntaxKind::AttachQuery
         | SyntaxKind::RenameQuery

@@ -14,6 +14,7 @@
 //! | [`create`] | `CREATE TABLE`, `CREATE MATERIALIZED VIEW` |
 //! | [`insert`] | `INSERT`, with the `WITH` clause before it |
 //! | [`simple`] | `DROP`, `DETACH`, `TRUNCATE`, `UNDROP`, `ATTACH`, `RENAME`, `EXCHANGE`, `OPTIMIZE`, `SET`, `USE` |
+//! | [`alter`] | `ALTER TABLE`, `ALTER DATABASE`, the lightweight `DELETE` and `UPDATE` |
 //! | [`probe`] | the `SELECT <list>` expression probe |
 //!
 //! # Writing grammar
@@ -114,8 +115,8 @@
 //!    each clause [`Role::Clause`](crate::syntax::Role), each list
 //!    [`Role::List`](crate::syntax::Role).
 //! 2. Recognise it in an `at_statement` function by its leading keywords
-//!    and call it from [`statement`] (`select`, `create`, `insert` and
-//!    `simple` are dispatched already).
+//!    and call it from [`statement`] (`select`, `create`, `insert`,
+//!    `simple` and `alter` are dispatched already).
 //! 3. Parse its head, then its clauses in a loop: while the current token
 //!    starts a clause, parse it with [`fallback::clause`], passing a
 //!    predicate that recognises every clause keyword of the statement, so
@@ -140,6 +141,7 @@
 //!    `mise run corpus` and `mise run corpus:recase` for the statistics and
 //!    the oracle's view of the keyword slots.
 
+pub(crate) mod alter;
 pub(crate) mod common;
 pub(crate) mod create;
 pub(crate) mod exprs;
@@ -178,6 +180,8 @@ pub(crate) fn statement(p: &mut Parser<'_>, entry: Entry) {
                 fallback::statement(p, create::statement);
             } else if simple::at_statement(p) {
                 fallback::statement(p, simple::statement);
+            } else if alter::at_statement(p) {
+                fallback::statement(p, alter::statement);
             } else {
                 fallback::verbatim_statement(p);
             }

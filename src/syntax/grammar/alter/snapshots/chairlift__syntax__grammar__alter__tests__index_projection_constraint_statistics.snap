@@ -1,0 +1,271 @@
+---
+source: src/syntax/grammar/alter/tests.rs
+expression: "trees(&[\"ALTER TABLE t ADD INDEX IF NOT EXISTS i a TYPE minmax GRANULARITY 1 AFTER j\",\n\"ALTER TABLE t DROP INDEX i, CLEAR INDEX IF EXISTS j IN PARTITION 1, MATERIALIZE INDEX k\",\n\"ALTER TABLE t ADD PROJECTION p (SELECT a ORDER BY b) FIRST, MATERIALIZE PROJECTION p\",\n\"ALTER TABLE t MODIFY PROJECTION p (SELECT a), DROP PROJECTION IF EXISTS q, CLEAR PROJECTION r\",\n\"ALTER TABLE t ADD CONSTRAINT c CHECK a > 1, DROP CONSTRAINT IF EXISTS d\",\n\"ALTER TABLE t ADD STATISTICS IF NOT EXISTS a, b TYPE tdigest, uniq\",\n\"ALTER TABLE t MODIFY STATISTICS a TYPE countmin\",\n\"ALTER TABLE t DROP STATISTICS a, b\", \"ALTER TABLE t CLEAR STATISTICS ALL\",\n\"ALTER TABLE t MATERIALIZE STATISTICS IF EXISTS a IN PARTITION 1\",])"
+---
+> ALTER TABLE t ADD INDEX IF NOT EXISTS i a TYPE minmax GRANULARITY 1 AFTER j
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "ADD"
+      Keyword "INDEX"
+      IfNotExists
+        Keyword "IF"
+        Keyword "NOT"
+        Keyword "EXISTS"
+      IndexDef
+        Name
+          BareWord "i"
+        Name
+          BareWord "a"
+        Keyword "TYPE"
+        Name
+          BareWord "minmax"
+        Keyword "GRANULARITY"
+        Literal
+          Number "1"
+      Keyword "AFTER"
+      Name
+        BareWord "j"
+
+> ALTER TABLE t DROP INDEX i, CLEAR INDEX IF EXISTS j IN PARTITION 1, MATERIALIZE INDEX k
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "DROP"
+      Keyword "INDEX"
+      Name
+        BareWord "i"
+    Comma ","
+    AlterCommand
+      Keyword "CLEAR"
+      Keyword "INDEX"
+      IfExists
+        Keyword "IF"
+        Keyword "EXISTS"
+      Name
+        BareWord "j"
+      InPartition
+        Keyword "IN"
+        Keyword "PARTITION"
+        Literal
+          Number "1"
+    Comma ","
+    AlterCommand
+      Keyword "MATERIALIZE"
+      Keyword "INDEX"
+      Name
+        BareWord "k"
+
+> ALTER TABLE t ADD PROJECTION p (SELECT a ORDER BY b) FIRST, MATERIALIZE PROJECTION p
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "ADD"
+      Keyword "PROJECTION"
+      ProjectionDef
+        Name
+          BareWord "p"
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                Name
+                  BareWord "a"
+            OrderByClause
+              Keyword "ORDER"
+              Keyword "BY"
+              OrderByList
+                OrderByItem
+                  Name
+                    BareWord "b"
+          ClosingRoundBracket ")"
+      Keyword "FIRST"
+    Comma ","
+    AlterCommand
+      Keyword "MATERIALIZE"
+      Keyword "PROJECTION"
+      Name
+        BareWord "p"
+
+> ALTER TABLE t MODIFY PROJECTION p (SELECT a), DROP PROJECTION IF EXISTS q, CLEAR PROJECTION r
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "MODIFY"
+      Keyword "PROJECTION"
+      ProjectionDef
+        Name
+          BareWord "p"
+        Subquery
+          OpeningRoundBracket "("
+          SelectQuery
+            SelectClause
+              Keyword "SELECT"
+              SelectList
+                Name
+                  BareWord "a"
+          ClosingRoundBracket ")"
+    Comma ","
+    AlterCommand
+      Keyword "DROP"
+      Keyword "PROJECTION"
+      IfExists
+        Keyword "IF"
+        Keyword "EXISTS"
+      Name
+        BareWord "q"
+    Comma ","
+    AlterCommand
+      Keyword "CLEAR"
+      Keyword "PROJECTION"
+      Name
+        BareWord "r"
+
+> ALTER TABLE t ADD CONSTRAINT c CHECK a > 1, DROP CONSTRAINT IF EXISTS d
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "ADD"
+      Keyword "CONSTRAINT"
+      ConstraintDef
+        Name
+          BareWord "c"
+        Keyword "CHECK"
+        BinaryExpr
+          Name
+            BareWord "a"
+          Greater ">"
+          Literal
+            Number "1"
+    Comma ","
+    AlterCommand
+      Keyword "DROP"
+      Keyword "CONSTRAINT"
+      IfExists
+        Keyword "IF"
+        Keyword "EXISTS"
+      Name
+        BareWord "d"
+
+> ALTER TABLE t ADD STATISTICS IF NOT EXISTS a, b TYPE tdigest, uniq
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "ADD"
+      Keyword "STATISTICS"
+      IfNotExists
+        Keyword "IF"
+        Keyword "NOT"
+        Keyword "EXISTS"
+      StatisticsDef
+        NameList
+          Name
+            BareWord "a"
+          Comma ","
+          Name
+            BareWord "b"
+        Keyword "TYPE"
+        ExprList
+          Name
+            BareWord "tdigest"
+          Comma ","
+          Name
+            BareWord "uniq"
+
+> ALTER TABLE t MODIFY STATISTICS a TYPE countmin
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "MODIFY"
+      Keyword "STATISTICS"
+      StatisticsDef
+        NameList
+          Name
+            BareWord "a"
+        Keyword "TYPE"
+        ExprList
+          Name
+            BareWord "countmin"
+
+> ALTER TABLE t DROP STATISTICS a, b
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "DROP"
+      Keyword "STATISTICS"
+      StatisticsDef
+        NameList
+          Name
+            BareWord "a"
+          Comma ","
+          Name
+            BareWord "b"
+
+> ALTER TABLE t CLEAR STATISTICS ALL
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "CLEAR"
+      Keyword "STATISTICS"
+      Keyword "ALL"
+
+> ALTER TABLE t MATERIALIZE STATISTICS IF EXISTS a IN PARTITION 1
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "MATERIALIZE"
+      Keyword "STATISTICS"
+      IfExists
+        Keyword "IF"
+        Keyword "EXISTS"
+      StatisticsDef
+        NameList
+          Name
+            BareWord "a"
+      InPartition
+        Keyword "IN"
+        Keyword "PARTITION"
+        Literal
+          Number "1"

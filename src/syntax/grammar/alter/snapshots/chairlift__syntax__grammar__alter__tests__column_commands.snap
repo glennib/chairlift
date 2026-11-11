@@ -1,0 +1,276 @@
+---
+source: src/syntax/grammar/alter/tests.rs
+expression: "trees(&[\"ALTER TABLE db.t ON CLUSTER c ADD COLUMN IF NOT EXISTS n.x Nullable(Int8) DEFAULT 1 CODEC(ZSTD) AFTER y\",\n\"ALTER TABLE t ADD COLUMN a Int8 FIRST, DROP COLUMN IF EXISTS b, RENAME COLUMN c TO d\",\n\"ALTER TABLE t MODIFY COLUMN a UInt64 DEFAULT 0 COMMENT 'x' AFTER b\",\n\"ALTER TABLE t MODIFY COLUMN a REMOVE TTL, MODIFY COLUMN b COMMENT 'c', MODIFY COLUMN c CODEC(LZ4)\",\n\"ALTER TABLE t MODIFY COLUMN a MODIFY SETTING max_compress_block_size = 1, b = 2\",\n\"ALTER TABLE t MODIFY COLUMN IF EXISTS a RESET SETTING x, y\",\n\"ALTER TABLE t ALTER COLUMN a TYPE Int16, CLEAR COLUMN b IN PARTITION 1\",\n\"ALTER TABLE t COMMENT COLUMN IF EXISTS a 'text', MATERIALIZE COLUMN b IN PARTITION ID '1'\",])"
+---
+> ALTER TABLE db.t ON CLUSTER c ADD COLUMN IF NOT EXISTS n.x Nullable(Int8) DEFAULT 1 CODEC(ZSTD) AFTER y
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  QualifiedName
+    Name
+      BareWord "db"
+    Dot "."
+    Name
+      BareWord "t"
+  OnCluster
+    Keyword "ON"
+    Keyword "CLUSTER"
+    Name
+      BareWord "c"
+  AlterCommandList
+    AlterCommand
+      Keyword "ADD"
+      Keyword "COLUMN"
+      IfNotExists
+        Keyword "IF"
+        Keyword "NOT"
+        Keyword "EXISTS"
+      ColumnDef
+        QualifiedName
+          Name
+            BareWord "n"
+          Dot "."
+          Name
+            BareWord "x"
+        DataType
+          Name
+            BareWord "Nullable"
+          TypeArgList
+            OpeningRoundBracket "("
+            DataType
+              Name
+                BareWord "Int8"
+            ClosingRoundBracket ")"
+        ColumnDefault
+          Keyword "DEFAULT"
+          Literal
+            Number "1"
+        ColumnCodec
+          Keyword "CODEC"
+          CodecList
+            OpeningRoundBracket "("
+            Name
+              BareWord "ZSTD"
+            ClosingRoundBracket ")"
+      Keyword "AFTER"
+      Name
+        BareWord "y"
+
+> ALTER TABLE t ADD COLUMN a Int8 FIRST, DROP COLUMN IF EXISTS b, RENAME COLUMN c TO d
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "ADD"
+      Keyword "COLUMN"
+      ColumnDef
+        Name
+          BareWord "a"
+        DataType
+          Name
+            BareWord "Int8"
+      Keyword "FIRST"
+    Comma ","
+    AlterCommand
+      Keyword "DROP"
+      Keyword "COLUMN"
+      IfExists
+        Keyword "IF"
+        Keyword "EXISTS"
+      Name
+        BareWord "b"
+    Comma ","
+    AlterCommand
+      Keyword "RENAME"
+      Keyword "COLUMN"
+      Name
+        BareWord "c"
+      Keyword "TO"
+      Name
+        BareWord "d"
+
+> ALTER TABLE t MODIFY COLUMN a UInt64 DEFAULT 0 COMMENT 'x' AFTER b
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "MODIFY"
+      Keyword "COLUMN"
+      ColumnDef
+        Name
+          BareWord "a"
+        DataType
+          Name
+            BareWord "UInt64"
+        ColumnDefault
+          Keyword "DEFAULT"
+          Literal
+            Number "0"
+        ColumnComment
+          Keyword "COMMENT"
+          Literal
+            StringLiteral "'x'"
+      Keyword "AFTER"
+      Name
+        BareWord "b"
+
+> ALTER TABLE t MODIFY COLUMN a REMOVE TTL, MODIFY COLUMN b COMMENT 'c', MODIFY COLUMN c CODEC(LZ4)
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "MODIFY"
+      Keyword "COLUMN"
+      ColumnDef
+        Name
+          BareWord "a"
+      Keyword "REMOVE"
+      Keyword "TTL"
+    Comma ","
+    AlterCommand
+      Keyword "MODIFY"
+      Keyword "COLUMN"
+      ColumnDef
+        Name
+          BareWord "b"
+        ColumnComment
+          Keyword "COMMENT"
+          Literal
+            StringLiteral "'c'"
+    Comma ","
+    AlterCommand
+      Keyword "MODIFY"
+      Keyword "COLUMN"
+      ColumnDef
+        Name
+          BareWord "c"
+        ColumnCodec
+          Keyword "CODEC"
+          CodecList
+            OpeningRoundBracket "("
+            Name
+              BareWord "LZ4"
+            ClosingRoundBracket ")"
+
+> ALTER TABLE t MODIFY COLUMN a MODIFY SETTING max_compress_block_size = 1, b = 2
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "MODIFY"
+      Keyword "COLUMN"
+      ColumnDef
+        Name
+          BareWord "a"
+      Keyword "MODIFY"
+      Keyword "SETTING"
+      SettingsList
+        SettingItem
+          Name
+            BareWord "max_compress_block_size"
+          Equals "="
+          Literal
+            Number "1"
+        Comma ","
+        SettingItem
+          Name
+            BareWord "b"
+          Equals "="
+          Literal
+            Number "2"
+
+> ALTER TABLE t MODIFY COLUMN IF EXISTS a RESET SETTING x, y
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "MODIFY"
+      Keyword "COLUMN"
+      IfExists
+        Keyword "IF"
+        Keyword "EXISTS"
+      ColumnDef
+        Name
+          BareWord "a"
+      Keyword "RESET"
+      Keyword "SETTING"
+      NameList
+        Name
+          BareWord "x"
+        Comma ","
+        Name
+          BareWord "y"
+
+> ALTER TABLE t ALTER COLUMN a TYPE Int16, CLEAR COLUMN b IN PARTITION 1
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "ALTER"
+      Keyword "COLUMN"
+      ColumnDef
+        Name
+          BareWord "a"
+        Keyword "TYPE"
+        DataType
+          Name
+            BareWord "Int16"
+    Comma ","
+    AlterCommand
+      Keyword "CLEAR"
+      Keyword "COLUMN"
+      Name
+        BareWord "b"
+      InPartition
+        Keyword "IN"
+        Keyword "PARTITION"
+        Literal
+          Number "1"
+
+> ALTER TABLE t COMMENT COLUMN IF EXISTS a 'text', MATERIALIZE COLUMN b IN PARTITION ID '1'
+AlterQuery
+  Keyword "ALTER"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+  AlterCommandList
+    AlterCommand
+      Keyword "COMMENT"
+      Keyword "COLUMN"
+      IfExists
+        Keyword "IF"
+        Keyword "EXISTS"
+      Name
+        BareWord "a"
+      Literal
+        StringLiteral "'text'"
+    Comma ","
+    AlterCommand
+      Keyword "MATERIALIZE"
+      Keyword "COLUMN"
+      Name
+        BareWord "b"
+      InPartition
+        Keyword "IN"
+        Keyword "PARTITION"
+        Keyword "ID"
+        Literal
+          StringLiteral "'1'"

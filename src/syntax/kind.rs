@@ -911,6 +911,54 @@ syntax_kinds! {
         /// Names ([`Name`](Self::Name)s or
         /// [`QualifiedName`](Self::QualifiedName)s) separated by commas.
         NameList: List,
+
+        // ---- ALTER and the lightweight mutations ---------------------------
+        // Grammar in `grammar/alter.rs`. A command holds its keywords as
+        // tokens and its names, definitions, lists and clauses as nodes, in
+        // the order written.
+        /// `ALTER [TEMPORARY] TABLE` or `ALTER DATABASE`, the name (a
+        /// [`Name`](Self::Name) or [`QualifiedName`](Self::QualifiedName)),
+        /// any [`OnCluster`](Self::OnCluster), an
+        /// [`AlterCommandList`](Self::AlterCommandList), then output clauses.
+        AlterQuery: Statement,
+        /// [`AlterCommand`](Self::AlterCommand)s separated by commas.
+        AlterCommandList: List,
+        /// One command of `ALTER`, `ADD COLUMN …` or `DROP PARTITION …`: its
+        /// keywords, then in the order written its names, an
+        /// [`IfExists`](Self::IfExists) or [`IfNotExists`](Self::IfNotExists),
+        /// a definition ([`ColumnDef`](Self::ColumnDef),
+        /// [`IndexDef`](Self::IndexDef), [`ProjectionDef`](Self::ProjectionDef),
+        /// [`ConstraintDef`](Self::ConstraintDef),
+        /// [`StatisticsDef`](Self::StatisticsDef)), a
+        /// [`Partition`](Self::Partition) or [`InPartition`](Self::InPartition),
+        /// a list ([`SettingsList`](Self::SettingsList),
+        /// [`TtlList`](Self::TtlList), [`AssignmentList`](Self::AssignmentList),
+        /// [`NameList`](Self::NameList)), a [`WhereClause`](Self::WhereClause),
+        /// a query, or other clauses. In brackets if written so.
+        AlterCommand: Node,
+        /// `IN PARTITION` and one partition, or for a mutation several
+        /// separated by commas: each `ID` and a string, `ALL`, or an
+        /// expression.
+        InPartition: Node,
+        /// The columns of `ADD`, `MODIFY`, `DROP`, `CLEAR` or `MATERIALIZE
+        /// STATISTICS`, a [`NameList`](Self::NameList), then for the first two
+        /// `TYPE` and an [`ExprList`](Self::ExprList) of the statistics
+        /// kinds, each a [`Name`](Self::Name) or a
+        /// [`FunctionCall`](Self::FunctionCall).
+        StatisticsDef: Node,
+        /// `DELETE FROM` a table, any [`OnCluster`](Self::OnCluster) and
+        /// [`InPartition`](Self::InPartition), a
+        /// [`WhereClause`](Self::WhereClause) and any
+        /// [`SettingsClause`](Self::SettingsClause): the lightweight delete.
+        DeleteQuery: Statement,
+        /// `UPDATE` a table, any [`OnCluster`](Self::OnCluster), an
+        /// [`UpdateSetClause`](Self::UpdateSetClause), any
+        /// [`InPartition`](Self::InPartition), a
+        /// [`WhereClause`](Self::WhereClause) and any
+        /// [`SettingsClause`](Self::SettingsClause): the lightweight update.
+        UpdateQuery: Statement,
+        /// `SET` and an [`AssignmentList`](Self::AssignmentList) of `UPDATE`.
+        UpdateSetClause: Clause,
     }
 }
 
