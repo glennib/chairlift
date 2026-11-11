@@ -1,7 +1,8 @@
 //! Generated templates and queries through `chairlift::format`: the output
 //! verifies (`format` checks that), formatting it again changes nothing, and
 //! every render of a template, with each branch taken or left out and each
-//! loop run zero, one or two times, has the same SQL before and after
+//! loop run zero to three times (loops over `ys` other times than those over
+//! `xs`), has the same SQL before and after
 //! formatting: the same tokens, and the same bytes where ClickHouse reads
 //! source text (strings, and the literal left of `::`). The verifier itself
 //! checks only the render with every branch taken.
@@ -103,6 +104,7 @@ const ATOMS: &[&str] = &[
     "'{{ v }},{{ v }}'",
     "(select 1)",
     "-1",
+    "{{ 'p' if x else 'q' }}",
 ];
 
 /// A block tag, with `-` markers on either side now and then.
@@ -143,12 +145,20 @@ fn query(r: &mut Rng, out: &mut String) {
                 out.push_str(r.pick(ATOMS));
             }
             2 => {
-                out.push_str(&tag(r, "for i in xs"));
+                let header = r.pick(&["for i in xs", "for i in ys"]);
+                out.push_str(&tag(r, header));
                 out.push_str(gap(r));
-                out.push_str("c{{ i }}");
-                out.push_str(&tag(r, "if not loop.last"));
-                out.push(',');
-                out.push_str(&tag(r, "endif"));
+                if r.below(2) == 0 {
+                    out.push_str("c{{ i }}");
+                    out.push_str(&tag(r, "if not loop.last"));
+                    out.push(',');
+                    out.push_str(&tag(r, "endif"));
+                } else {
+                    out.push_str(&tag(r, "if not loop.first"));
+                    out.push(',');
+                    out.push_str(&tag(r, "endif"));
+                    out.push_str(" c{{ i }}");
+                }
                 out.push_str(gap(r));
                 out.push_str(&tag(r, "endfor"));
             }
@@ -319,7 +329,7 @@ fn marked_tag(r: &mut Rng, body: &str) -> String {
 /// left-out branch joins to another, and `INSERT … FORMAT` data that a
 /// branch shapes.
 fn shaped_statement(r: &mut Rng, out: &mut String) {
-    match r.below(12) {
+    match r.below(15) {
         0 => {
             out.push_str(&marked_tag(r, "if a"));
             out.push_str(gap(r));
@@ -410,9 +420,95 @@ fn shaped_statement(r: &mut Rng, out: &mut String) {
             query(r, out);
         }
         8 => create(r, out),
+        12 => straddling_delimiter(r, out),
+        13 => repeated_delimiter(r, out),
+        14 => adjacent_delimiter(r, out),
         9 | 10 => other_statement(r, out),
         _ => query(r, out),
     }
+}
+
+/// Whitespace at the end of a line, which the cleanup removes, or blank
+/// lines, which it collapses.
+fn trailing(r: &mut Rng) -> &'static str {
+    r.pick(&["   \n", " \t\n\n\n  ", "\n\n\n", " "])
+}
+
+/// A quote, heredoc or comment that a branch closes and opens again, so that
+/// with the branch left out it holds the whitespace between them:
+/// `'a{% if x %}', 1 {% endif %}` … `{% if x %}'{% endif %}c'`.
+fn straddling_delimiter(r: &mut Rng, out: &mut String) {
+    let (open, close) = match r.below(6) {
+        0 => ("'", "'"),
+        1 => ("`", "`"),
+        2 => ("\"", "\""),
+        3 => ("$h$", "$h$"),
+        4 => ("$$", "$$"),
+        _ => ("/*", "*/"),
+    };
+    out.push_str("select ");
+    out.push_str(open);
+    out.push('a');
+    out.push_str(&marked_tag(r, "if x"));
+    out.push_str(close);
+    out.push_str(", 1 ");
+    out.push_str(&marked_tag(r, "endif"));
+    out.push_str(trailing(r));
+    out.push_str(", b, ");
+    out.push_str(&marked_tag(r, "if x"));
+    out.push_str(open);
+    out.push_str(&marked_tag(r, "endif"));
+    out.push('c');
+    out.push_str(close);
+    out.push_str(" from t");
+}
+
+/// A heredoc delimiter that a loop run more than once, or two branches,
+/// pair: the whitespace between the copies is the heredoc's text.
+fn repeated_delimiter(r: &mut Rng, out: &mut String) {
+    let delimiter = r.pick(&["$h$", "$$"]);
+    out.push_str("select 1,");
+    out.push_str(gap(r));
+    if r.below(2) == 0 {
+        let header = r.pick(&["for i in xs", "for i in ys"]);
+        out.push_str(&marked_tag(r, header));
+        out.push_str(r.pick(&["\n  ", " "]));
+        out.push_str(delimiter);
+        out.push_str(trailing(r));
+        out.push_str(&marked_tag(r, "endfor"));
+    } else {
+        out.push_str(&marked_tag(r, "if x"));
+        out.push_str(delimiter);
+        out.push_str(&marked_tag(r, "endif"));
+        out.push_str(trailing(r));
+        out.push_str("  a,");
+        out.push_str(trailing(r));
+        out.push_str(&marked_tag(r, "if y"));
+        out.push_str(delimiter);
+        out.push_str(&marked_tag(r, "endif"));
+    }
+    out.push_str(gap(r));
+    out.push_str("2 from t");
+}
+
+/// A `-` or `/` that a left-out branch puts against a `-` or `*`, making a
+/// comment of the text after it.
+fn adjacent_delimiter(r: &mut Rng, out: &mut String) {
+    let (left, right) = if r.below(2) == 0 {
+        ("-", "-")
+    } else {
+        ("/", "*")
+    };
+    out.push_str("select a ");
+    out.push_str(left);
+    out.push_str(&marked_tag(r, "if x"));
+    out.push_str(" b ");
+    out.push_str(&marked_tag(r, "else"));
+    out.push_str(right);
+    out.push_str(" c");
+    out.push_str(trailing(r));
+    out.push_str(", d */ from t ");
+    out.push_str(&marked_tag(r, "endif"));
 }
 
 /// A statement of a kind other than a query or `CREATE TABLE`, with `{{ }}`
@@ -535,12 +631,13 @@ fn renders(template: &str) -> Vec<Option<String>> {
     let mut out = Vec::new();
     for x in [false, true] {
         for y in [false, true] {
-            for xs in [0, 1, 2] {
+            for (xs, ys) in loop_counts(template) {
                 let ctx = minijinja::Value::from_iter([
                     ("x", minijinja::Value::from(x)),
                     ("y", minijinja::Value::from(y)),
                     ("z", minijinja::Value::from(x)),
                     ("xs", minijinja::Value::from((1..=xs).collect::<Vec<i64>>())),
+                    ("ys", minijinja::Value::from((1..=ys).collect::<Vec<i64>>())),
                     ("v", minijinja::Value::from("7")),
                     ("s", minijinja::Value::from("sfx")),
                     ("db", minijinja::Value::from("db")),
@@ -553,6 +650,16 @@ fn renders(template: &str) -> Vec<Option<String>> {
         }
     }
     out
+}
+
+/// How many times the loops over `xs` and over `ys` run, one render each:
+/// different counts where `template` has both.
+fn loop_counts(template: &str) -> Vec<(i64, i64)> {
+    if template.contains(" in ys") {
+        vec![(0, 2), (1, 0), (2, 1), (2, 3), (3, 2)]
+    } else {
+        vec![(0, 0), (1, 0), (2, 0), (3, 0)]
+    }
 }
 
 /// Formats `source`; `None` where it is left as it is by design.
