@@ -461,6 +461,24 @@ fn an_operator_stays_before_a_multi_line_token() {
     assert_eq!(fmt("select 'a\nb' || 'c'"), "SELECT\n    'a\nb' || 'c'\n");
 }
 
+/// A comment between the last item and the closer belongs to the items: a
+/// commented-out last column stays where the columns are.
+#[test]
+fn a_comment_before_a_closer_stays_with_the_items() {
+    assert_eq!(
+        fmt("create table t (\n    a UInt8,\n    b UInt8\n    -- , c UInt8\n) engine = Memory"),
+        "CREATE TABLE t\n(\n    a UInt8,\n    b UInt8\n    -- , c UInt8\n)\nENGINE = Memory\n"
+    );
+    assert_eq!(
+        fmt("select f(a,\n  b\n  -- , c\n), [1,\n 2 -- two\n] from t"),
+        "SELECT\n    f(\n        a,\n        b\n        -- , c\n    ),\n    [\n        1,\n        2  -- two\n    ]\nFROM t\n"
+    );
+    assert_eq!(
+        fmt("with a as (select 1\n -- in cte\n) select * from (select 2\n/* last */\n)"),
+        "WITH a AS (\n    SELECT 1\n    -- in cte\n)\nSELECT *\nFROM (\n    SELECT 2\n    /* last */\n)\n"
+    );
+}
+
 #[test]
 fn between_never_breaks_at_its_and() {
     assert_eq!(

@@ -150,8 +150,7 @@ pub(crate) fn bracketed_parts(w: &mut Writer<'_>, parent: SyntaxKind, parts: &[P
         group = open.group();
         let indent = w.b.open_indent();
         items(w, parent, &list, Sep::Soft, None);
-        w.b.close(indent);
-        w.gap(closer.trivia.clone(), Sep::Soft, 0);
+        w.gap_before_closer(closer.trivia.clone(), indent, Sep::Soft);
         w.b.close(open);
         w.b.close(hug);
     }
@@ -266,8 +265,7 @@ pub(crate) fn hugged(w: &mut Writer<'_>, node: &Node) {
         w.gap(part.trivia.clone(), sep, 0);
         w.el(&part.el);
     }
-    w.b.close(indent);
-    w.gap(last.trivia.clone(), Sep::Hard, 0);
+    w.gap_before_closer(last.trivia.clone(), indent, Sep::Hard);
     w.el(&last.el);
     w.b.close(hug);
     w.closed(w.range(node).1, CloserLine::Always);

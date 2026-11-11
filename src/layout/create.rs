@@ -145,8 +145,7 @@ pub(crate) fn element_list(w: &mut Writer<'_>, node: &Node) {
         w.b.force_break();
         let indent = w.b.open_indent();
         shapes::items(w, node.kind(), &list, Sep::Line, None);
-        w.b.close(indent);
-        w.gap(close.trivia.clone(), Sep::Line, 0);
+        w.gap_before_closer(close.trivia.clone(), indent, Sep::Line);
         w.b.close(group);
     }
     w.el(&close.el);

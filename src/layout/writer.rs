@@ -149,6 +149,21 @@ impl<'s> Writer<'s> {
             .all(|i| self.tokens[i].kind() == TokenKind::Whitespace)
     }
 
+    /// Adds what comes between the last item of a list or query and its
+    /// closer, and closes `items`, the scope the items are laid out in: the
+    /// comments and tags of `trivia` on lines of their own in that scope, at
+    /// the items' indentation, then `sep` before the closer, outside it.
+    pub(crate) fn gap_before_closer(&mut self, trivia: Range<usize>, items: Open, sep: Sep) {
+        if self.only_whitespace(&trivia) {
+            self.b.close(items);
+            self.gap(trivia, sep, 0);
+        } else {
+            self.gap(trivia, sep, 0);
+            self.b.close(items);
+            self.sep(sep);
+        }
+    }
+
     // The tree.
 
     pub(crate) fn parts<'g>(&self, node: &Node<'g>) -> Vec<Part<'g>> {
