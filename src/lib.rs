@@ -146,7 +146,8 @@ pub fn check(source: &str, options: &Options) -> Result<bool, Error> {
 pub struct Position {
     /// The byte offset.
     pub offset: usize,
-    /// The line, counting from 1; lines end at `\n`.
+    /// The line, counting from 1; lines end at `\n`, `\r\n` or a lone `\r`,
+    /// as the formatter ends them.
     pub line: usize,
     /// The column, counting from 1, in `char`s.
     pub column: usize,
@@ -163,10 +164,16 @@ impl Position {
             text.len()
         };
         let before = &text[..offset];
-        let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+        let line_start = before.rfind(['\n', '\r']).map_or(0, |i| i + 1);
+        // A `\n` after a `\r` ends the line the `\r` already ended.
+        let breaks = before
+            .bytes()
+            .zip(std::iter::once(0).chain(before.bytes()))
+            .filter(|&(b, previous)| b == b'\r' || (b == b'\n' && previous != b'\r'))
+            .count();
         Position {
             offset,
-            line: before.bytes().filter(|&b| b == b'\n').count() + 1,
+            line: breaks + 1,
             column: before[line_start..].chars().count() + 1,
         }
     }
@@ -191,6 +198,20 @@ pub const CLICKHOUSE_VERSION: &str = "26.10.2.103-stable";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn positions_count_lines_as_the_formatter_ends_them() {
+        let at = |text: &str, offset| {
+            let p = Position::new(text, offset);
+            (p.line, p.column)
+        };
+        assert_eq!(at("ab\ncd", 4), (2, 2));
+        assert_eq!(at("ab\r\ncd", 5), (2, 2));
+        assert_eq!(at("ab\rcd", 4), (2, 2));
+        assert_eq!(at("a\r\rb\n\nc", 6), (5, 1));
+        // Columns count `char`s.
+        assert_eq!(at("'æøå', `x", 10), (1, 8));
+    }
 
     #[test]
     fn clickhouse_version_has_four_numeric_parts() {
