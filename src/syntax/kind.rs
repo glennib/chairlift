@@ -431,7 +431,8 @@ syntax_kinds! {
         SettingsClause: Clause,
         /// The items of `SETTINGS`.
         SettingsList: List,
-        /// `name = value` in a [`SettingsList`](Self::SettingsList).
+        /// `name = value` in a [`SettingsList`](Self::SettingsList), or
+        /// `name` alone, which ClickHouse reads as `name = true`.
         SettingItem: Node,
         /// `ON CLUSTER name`.
         OnCluster: Node,

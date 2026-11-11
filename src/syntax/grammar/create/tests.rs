@@ -403,6 +403,10 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
         "CREATE TABLE t (a Int8) ENGINE = Kafka SETTINGS definer = 'x', engine = 'y'",
     ),
     (
+        "create table t (a Int8) engine = Memory settings x, y = 1 comment 'c'",
+        "CREATE TABLE t (a Int8) ENGINE = Memory SETTINGS x, y = 1 COMMENT 'c'",
+    ),
+    (
         "create table t (d Date, engine Int8, x Int8) engine = MergeTree order by d \
          ttl d group by engine set x = max(x), d + 1 group by definer, tags set x = 1",
         "CREATE TABLE t (d Date, engine Int8, x Int8) ENGINE = MergeTree ORDER BY d \

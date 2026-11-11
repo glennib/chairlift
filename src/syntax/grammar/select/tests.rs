@@ -193,6 +193,7 @@ fn clauses_in_any_order_and_repeated() {
         fallbacks("FROM t |> WHERE x |> SELECT y"),
         [FallbackLevel::Statement]
     );
+    assert_eq!(fallbacks("SELECT * FROM t SETTINGS final, a = 1"), []);
 }
 
 #[test]
@@ -406,6 +407,19 @@ const KEYWORD_SLOTS: &[(&str, &str)] = &[
     (
         "select * from t settings limit = 5",
         "SELECT * FROM t SETTINGS limit = 5",
+    ),
+    // A setting's name alone is ClickHouse's shorthand for `= true`.
+    (
+        "select * from t settings final",
+        "SELECT * FROM t SETTINGS final",
+    ),
+    (
+        "select 1 settings a = 1, b, limit",
+        "SELECT 1 SETTINGS a = 1, b, limit",
+    ),
+    (
+        "select * from remote('h', t, settings x)",
+        "SELECT * FROM remote('h', t, SETTINGS x)",
     ),
     ("select 1 from t as settings", "SELECT 1 FROM t AS settings"),
     // `(select …` and `(from …` are subqueries only where ClickHouse's

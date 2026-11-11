@@ -37,9 +37,9 @@
 //! `SELECT format FROM format FORMAT JSON` has one keyword `FORMAT`. The
 //! positional rules, each as ClickHouse has it:
 //!
-//! - `SETTINGS` opens a clause only before `name =`, `FORMAT` only before a
-//!   name, `WINDOW` only before `name AS`, `FETCH` only before `FIRST` or
-//!   `NEXT`, and a join's words only when `JOIN` follows them.
+//! - `SETTINGS` and `FORMAT` open a clause only before a name, `WINDOW` only
+//!   before `name AS`, `FETCH` only before `FIRST` or `NEXT`, and a join's
+//!   words only when `JOIN` follows them.
 //! - An alias without `AS` cannot be one of the restricted words, so in
 //!   `FROM t FINAL` the `FINAL` is a keyword; it can be `LOCAL`, so `FROM t
 //!   LOCAL JOIN u` joins `t AS LOCAL`, as ClickHouse reads it. It can be

@@ -97,7 +97,7 @@
 //!   that end at a clause keyword, [`fallback::delimited`] for bracketed
 //!   ones; for others, open a node and call [`fallback::comma_separated`].
 //! - Clause parts: [`common::at_settings`] and [`common::settings_clause`]
-//!   (`SETTINGS` opens a clause only before `name =`), [`common::on_cluster`],
+//!   (`SETTINGS` opens a clause before a setting's name), [`common::on_cluster`],
 //!   [`common::if_not_exists`], [`common::if_exists`].
 //! - Queries: [`select::query`], [`select::subquery`] and
 //!   [`select::at_subquery`], which the `SELECT` grammar fills in.

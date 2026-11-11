@@ -75,18 +75,13 @@ pub(crate) fn order_by_item(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     Some(m.complete(p, SyntaxKind::OrderByItem))
 }
 
-/// Whether `SETTINGS` at the current token starts a settings clause: it does
-/// only when a setting's name and `=` follow, since `settings` is also a
-/// valid name.
+/// Whether `SETTINGS` at the current token starts a settings clause: where
+/// a clause may start, ClickHouse reads `SETTINGS` as one whenever a
+/// setting's name follows it (`ParserSetQuery`), with or without `=`, so
+/// `FROM t SETTINGS final` sets `final`. Before `=`, `(` or the end it is a
+/// name.
 pub(crate) fn at_settings(p: &Parser<'_>) -> bool {
-    if !p.at_kw(K::Settings) || !names::at_name(p, 1) {
-        return false;
-    }
-    let mut n = 2;
-    while p.nth_at(n, T::Dot) && names::at_name(p, n + 1) {
-        n += 2;
-    }
-    p.nth_at(n, T::Equals)
+    p.at_kw(K::Settings) && names::at_name(p, 1)
 }
 
 /// `SETTINGS a = 1, …` as a [`SettingsClause`](SyntaxKind::SettingsClause),
@@ -98,17 +93,20 @@ pub(crate) fn settings_clause(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<Comp
     Some(m.complete(p, SyntaxKind::SettingsClause))
 }
 
-/// `a = 1, b = 'x', c = DEFAULT` as a
+/// `a = 1, b = 'x', c = DEFAULT, d` as a
 /// [`SettingsList`](SyntaxKind::SettingsList), with items that end at
-/// `ends`. Values are
-/// expressions, or maps of strings (`{'k': 'v'}`); setting names keep their
-/// case.
+/// `ends`. Values are expressions, or maps of strings (`{'k': 'v'}`); a
+/// name without a value is ClickHouse's shorthand for `= true`. Setting
+/// names keep their case.
 pub(crate) fn settings_list(p: &mut Parser<'_>, ends: Stop<'_>) -> Option<CompletedMarker> {
     let m = p.start();
     let shape = fallback::comma_separated(p, ends, &mut |p| {
         let item = p.start();
         names::compound_name(p)?;
-        p.expect(T::Equals)?;
+        if !p.eat(T::Equals) {
+            item.complete(p, SyntaxKind::SettingItem);
+            return Some(());
+        }
         if p.at_kw(K::Default) && (p.nth_at(1, T::Comma) || p.nth(1).is_none() || ends_at(p, 1)) {
             p.bump_keyword();
         } else if p.at(T::OpeningCurlyBrace) && !names::at_query_parameter(p, 0) {
