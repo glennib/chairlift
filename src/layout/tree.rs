@@ -80,7 +80,9 @@ pub(crate) mod flag {
     /// [`Rendered::inside`](crate::cleanup::Rendered)).
     pub(crate) const RENDER_JOINED: u16 = 1 << 2;
     /// A token other than a tag with a Jinja block or comment tag inside
-    /// it, such as `-- {% if x %}`, whose branches the layout cannot see.
+    /// it, such as `-- {% if x %}`, whose branches the layout cannot see; or
+    /// a `{{ }}` glued to a block tag whose block reaches outside the token,
+    /// `{{ c }}{% if not loop.last %}`.
     pub(crate) const HIDDEN_TAG: u16 = 1 << 3;
     /// A token other than whitespace that spans lines.
     pub(crate) const MULTILINE: u16 = 1 << 4;
@@ -249,7 +251,12 @@ fn token_flags(
         flags |= flag::RENDER_JOINED;
     }
     match kind {
-        SyntaxKind::Whitespace | SyntaxKind::JinjaExpr | SyntaxKind::JinjaRaw => {}
+        SyntaxKind::Whitespace => {}
+        SyntaxKind::JinjaExpr | SyntaxKind::JinjaRaw => {
+            if opens_or_closes_outside(tokens[i].text(source)) {
+                flags |= flag::HIDDEN_TAG;
+            }
+        }
         SyntaxKind::JinjaComment => {
             if touching(source, tokens, i, free) {
                 flags |= flag::TAG_TOUCHING;
@@ -259,7 +266,7 @@ fn token_flags(
             if !tag_allowed_in(parent) {
                 flags |= flag::TAG_PLACE;
             }
-            if touching(source, tokens, i, free) {
+            if touching(source, tokens, i, free) || comma_block(source, tokens, i) {
                 flags |= flag::TAG_TOUCHING;
             }
         }
@@ -314,6 +321,47 @@ fn has_hidden_tag(text: &str) -> bool {
     (text.contains("{%") || text.contains("{#"))
         && jinja::tags(text)
             .any(|t| matches!(t.kind, jinja::TagKind::Block | jinja::TagKind::Comment))
+}
+
+/// Whether block tag token `i` opens a block that holds only a `,`, as in
+/// `f(c){% if not loop.last %},{% endif %}`: the layout would put each tag
+/// and the comma on lines of their own.
+fn comma_block(source: &str, tokens: &[Token], i: usize) -> bool {
+    let solid =
+        |from: usize| (from..tokens.len()).find(|&k| tokens[k].kind() != TokenKind::Whitespace);
+    let role = |k: usize| super::writer::tag_role(tokens[k].text(source));
+    role(i) == super::writer::TagRole::Open
+        && solid(i + 1).is_some_and(|c| {
+            tokens[c].kind() == TokenKind::Comma
+                && solid(c + 1).is_some_and(|e| {
+                    tokens[e].kind() == TokenKind::JinjaBlock
+                        && role(e) == super::writer::TagRole::Close
+                })
+        })
+}
+
+/// Whether `text`, a run of glued tags, has a block tag whose block reaches
+/// outside it, as `{{ c }}{% if not loop.last %}` does: the layout follows
+/// only the blocks of tags that are tokens of their own.
+fn opens_or_closes_outside(text: &str) -> bool {
+    if !text.contains("{%") {
+        return false;
+    }
+    let mut depth = 0_usize;
+    for tag in jinja::tags(text).filter(|t| t.kind == jinja::TagKind::Block) {
+        match super::writer::tag_role(&text[tag.range]) {
+            super::writer::TagRole::Open => depth += 1,
+            super::writer::TagRole::Middle if depth == 0 => return true,
+            super::writer::TagRole::Close => {
+                let Some(d) = depth.checked_sub(1) else {
+                    return true;
+                };
+                depth = d;
+            }
+            _ => {}
+        }
+    }
+    depth > 0
 }
 
 /// Whether tag token `i` touches the token before or after it on a side

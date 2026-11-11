@@ -210,7 +210,8 @@ pub enum Kept {
     /// ends the data in every render (after it, where there is none).
     TemplateData,
     /// The text has a Jinja block or comment tag inside a comment, string
-    /// or word, whose branches the layout cannot see: one whose block
+    /// or word, or glued to a `{{ }}`, whose branches the layout cannot see:
+    /// one whose block
     /// reaches outside that token, or whose render can change where the
     /// token ends. Where that token is a string, quoted identifier,
     /// heredoc or comment, or a word with a `$`, the whole text is kept byte

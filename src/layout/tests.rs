@@ -769,6 +769,21 @@ fn a_text_with_a_tag_hidden_in_a_token_is_kept_byte_for_byte() {
     assert_renders_agree(source, &jinja(source));
 }
 
+/// The loop-comma idioms the layout has no rule for stay as written rather
+/// than spreading a block of one comma over lines of their own.
+#[test]
+fn a_block_that_holds_only_a_comma_is_kept_as_written() {
+    // `{{ c }}{% if … %}` is one token, whose block the layout cannot follow.
+    let source = "select\n{% for c in cols %}\n    {{ c }}{% if not loop.last %}, {% endif %}\n\
+                  {% endfor %}\nfrom t\n";
+    assert_eq!(jinja(source), source);
+    assert_eq!(decisions(source, true), [Decision::Kept(Kept::HiddenTag)]);
+    let source = "select\n{% for c in cols %}\n    f({{ c }}){% if not loop.last %},{% endif %}\n\
+                  {% endfor %}\nfrom t\n";
+    assert_eq!(jinja(source), source);
+    assert_eq!(decisions(source, true), [Decision::Kept(Kept::TagTouching)]);
+}
+
 /// A heredoc or comment that only a render other than the one with every
 /// branch taken opens holds whitespace between the template's tokens.
 #[test]
