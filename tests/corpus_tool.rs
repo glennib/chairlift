@@ -98,7 +98,7 @@ fn fixtures_verify_and_keep_their_meaning() {
          verbatim_clauses,items,verbatim_items,formatted_statements,kept_statements,detail\n"
     ));
     let rows = rows(&csv);
-    assert_eq!(rows.len(), 20);
+    assert_eq!(rows.len(), 21);
     for row in &rows {
         assert_eq!(field(row, "outcome"), "formatted");
         assert_eq!(field(row, "idempotent"), "true");

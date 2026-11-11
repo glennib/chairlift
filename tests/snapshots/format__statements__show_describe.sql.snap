@@ -1,0 +1,25 @@
+---
+source: tests/format.rs
+expression: once
+---
+SHOW CREATE TABLE analytics.page_views;
+SHOW CREATE TEMPORARY TABLE scratch FORMAT TSVRaw;
+SHOW CREATE USER alice;
+SHOW TABLES FROM system LIKE '%log%';
+SHOW FULL TEMPORARY TABLES IN default LIMIT 10;
+SHOW DATABASES NOT ILIKE 'test%';
+SHOW COLUMNS FROM page_views FROM analytics;
+SHOW INDEX FROM analytics.page_views WHERE key_name = 'PRIMARY';
+SHOW SETTING max_threads;
+SHOW CHANGED SETTINGS LIKE 'max%';
+SHOW GRANTS FOR alice, CURRENT_USER;
+SHOW PROCESSLIST;
+DESCRIBE TABLE analytics.page_views;
+DESC page_views FORMAT TSV;
+DESC TABLE file('data.csv', 'CSV') SETTINGS describe_compact_output = 1;
+
+DESCRIBE (
+    SELECT
+        1 AS x,
+        'a' AS y
+);

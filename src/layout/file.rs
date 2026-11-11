@@ -40,7 +40,9 @@ pub(crate) fn rule_for(kind: SyntaxKind) -> Option<Rule> {
         | SyntaxKind::UseQuery
         | SyntaxKind::CreateFunction => Some(super::simple::statement),
         SyntaxKind::GrantQuery | SyntaxKind::AccessEntityQuery => Some(super::access::statement),
-        SyntaxKind::SetRoleQuery => Some(super::simple::statement),
+        SyntaxKind::SetRoleQuery | SyntaxKind::ShowQuery | SyntaxKind::DescribeQuery => {
+            Some(super::simple::statement)
+        }
         _ => None,
     }
 }

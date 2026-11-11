@@ -30,7 +30,8 @@ fn statements_that_fit_stay_on_one_line() {
          revoke grant option for select on db.* from all except u;\n\
          grant r1, r2 to u with admin option;\n\
          create row policy p on db.t as restrictive for select using a = 1 to all except r;\n\
-         set role all except r;\nset default role none to u;",
+         set role all except r;\nset default role none to u;\n\
+         show tables from system like '%a%';\ndesc table t format TSV;",
         "
 GRANT SELECT(a, b), dictGet ON *.* TO u@'%', currentUser() WITH REPLACE OPTION;
 GRANT SELECT ON db.t, INSERT ON db.x TO {{ role }};
@@ -39,6 +40,8 @@ GRANT r1, r2 TO u WITH ADMIN OPTION;
 CREATE ROW POLICY p ON db.t AS RESTRICTIVE FOR SELECT USING a = 1 TO ALL EXCEPT r;
 SET ROLE ALL EXCEPT r;
 SET DEFAULT ROLE NONE TO u;
+SHOW TABLES FROM system LIKE '%a%';
+DESC TABLE t FORMAT TSV;
 ",
     );
 }

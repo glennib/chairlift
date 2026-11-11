@@ -1,0 +1,16 @@
+show create table analytics.page_views;
+SHOW CREATE TEMPORARY TABLE scratch FORMAT TSVRaw;
+show create user alice;
+show tables from system like '%log%';
+show full temporary tables in default limit 10;
+show databases not ilike 'test%';
+show columns from page_views from analytics;
+show index from analytics.page_views where key_name = 'PRIMARY';
+show setting max_threads;
+show changed settings like 'max%';
+show grants for alice, current_user;
+show processlist;
+describe table analytics.page_views;
+desc page_views format TSV;
+DESC TABLE file('data.csv', 'CSV') SETTINGS describe_compact_output = 1;
+describe (select 1 as x, 'a' as y);
