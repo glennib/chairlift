@@ -895,6 +895,87 @@ fn fake_oracle(dir: &Path, body: &str) -> PathBuf {
     path
 }
 
+/// A stand-in for `clickhouse-format` that reads two texts the same when they
+/// differ only in whitespace: it prints each statement with its whitespace
+/// collapsed. `before` runs first, with the input in `$input`.
+#[cfg(unix)]
+fn whitespace_oracle(dir: &Path, before: &str) -> PathBuf {
+    fake_oracle(
+        dir,
+        &format!(
+            r#"input=$(cat)
+{before}
+printf '%s' "$input" | awk 'BEGIN {{ RS = ";" }}
+{{ gsub(/[ \t\n]+/, " "); sub(/^ /, ""); sub(/ $/, ""); if ($0 == "select 1") $0 = "SELECT 1";
+   if ($0 != "") print $0 ";" }}'"#
+        ),
+    )
+}
+
+/// A file edited while chairlift runs, here while `--verify` waits for the
+/// oracle, is left with the edit, and is an error.
+#[cfg(unix)]
+#[test]
+fn a_file_changed_while_chairlift_runs_is_not_written() {
+    let dir = temp_dir("changed-meanwhile");
+    let file = write(&dir, "q.sql", "SELECT edit_me   FROM t;\n");
+    let other = write(&dir, "r.sql", "SELECT a   FROM t;\n");
+    let gone = write(&dir, "s.sql", "SELECT remove_me   FROM t;\n");
+    let fake = whitespace_oracle(
+        &dir,
+        &format!(
+            r#"case "$input" in
+  *edit_me*) printf 'SELECT edited;\n' > '{}' ;;
+esac
+case "$input" in
+  *remove_me*) rm -f '{}' ;;
+esac"#,
+            file.display(),
+            gone.display()
+        ),
+    );
+    let output = run(
+        &[
+            "--verify",
+            "--clickhouse-binary",
+            fake.to_str().unwrap(),
+            "q.sql",
+            "r.sql",
+            "s.sql",
+        ],
+        None,
+        Some(&*dir),
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    assert_eq!(read(&file), "SELECT edited;\n");
+    assert!(!gone.exists());
+    assert_eq!(read(&other), "SELECT a\nFROM t;\n");
+    let errors = stderr(&output);
+    assert!(
+        errors.contains(
+            "× q.sql: changed while chairlift was running, so it is left as it is; run chairlift \
+             again"
+        ),
+        "{errors}"
+    );
+    assert!(
+        errors.contains(
+            "× s.sql: changed while chairlift was running, so it is left as it is; run chairlift \
+             again"
+        ),
+        "{errors}"
+    );
+    assert!(
+        errors.contains("1 file reformatted, 0 files already formatted, 2 errors"),
+        "{errors}"
+    );
+    let names: Vec<_> = fs::read_dir(&*dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(names.len(), 3, "no temporary file is left: {names:?}");
+}
+
 #[cfg(unix)]
 #[test]
 fn verify_refuses_the_wrong_program() {

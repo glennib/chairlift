@@ -277,6 +277,8 @@ enum FileError {
         text: String,
     },
     Write(io::Error),
+    /// The file changed, or went away, after it was read.
+    Changed,
     /// `--verify` found that ClickHouse reads the output differently.
     Oracle(Box<Diagnostic>),
 }
@@ -362,6 +364,13 @@ impl FileError {
             FileError::Format { error, .. } => Diagnostic::error(
                 "chairlift::format",
                 format!("{name}: {error}; the file is left unchanged"),
+            ),
+            FileError::Changed => Diagnostic::error(
+                "chairlift::changed",
+                format!(
+                    "{name}: changed while chairlift was running, so it is left as it is; run \
+                     chairlift again"
+                ),
             ),
             FileError::Write(e) => {
                 let diagnostic = Diagnostic::error(
@@ -728,7 +737,10 @@ fn finish(
     if changed {
         match (settings.action, path) {
             (Action::Write, Some(path)) => {
-                write_atomically(path, after).map_err(FileError::Write)?;
+                write_atomically(path, before, after).map_err(|e| match e {
+                    WriteError::Changed => FileError::Changed,
+                    WriteError::Io(e) => FileError::Write(e),
+                })?;
             }
             (Action::Diff, _) => diff = Some(unified_diff(name, before, after)),
             (Action::Write | Action::Check, _) => {}
@@ -737,16 +749,43 @@ fn finish(
     Ok(Outcome { changed, diff })
 }
 
-/// Replaces the file at `path` with `contents` so that a crash leaves either
-/// the old file or the new one, never a truncated one: the text goes to a
-/// temporary file in the same directory, is synced, and is renamed over the
-/// original. A symbolic link is followed, so the file it points at is
-/// replaced and the link stays. The new file gets the old one's permissions.
+/// Why [`write_atomically`] did not replace a file.
+enum WriteError {
+    /// The file no longer holds the text it was formatted from.
+    Changed,
+    Io(io::Error),
+}
+
+impl From<io::Error> for WriteError {
+    fn from(e: io::Error) -> Self {
+        WriteError::Io(e)
+    }
+}
+
+/// A file that is not found any more has changed since it was read.
+fn gone(e: io::Error) -> WriteError {
+    if e.kind() == io::ErrorKind::NotFound {
+        WriteError::Changed
+    } else {
+        WriteError::Io(e)
+    }
+}
+
+/// Replaces the file at `path`, which was read as `before`, with `contents`
+/// so that a crash leaves either the old file or the new one, never a
+/// truncated one: the text goes to a temporary file in the same directory,
+/// is synced, and is renamed over the original. A symbolic link is followed,
+/// so the file it points at is replaced and the link stays. The new file
+/// gets the old one's permissions.
+///
+/// Right before the rename the file is read again, and left alone if it no
+/// longer holds `before`: with `--verify`, minutes can pass between reading
+/// and writing, and an edit made meanwhile must not be lost.
 ///
 /// Renaming needs write permission on the directory only, so a file the
 /// user may not write is refused first, as writing it in place would be.
-fn write_atomically(path: &Path, contents: &str) -> io::Result<()> {
-    let target = fs::canonicalize(path)?;
+fn write_atomically(path: &Path, before: &str, contents: &str) -> Result<(), WriteError> {
+    let target = fs::canonicalize(path).map_err(gone)?;
     fs::OpenOptions::new().write(true).open(&target)?;
     let dir = target
         .parent()
@@ -767,7 +806,11 @@ fn write_atomically(path: &Path, contents: &str) -> io::Result<()> {
         file.write_all(contents.as_bytes())?;
         file.set_permissions(permissions)?;
         file.sync_all()?;
-        fs::rename(&temp, &target)
+        if fs::read(&target).map_err(gone)? != before.as_bytes() {
+            return Err(WriteError::Changed);
+        }
+        fs::rename(&temp, &target)?;
+        Ok(())
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temp);
