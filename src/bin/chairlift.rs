@@ -806,13 +806,19 @@ fn write_atomically(path: &Path, before: &str, contents: &str) -> Result<(), Wri
         TEMP_FILES.fetch_add(1, Ordering::Relaxed)
     ));
     let permissions = fs::metadata(&target)?.permissions();
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temp)?;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    // Created with no more access than the file has, so that the text of a
+    // file only its owner may read is never readable by others.
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(
+        &mut options,
+        std::os::unix::fs::PermissionsExt::mode(&permissions),
+    );
+    let mut file = options.open(&temp)?;
     let result = (|| {
-        file.write_all(contents.as_bytes())?;
         file.set_permissions(permissions)?;
+        file.write_all(contents.as_bytes())?;
         file.sync_all()?;
         if fs::read(&target).map_err(gone)? != before.as_bytes() {
             return Err(WriteError::Changed);
