@@ -1,0 +1,63 @@
+---
+source: tests/format.rs
+expression: once
+---
+CREATE DATABASE IF NOT EXISTS analytics ON CLUSTER '{cluster}'
+ENGINE = Atomic
+COMMENT 'Aggregates for the dashboards';
+
+CREATE OR REPLACE VIEW analytics.recent_views AS
+SELECT
+    site,
+    count() AS views
+FROM raw.events
+WHERE event_time > now() - INTERVAL 1 HOUR
+GROUP BY site;
+
+CREATE VIEW analytics.views_since
+(
+    site String,
+    views UInt64
+) AS
+SELECT
+    site,
+    count() AS views
+FROM raw.events
+WHERE event_time > {since:DateTime}
+GROUP BY site
+COMMENT 'Parameterized: SELECT * FROM analytics.views_since(since = now() - 3600)';
+
+CREATE DICTIONARY analytics.sites_dict
+(
+    site_id UInt64,
+    name String DEFAULT '',
+    parent_id UInt64 DEFAULT 0 HIERARCHICAL,
+    timezone String EXPRESSION lower(tz)
+)
+PRIMARY KEY site_id
+SOURCE(clickhouse(
+    host 'localhost'
+    port 9000
+    user 'reader'
+    password 'kept;as-written'
+    db 'analytics'
+    table 'sites'
+))
+LAYOUT(hashed())
+LIFETIME(min 300 max 3600)
+COMMENT 'Sites by id';
+
+CREATE DICTIONARY analytics.ip_ranges
+(
+    prefix String,
+    site_id UInt64
+)
+PRIMARY KEY prefix
+SOURCE(FILE(path 'ranges.tsv' format 'TabSeparated'))
+LAYOUT(IP_TRIE)
+LIFETIME(0);
+
+CREATE FUNCTION clamp_views AS (views, cap) -> if(views > cap, cap, views);
+
+CREATE OR REPLACE FUNCTION site_key ON CLUSTER '{cluster}' AS site ->
+    lower(replaceAll(site, ' ', '_'));

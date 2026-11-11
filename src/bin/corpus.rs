@@ -1058,7 +1058,7 @@ fn percent(part: usize, whole: usize) -> String {
 }
 
 /// The statement kinds the summary lists on their own.
-const KINDS: [&str; 8] = [
+const KINDS: [&str; 15] = [
     "select",
     "with",
     "create table",
@@ -1067,6 +1067,13 @@ const KINDS: [&str; 8] = [
     "drop table",
     "set",
     "optimize",
+    "alter table",
+    "create view",
+    "create dictionary",
+    "create database",
+    "create function",
+    "delete",
+    "update",
 ];
 
 /// How much parsed: statements per kind, the expression probe's items, and

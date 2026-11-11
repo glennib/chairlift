@@ -378,6 +378,59 @@ const SHAPES: &[Shape] = &[
     statement("OPTIMIZE TABLE t PARTITION ", "(", "1", ")", " FINAL"),
     unclosed("OPTIMIZE TABLE t PARTITION ", "("),
     run("ATTACH TABLE t ", "(a UInt8) ", ""),
+    // ALTER, the mutations and the other CREATE kinds.
+    run("ALTER TABLE t ", "DROP COLUMN a, ", "DROP COLUMN b"),
+    run(
+        "ALTER TABLE t ",
+        "ADD COLUMN a Int8 AFTER b, ",
+        "DELETE WHERE 1",
+    ),
+    run("ALTER TABLE t ", "ADD COLUMN a b c, ", "DROP COLUMN b"),
+    run("ALTER TABLE t ", "(DROP COLUMN a), ", "(DROP COLUMN b)"),
+    run("ALTER TABLE t MODIFY SETTING ", "a = 1, ", "b = 2"),
+    run("ALTER TABLE t UPDATE ", "a = 1, ", "b = 2 WHERE 1"),
+    run("ALTER TABLE t DELETE IN PARTITION ", "1, ", "2 WHERE 1"),
+    run("ALTER TABLE t DROP STATISTICS ", "a, ", "b"),
+    statement(
+        "ALTER TABLE t ADD COLUMN a ",
+        "Array(",
+        "Int8",
+        ")",
+        " FIRST",
+    ),
+    statement(
+        "ALTER TABLE t MODIFY COLUMN a ",
+        "Map(String, ",
+        "Int8",
+        ")",
+        "",
+    ),
+    unclosed("ALTER TABLE t ADD COLUMN a ", "Tuple("),
+    run("UPDATE t SET ", "a = 1, ", "b = 2 WHERE 1"),
+    run("DELETE FROM t WHERE ", "a AND ", "b"),
+    run(
+        "CREATE DICTIONARY d (a UInt64) PRIMARY KEY a SOURCE(CLICKHOUSE(",
+        "HOST 'x' ",
+        "TABLE 't')) LIFETIME(0)",
+    ),
+    run(
+        "CREATE DICTIONARY d (",
+        "a UInt64, ",
+        "b String) PRIMARY KEY a",
+    ),
+    statement(
+        "CREATE DICTIONARY d (a UInt64) PRIMARY KEY a SOURCE(MONGODB(",
+        "A (",
+        "B 1",
+        ")",
+        "))",
+    ),
+    unclosed(
+        "CREATE DICTIONARY d (a UInt64) PRIMARY KEY a SOURCE(X(",
+        "A (",
+    ),
+    statement("CREATE FUNCTION f AS ", "x -> ", "x", "", ""),
+    run("CREATE VIEW v (", "a UInt8, ", "b UInt8) AS SELECT 1"),
 ];
 
 /// A statement of `head` and `open` repeated, never closed, at lengths

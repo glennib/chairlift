@@ -1,0 +1,75 @@
+---
+source: tests/format.rs
+expression: once
+---
+-- One command, as a migration adds a column.
+ALTER TABLE raw.events ADD COLUMN IF NOT EXISTS element String AFTER duration_ms;
+
+ALTER TABLE analytics.page_views_1h ON CLUSTER '{cluster}'
+    ADD COLUMN referrer LowCardinality(String) DEFAULT '' AFTER site,
+    MODIFY TTL hour + INTERVAL 180 DAY;
+
+-- A list of settings or TTL rules reads on after a comma, so it comes last.
+ALTER TABLE analytics.page_views_1h
+    MODIFY SETTING ttl_only_drop_parts = 1, merge_with_ttl_timeout = 3600;
+
+ALTER TABLE raw.events
+    MODIFY COLUMN visitor_id String DEFAULT '' CODEC(ZSTD(1)) COMMENT 'Anonymous, 16 hex digits',
+    -- the index the dashboards filter on
+    ADD INDEX visitor_bf visitor_id TYPE bloom_filter(0.01) GRANULARITY 4,
+    ADD PROJECTION by_visitor (
+        SELECT *
+        ORDER BY visitor_id
+    ),
+    DROP COLUMN IF EXISTS legacy_id,
+    RENAME COLUMN ts TO event_time;
+
+ALTER TABLE raw.events
+    MATERIALIZE INDEX visitor_bf IN PARTITION 202601,
+    MATERIALIZE PROJECTION by_visitor;
+
+ALTER TABLE raw.events DELETE WHERE event_type = 'test' SETTINGS mutations_sync = 2;
+
+ALTER TABLE raw.events
+    UPDATE site = lower(site), event_type = replaceAll(event_type, '-', '_')
+        WHERE site != lower(site);
+
+ALTER TABLE raw.events
+    DROP PARTITION 202512,
+    DETACH PARTITION ID '202511',
+    ATTACH PARTITION 202511 FROM raw.events_backfill;
+
+ALTER TABLE raw.events
+    MOVE PARTITION 202510 TO VOLUME 'cold',
+    FREEZE PARTITION 202601 WITH NAME 'before-backfill';
+
+ALTER TABLE analytics.page_views_mv MODIFY QUERY
+SELECT
+    toStartOfHour(event_time) AS hour,
+    site,
+    count() AS views
+FROM raw.events
+GROUP BY hour, site;
+
+ALTER DATABASE analytics MODIFY COMMENT 'Aggregates for the dashboards';
+
+DELETE FROM raw.events
+WHERE event_type IN (
+    'page_view',
+    'article_view',
+    'video_start',
+    'video_complete',
+    'scroll_25',
+    'scroll_50',
+    'scroll_75',
+    'scroll_100'
+);
+
+DELETE FROM raw.events ON CLUSTER '{cluster}'
+IN PARTITION 202601
+WHERE site = 'test'
+SETTINGS lightweight_deletes_sync = 0;
+
+UPDATE raw.events
+SET site = 'nordlys', event_type = 'page_view'
+WHERE site = 'Nordlys';
