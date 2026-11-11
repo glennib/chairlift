@@ -1,0 +1,81 @@
+---
+source: src/syntax/grammar/show/tests.rs
+expression: "trees(&[\"DESCRIBE TABLE db.t\", \"desc t format TSV\", \"DESC TEMPORARY TABLE t\",\n\"DESCRIBE (SELECT 1 AS x) SETTINGS describe_compact_output = 1\",\n\"DESCRIBE TABLE file('a.csv', 'CSV')\", \"DESC {{ ref('t') }}\",])"
+---
+> DESCRIBE TABLE db.t
+DescribeQuery
+  Keyword "DESCRIBE"
+  Keyword "TABLE"
+  QualifiedName
+    Name
+      BareWord "db"
+    Dot "."
+    Name
+      BareWord "t"
+
+> desc t format TSV
+DescribeQuery
+  Keyword "desc"
+  Name
+    BareWord "t"
+  FormatClause
+    Keyword "format"
+    Name
+      BareWord "TSV"
+
+> DESC TEMPORARY TABLE t
+DescribeQuery
+  Keyword "DESC"
+  Keyword "TEMPORARY"
+  Keyword "TABLE"
+  Name
+    BareWord "t"
+
+> DESCRIBE (SELECT 1 AS x) SETTINGS describe_compact_output = 1
+DescribeQuery
+  Keyword "DESCRIBE"
+  Subquery
+    OpeningRoundBracket "("
+    SelectQuery
+      SelectClause
+        Keyword "SELECT"
+        SelectList
+          AliasedExpr
+            Literal
+              Number "1"
+            Alias
+              Keyword "AS"
+              Name
+                BareWord "x"
+    ClosingRoundBracket ")"
+  SettingsClause
+    Keyword "SETTINGS"
+    SettingsList
+      SettingItem
+        Name
+          BareWord "describe_compact_output"
+        Equals "="
+        Literal
+          Number "1"
+
+> DESCRIBE TABLE file('a.csv', 'CSV')
+DescribeQuery
+  Keyword "DESCRIBE"
+  Keyword "TABLE"
+  FunctionCall
+    Name
+      BareWord "file"
+    ArgList
+      OpeningRoundBracket "("
+      Literal
+        StringLiteral "'a.csv'"
+      Comma ","
+      Literal
+        StringLiteral "'CSV'"
+      ClosingRoundBracket ")"
+
+> DESC {{ ref('t') }}
+DescribeQuery
+  Keyword "DESC"
+  Name
+    JinjaExpr "{{ ref('t') }}"

@@ -1,0 +1,146 @@
+---
+source: src/syntax/grammar/show/tests.rs
+expression: "trees(&[\"SHOW CREATE TABLE db.t FORMAT TSVRaw\",\n\"show create temporary table t\", \"SHOW CREATE t\", \"SHOW CREATE USER u\",\n\"SHOW TABLES FROM system LIKE '%a%' LIMIT 2\",\n\"SHOW FULL TEMPORARY TABLES IN db NOT ILIKE 'x'\", \"SHOW DATABASES\",\n\"SHOW EXTENDED COLUMNS FROM t FROM db\",\n\"SHOW INDEX FROM t WHERE key_name = 'x'\", \"SHOW SETTING max_threads\",\n\"SHOW CHANGED SETTINGS LIKE 'max%'\",\n\"SHOW GRANTS FOR u, CURRENT_USER WITH IMPLICIT FINAL\",\n\"SHOW PROCESSLIST INTO OUTFILE 'x'\",])"
+---
+> SHOW CREATE TABLE db.t FORMAT TSVRaw
+ShowQuery
+  Keyword "SHOW"
+  Keyword "CREATE"
+  Keyword "TABLE"
+  QualifiedName
+    Name
+      BareWord "db"
+    Dot "."
+    Name
+      BareWord "t"
+  FormatClause
+    Keyword "FORMAT"
+    Name
+      BareWord "TSVRaw"
+
+> show create temporary table t
+ShowQuery
+  Keyword "show"
+  Keyword "create"
+  Keyword "temporary"
+  Keyword "table"
+  Name
+    BareWord "t"
+
+> SHOW CREATE t
+ShowQuery
+  Keyword "SHOW"
+  Keyword "CREATE"
+  Name
+    BareWord "t"
+
+> SHOW CREATE USER u
+ShowQuery
+  Keyword "SHOW"
+  Keyword "CREATE"
+  Keyword "USER"
+  Opaque
+    BareWord "u"
+
+> SHOW TABLES FROM system LIKE '%a%' LIMIT 2
+ShowQuery
+  Keyword "SHOW"
+  Keyword "TABLES"
+  Keyword "FROM"
+  Name
+    BareWord "system"
+  Keyword "LIKE"
+  Literal
+    StringLiteral "'%a%'"
+  Keyword "LIMIT"
+  Literal
+    Number "2"
+
+> SHOW FULL TEMPORARY TABLES IN db NOT ILIKE 'x'
+ShowQuery
+  Keyword "SHOW"
+  Keyword "FULL"
+  Keyword "TEMPORARY"
+  Keyword "TABLES"
+  Keyword "IN"
+  Name
+    BareWord "db"
+  Keyword "NOT"
+  Keyword "ILIKE"
+  Literal
+    StringLiteral "'x'"
+
+> SHOW DATABASES
+ShowQuery
+  Keyword "SHOW"
+  Keyword "DATABASES"
+
+> SHOW EXTENDED COLUMNS FROM t FROM db
+ShowQuery
+  Keyword "SHOW"
+  Keyword "EXTENDED"
+  Keyword "COLUMNS"
+  Keyword "FROM"
+  Name
+    BareWord "t"
+  Keyword "FROM"
+  Name
+    BareWord "db"
+
+> SHOW INDEX FROM t WHERE key_name = 'x'
+ShowQuery
+  Keyword "SHOW"
+  Keyword "INDEX"
+  Keyword "FROM"
+  Name
+    BareWord "t"
+  Keyword "WHERE"
+  BinaryExpr
+    Name
+      BareWord "key_name"
+    Equals "="
+    Literal
+      StringLiteral "'x'"
+
+> SHOW SETTING max_threads
+ShowQuery
+  Keyword "SHOW"
+  Keyword "SETTING"
+  Name
+    BareWord "max_threads"
+
+> SHOW CHANGED SETTINGS LIKE 'max%'
+ShowQuery
+  Keyword "SHOW"
+  Keyword "CHANGED"
+  Keyword "SETTINGS"
+  Keyword "LIKE"
+  Literal
+    StringLiteral "'max%'"
+
+> SHOW GRANTS FOR u, CURRENT_USER WITH IMPLICIT FINAL
+ShowQuery
+  Keyword "SHOW"
+  Keyword "GRANTS"
+  Keyword "FOR"
+  RoleSet
+    RoleList
+      UserName
+        Name
+          BareWord "u"
+      Comma ","
+      RoleKeyword
+        Keyword "CURRENT_USER"
+  Keyword "WITH"
+  Keyword "IMPLICIT"
+  Keyword "FINAL"
+
+> SHOW PROCESSLIST INTO OUTFILE 'x'
+ShowQuery
+  Keyword "SHOW"
+  Keyword "PROCESSLIST"
+  IntoOutfileClause
+    Keyword "INTO"
+    Keyword "OUTFILE"
+    Literal
+      StringLiteral "'x'"

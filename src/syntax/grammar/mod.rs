@@ -17,6 +17,7 @@
 //! | [`alter`] | `ALTER TABLE`, `ALTER DATABASE`, the lightweight `DELETE` and `UPDATE` |
 //! | [`create_other`] | `CREATE DICTIONARY`, `CREATE FUNCTION` |
 //! | [`access`] | `GRANT`, `REVOKE`, `CREATE`/`ALTER`/`DROP` of users, roles, quotas, row policies and settings profiles, `SET ROLE` |
+//! | [`show`] | `SHOW …`, `DESCRIBE` |
 //! | [`probe`] | the `SELECT <list>` expression probe |
 //!
 //! # Writing grammar
@@ -154,6 +155,7 @@ pub(crate) mod insert;
 pub(crate) mod names;
 pub(crate) mod probe;
 pub(crate) mod select;
+pub(crate) mod show;
 pub(crate) mod simple;
 pub(crate) mod types;
 
@@ -190,6 +192,8 @@ pub(crate) fn statement(p: &mut Parser<'_>, entry: Entry) {
                 fallback::statement(p, create_other::statement);
             } else if access::at_statement(p) {
                 fallback::statement(p, access::statement);
+            } else if show::at_statement(p) {
+                fallback::statement(p, show::statement);
             } else {
                 fallback::verbatim_statement(p);
             }

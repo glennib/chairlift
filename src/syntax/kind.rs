@@ -1133,6 +1133,21 @@ syntax_kinds! {
         /// DEFAULT ROLE`, any [`OnCluster`](Self::OnCluster), a `RoleSet`,
         /// `TO`, a `RoleSet` of users, and any `OnCluster`.
         SetRoleQuery: Statement,
+
+        // ---- SHOW and DESCRIBE ----------------------------------------------
+        // Grammar in `grammar/show.rs`.
+        /// `SHOW` and the keywords of what it shows, then what the form
+        /// takes: a name, a [`NameList`](Self::NameList), `FROM` or `IN` and
+        /// a name, `[NOT] LIKE|ILIKE` and a string
+        /// [`Literal`](Self::Literal), `LIMIT` and an expression, `FOR` and a
+        /// [`RoleSet`](Self::RoleSet); what a form takes that chairlift does
+        /// not model is [`Opaque`](Self::Opaque); then output clauses.
+        ShowQuery: Statement,
+        /// `DESCRIBE` or `DESC`, any `TABLE`, and a table: a
+        /// [`Name`](Self::Name), [`QualifiedName`](Self::QualifiedName),
+        /// table function ([`FunctionCall`](Self::FunctionCall)) or
+        /// [`Subquery`](Self::Subquery); then output clauses.
+        DescribeQuery: Statement,
     }
 }
 
