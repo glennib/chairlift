@@ -48,9 +48,9 @@ impl Color {
 pub enum Verbosity {
     /// Errors only, besides the result itself.
     Quiet,
-    /// Errors, warnings, notes and the summary line.
+    /// Errors, warnings and the summary line.
     Normal,
-    /// Also what happened to each file.
+    /// Also notes, and what happened to each file.
     Verbose,
 }
 
@@ -65,7 +65,12 @@ impl Reporter {
     /// `diagnostic` rendered for stderr, or `None` if the verbosity leaves it
     /// out. The text ends in a newline.
     pub fn render(self, diagnostic: &Diagnostic) -> Option<String> {
-        if self.verbosity == Verbosity::Quiet && diagnostic.severity != Severity::Error {
+        let least = match self.verbosity {
+            Verbosity::Quiet => Severity::Error,
+            Verbosity::Normal => Severity::Warning,
+            Verbosity::Verbose => Severity::Advice,
+        };
+        if diagnostic.severity < least {
             return None;
         }
         let theme = if self.color {
@@ -95,7 +100,7 @@ pub struct Diagnostic {
     /// The headline, starting with the file's name.
     pub message: String,
     /// The file's text, with the place the diagnostic is about.
-    pub snippet: Option<Snippet>,
+    pub snippet: Option<Box<Snippet>>,
     pub help: Option<String>,
 }
 
@@ -118,6 +123,22 @@ impl Diagnostic {
         }
     }
 
+    /// A warning, which `--quiet` leaves out.
+    pub fn warning(code: &'static str, message: String) -> Diagnostic {
+        Diagnostic {
+            severity: Severity::Warning,
+            ..Diagnostic::error(code, message)
+        }
+    }
+
+    /// A note, which only `--verbose` shows.
+    pub fn note(code: &'static str, message: String) -> Diagnostic {
+        Diagnostic {
+            severity: Severity::Advice,
+            ..Diagnostic::error(code, message)
+        }
+    }
+
     /// This diagnostic with `help`.
     #[must_use]
     pub fn with_help(mut self, help: impl Into<String>) -> Diagnostic {
@@ -137,10 +158,10 @@ impl Diagnostic {
             return self;
         }
         let len = text[offset..].chars().next().map_or(0, char::len_utf8);
-        self.snippet = Some(Snippet {
+        self.snippet = Some(Box::new(Snippet {
             source: NamedSource::new(name, text),
             label: LabeledSpan::new_primary_with_span(Some(label.to_owned()), (offset, len)),
-        });
+        }));
         self
     }
 }

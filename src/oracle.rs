@@ -29,7 +29,13 @@
 //!
 //! Templates must be rendered before the oracle can judge them; unrendered
 //! Jinja is classified as [`RejectionClass::UnrenderedJinja`]. A rendering is
-//! judged as a [`Pair`] of its own, in [`Mode::Sql`].
+//! judged as a [`Pair`] of its own, in [`Mode::Sql`]; [`variants`] lists the
+//! texts to judge for a file.
+//!
+//! [`Oracle::probe`] checks that the program is `clickhouse-format`, or the
+//! `clickhouse` binary, which formats as `clickhouse format`. A run is
+//! killed after [`Oracle::timeout`], and keeps a bounded part of what the
+//! program prints, so a misbehaving program costs time but not memory.
 //!
 //! # Blind spots
 //!
@@ -44,15 +50,20 @@
 //! - the `GRANULARITY` of a `text` index, which it always prints as
 //!   `GRANULARITY 100000000` (other index types keep theirs).
 
-use std::io::Read as _;
+use std::borrow::Cow;
+use std::fmt;
+use std::io;
+use std::io::Read;
 use std::io::Write as _;
 use std::ops::Range;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::Condvar;
 use std::sync::Mutex;
 use std::sync::PoisonError;
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -188,6 +199,75 @@ pub fn judge(input: &Verdict, output: &Verdict) -> Judgement {
     }
 }
 
+/// A text the oracle judges for a formatted file, with the output formatted
+/// from it: the file as it is, or one rendering of a template.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Variant<'a> {
+    /// Which rendering this is, such as the branches it takes; `None` for
+    /// the file as it is.
+    pub rendering: Option<String>,
+    /// The input text.
+    pub input: Cow<'a, str>,
+    /// The output text.
+    pub output: Cow<'a, str>,
+    /// The mode both are split in; a rendering is SQL.
+    pub mode: Mode,
+}
+
+/// The texts the oracle judges for a file formatted from `input` to
+/// `output`, both split in `mode`.
+///
+/// This is the file as it is. In [`Mode::Jinja`], [`Oracle::judge_pairs`]
+/// then finds the statements that hold a tag
+/// [`UnrenderedJinja`](RejectionClass::UnrenderedJinja) and judges the
+/// others. Rendering a template once per combination of its branches, to
+/// judge every statement, adds a variant per rendering; it is not built
+/// yet.
+#[must_use]
+pub fn variants<'a>(input: &'a str, output: &'a str, mode: Mode) -> Vec<Variant<'a>> {
+    vec![Variant {
+        rendering: None,
+        input: Cow::Borrowed(input),
+        output: Cow::Borrowed(output),
+        mode,
+    }]
+}
+
+/// Characters of a canonical form shown before the point where it differs.
+const EXCERPT_BEFORE: usize = 40;
+/// Characters of a canonical form shown, at most.
+const EXCERPT: usize = 160;
+
+/// Two canonical forms, cut to where they first differ, in a sentence.
+#[must_use]
+pub fn difference(input: &str, output: &str) -> String {
+    let (a, b) = (input.trim_end(), output.trim_end());
+    let first = a
+        .char_indices()
+        .zip(b.chars())
+        .find(|((_, x), y)| x != y)
+        .map_or(a.len().min(b.len()), |((i, _), _)| i);
+    // The texts agree up to `first`, so a boundary in one is in both.
+    let start = a.floor_char_boundary(first.saturating_sub(EXCERPT_BEFORE));
+    let cut = |s: &str| {
+        let rest = &s[start..];
+        let mut out = String::new();
+        if start > 0 {
+            out.push('…');
+        }
+        out.extend(rest.chars().take(EXCERPT));
+        if rest.chars().nth(EXCERPT).is_some() {
+            out.push('…');
+        }
+        out
+    };
+    format!(
+        "the oracle prints {:?} for the input and {:?} for the output",
+        cut(a),
+        cut(b)
+    )
+}
+
 /// `text` with the rows of every multi-line `INSERT … VALUES` joined onto
 /// one line, so that `clickhouse-format`, which takes the data only up to
 /// the first newline, sees all of it.
@@ -248,6 +328,44 @@ impl Oracle {
     #[must_use]
     pub fn is_available(&self) -> bool {
         matches!(self.run("SELECT 1"), Ok(run) if run.success)
+    }
+
+    /// Checks that the program runs and formats as `clickhouse-format` does:
+    /// that `select 1` comes back as `SELECT 1;`, within [`PROBE_TIMEOUT`]
+    /// or the timeout if that is shorter.
+    ///
+    /// # Errors
+    ///
+    /// If the program is not found, cannot be run, or does something else.
+    pub fn probe(&self) -> Result<(), ProbeError> {
+        let program = self.program.display().to_string();
+        let run = match self.run_for("select 1", self.timeout.min(PROBE_TIMEOUT)) {
+            Ok(run) => run,
+            Err(RunError::Spawn(e)) if e.kind() == io::ErrorKind::NotFound => {
+                return Err(ProbeError::NotFound { program });
+            }
+            Err(e) => {
+                return Err(ProbeError::CannotRun {
+                    program,
+                    message: e.to_string(),
+                });
+            }
+        };
+        // Several statements a run (`-n`) print each with its `;`.
+        if run.success && run.stdout.trim().trim_end_matches(';') == "SELECT 1" {
+            return Ok(());
+        }
+        let what = if run.success {
+            format!("prints {:?}", excerpt(run.stdout.trim()))
+        } else {
+            let message = classify(&run.stderr).message;
+            if message.is_empty() {
+                "fails without a message".to_owned()
+            } else {
+                format!("fails with {:?}", excerpt(&message))
+            }
+        };
+        Err(ProbeError::Unexpected { program, what })
     }
 
     /// The oracle's verdict on each text, in order.
@@ -387,68 +505,194 @@ impl Oracle {
         match self.run(text) {
             Ok(run) if run.success => Verdict::Accepted(normalize(&run.stdout)),
             Ok(run) => Verdict::Rejected(classify(&run.stderr)),
-            Err(message) => Verdict::Rejected(Rejection {
+            Err(e) => Verdict::Rejected(Rejection {
                 class: RejectionClass::Failed,
-                message,
+                message: e.to_string(),
             }),
         }
     }
 
-    fn run(&self, input: &str) -> Result<Run, String> {
-        let mut child = Command::new(&self.program)
+    /// Runs the program on `input`, with the timeout.
+    fn run(&self, input: &str) -> Result<Run, RunError> {
+        self.run_for(input, self.timeout)
+    }
+
+    /// Runs the program on `input`.
+    ///
+    /// The program is killed when it runs past `timeout`. What it prints is
+    /// kept up to a limit, a multiple of the input's size for stdout, and
+    /// the rest is read and dropped, so that a program that prints without
+    /// end costs time up to the timeout but no memory; more stdout than the
+    /// limit fails the run.
+    ///
+    /// The pipes are fed and read on threads of their own that this does
+    /// not wait for past the timeout: a process the program started, such as
+    /// one a wrapper script runs, can hold them open after the program is
+    /// killed, and the threads end only when it exits.
+    fn run_for(&self, input: &str, timeout: Duration) -> Result<Run, RunError> {
+        let mut command = Command::new(&self.program);
+        if is_multi_call(&self.program) {
+            command.arg("format");
+        }
+        let mut child = command
             .args(["-n", "--oneline", "--show_secrets"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| format!("cannot run {}: {e}", self.program.display()))?;
-        let mut stdin = child.stdin.take().ok_or("no stdin")?;
-        let mut stdout = child.stdout.take().ok_or("no stdout")?;
-        let mut stderr = child.stderr.take().ok_or("no stderr")?;
-        thread::scope(|scope| {
-            scope.spawn(move || {
-                // A process that exits early closes its stdin; what it did
-                // not read does not matter then.
-                let _ = stdin.write_all(input.as_bytes());
-            });
-            let out = scope.spawn(move || {
-                let mut buf = Vec::new();
-                let _ = stdout.read_to_end(&mut buf);
-                buf
-            });
-            let err = scope.spawn(move || {
-                let mut buf = Vec::new();
-                let _ = stderr.read_to_end(&mut buf);
-                buf
-            });
-            let deadline = Instant::now() + self.timeout;
-            let status = loop {
-                match child.try_wait() {
-                    Ok(Some(status)) => break Ok(status),
-                    Ok(None) if Instant::now() >= deadline => {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        break Err(format!("timed out after {:?}", self.timeout));
-                    }
-                    Ok(None) => thread::sleep(Duration::from_millis(2)),
-                    Err(e) => break Err(e.to_string()),
+            .map_err(RunError::Spawn)?;
+        let pipes = (child.stdin.take(), child.stdout.take(), child.stderr.take());
+        let (Some(mut stdin), Some(mut stdout), Some(mut stderr)) = pipes else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(RunError::Other("the process has no pipes".to_owned()));
+        };
+        let stdout_limit = input.len().saturating_mul(4).saturating_add(1 << 20);
+        let input = input.as_bytes().to_vec();
+        thread::spawn(move || {
+            // A process that exits early closes its stdin; what it did not
+            // read does not matter then.
+            let _ = stdin.write_all(&input);
+        });
+        let (out_sender, out) = mpsc::channel();
+        let (err_sender, err) = mpsc::channel();
+        thread::spawn(move || out_sender.send(read_limited(&mut stdout, stdout_limit)));
+        thread::spawn(move || err_sender.send(read_limited(&mut stderr, STDERR_LIMIT)));
+        let timed_out = || RunError::Other(format!("timed out after {timeout:?}"));
+        let deadline = Instant::now() + timeout;
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if Instant::now() >= deadline => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(timed_out());
                 }
-            };
-            let stdout = String::from_utf8_lossy(&out.join().unwrap_or_default()).into_owned();
-            let stderr = String::from_utf8_lossy(&err.join().unwrap_or_default()).into_owned();
-            status.map(|status| Run {
-                success: status.success(),
-                stdout,
-                stderr,
-            })
+                Ok(None) => thread::sleep(Duration::from_millis(2)),
+                Err(e) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(RunError::Other(e.to_string()));
+                }
+            }
+        };
+        // The program has exited; what is left in the pipes takes moments
+        // to read, unless something else holds them open.
+        let drained = Instant::now() + PIPE_GRACE;
+        let receive = |from: &mpsc::Receiver<(Vec<u8>, bool)>| {
+            from.recv_timeout(drained.saturating_duration_since(Instant::now()))
+                .map_err(|_| {
+                    RunError::Other(
+                        "exited, but a process it started holds its output open".to_owned(),
+                    )
+                })
+        };
+        let (stdout, stdout_cut) = receive(&out)?;
+        let (stderr, _) = receive(&err)?;
+        if stdout_cut {
+            return Err(RunError::Other(format!(
+                "printed more than {stdout_limit} bytes"
+            )));
+        }
+        Ok(Run {
+            success: status.success(),
+            stdout: String::from_utf8_lossy(&stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&stderr).into_owned(),
         })
     }
+}
+
+/// How long [`Oracle::probe`] waits for `select 1`, so that a program that
+/// hangs is reported soon. The first start of the ClickHouse binary from a
+/// cold disk can take seconds.
+pub const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Bytes of stderr kept from a run: the first lines say what failed.
+const STDERR_LIMIT: usize = 64 << 10;
+
+/// How long the pipes are read after the program exits.
+const PIPE_GRACE: Duration = Duration::from_secs(5);
+
+/// Reads `reader` to its end, keeping the first `limit` bytes; whether
+/// there were more.
+fn read_limited(reader: &mut impl Read, limit: usize) -> (Vec<u8>, bool) {
+    let mut kept = Vec::new();
+    let _ = reader
+        .by_ref()
+        .take(u64::try_from(limit).unwrap_or(u64::MAX))
+        .read_to_end(&mut kept);
+    let more = io::copy(reader, &mut io::sink()).is_ok_and(|n| n > 0);
+    (kept, more)
+}
+
+/// Whether `program` is ClickHouse's single binary, `clickhouse`, which
+/// formats as `clickhouse format`.
+fn is_multi_call(program: &Path) -> bool {
+    program
+        .file_stem()
+        .is_some_and(|stem| stem.eq_ignore_ascii_case("clickhouse"))
+}
+
+/// The first characters of `text`, for a message.
+fn excerpt(text: &str) -> String {
+    const SHOWN: usize = 80;
+    let mut out: String = text.chars().take(SHOWN).collect();
+    if text.chars().nth(SHOWN).is_some() {
+        out.push('…');
+    }
+    out
 }
 
 struct Run {
     success: bool,
     stdout: String,
     stderr: String,
+}
+
+/// Why a run of the program gave no verdict.
+#[derive(Debug)]
+enum RunError {
+    /// It could not be started.
+    Spawn(io::Error),
+    /// It timed out, printed too much, or could not be waited for.
+    Other(String),
+}
+
+impl fmt::Display for RunError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RunError::Spawn(e) => write!(f, "cannot be started: {e}"),
+            RunError::Other(message) => f.write_str(message),
+        }
+    }
+}
+
+/// Why [`Oracle::probe`] found the program unusable.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum ProbeError {
+    /// There is no such program.
+    #[error("`{program}` was not found")]
+    NotFound {
+        /// The program, as given.
+        program: String,
+    },
+    /// It could not be started, or did not finish.
+    #[error("`{program}` {message}")]
+    CannotRun {
+        /// The program, as given.
+        program: String,
+        /// What went wrong.
+        message: String,
+    },
+    /// It ran, and did not format `select 1` as `SELECT 1`.
+    #[error("`{program}` does not behave like clickhouse-format: given `select 1`, it {what}")]
+    Unexpected {
+        /// The program, as given.
+        program: String,
+        /// What it did instead.
+        what: String,
+    },
 }
 
 /// What becomes of a text that fails in a batch.

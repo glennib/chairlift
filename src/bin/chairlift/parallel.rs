@@ -11,21 +11,21 @@ pub fn default_jobs() -> usize {
 /// order of `items`. One item, or one job, runs on the calling thread
 /// without starting a pool: an editor formatting one file on save should
 /// not pay for threads.
-pub fn map<T, R, F>(items: &[T], jobs: usize, f: F) -> Vec<R>
+pub fn map<T, R, F>(items: Vec<T>, jobs: usize, f: F) -> Vec<R>
 where
-    T: Sync,
+    T: Send,
     R: Send,
-    F: Fn(&T) -> R + Sync + Send,
+    F: Fn(T) -> R + Sync + Send,
 {
     if jobs <= 1 || items.len() <= 1 {
-        return items.iter().map(f).collect();
+        return items.into_iter().map(f).collect();
     }
     match rayon::ThreadPoolBuilder::new()
         .num_threads(jobs.min(items.len()))
         .build()
     {
-        Ok(pool) => pool.install(|| items.par_iter().map(f).collect()),
+        Ok(pool) => pool.install(|| items.into_par_iter().map(f).collect()),
         // Without threads the work still gets done, on this one.
-        Err(_) => items.iter().map(f).collect(),
+        Err(_) => items.into_iter().map(f).collect(),
     }
 }

@@ -150,3 +150,160 @@ fn judgements() {
         })
     ));
 }
+
+#[test]
+fn long_canonical_forms_are_cut_around_the_difference() {
+    let a = format!("SELECT {}1", "x, ".repeat(100));
+    let b = format!("SELECT {}2", "x, ".repeat(100));
+    let message = difference(&a, &b);
+    assert!(message.contains("\"… x, x, "), "{message}");
+    assert!(message.contains("x, 1\" for the input"), "{message}");
+    assert!(message.contains("x, 2\" for the output"), "{message}");
+    let long = format!("{a}{}", " AND y".repeat(100));
+    assert!(difference(&long, &b).contains("…\" for the input"));
+}
+
+#[test]
+fn a_file_is_its_own_variant() {
+    let found = variants("select 1", "SELECT 1\n", Mode::Jinja);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].rendering, None);
+    assert_eq!(found[0].input, "select 1");
+    assert_eq!(found[0].output, "SELECT 1\n");
+    assert_eq!(found[0].mode, Mode::Jinja);
+}
+
+#[test]
+fn output_is_read_up_to_a_limit() {
+    let (kept, more) = read_limited(&mut &b"abcdef"[..], 4);
+    assert_eq!((kept.as_slice(), more), (&b"abcd"[..], true));
+    let (kept, more) = read_limited(&mut &b"abcd"[..], 4);
+    assert_eq!((kept.as_slice(), more), (&b"abcd"[..], false));
+}
+
+#[test]
+fn the_single_binary_formats_as_a_subcommand() {
+    assert!(is_multi_call(Path::new("/opt/ch/bin/clickhouse")));
+    assert!(is_multi_call(Path::new("clickhouse.exe")));
+    assert!(!is_multi_call(Path::new("clickhouse-format")));
+    assert!(!is_multi_call(Path::new("/usr/bin/clickhouse-local")));
+}
+
+#[test]
+fn a_missing_program_is_reported() {
+    let oracle = Oracle::new("/nonexistent/clickhouse-format");
+    assert_eq!(
+        oracle.probe(),
+        Err(ProbeError::NotFound {
+            program: "/nonexistent/clickhouse-format".to_owned()
+        })
+    );
+    assert!(matches!(
+        oracle.canonical(&["select 1"])[0],
+        Verdict::Rejected(Rejection {
+            class: RejectionClass::Failed,
+            ..
+        })
+    ));
+}
+
+/// Programs that misbehave: the wrong program, one that hangs, and ones that
+/// print without end or too much. None may hang the oracle or fill memory.
+#[cfg(unix)]
+mod misbehaving {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::path::PathBuf;
+
+    use super::*;
+
+    /// A shell script running `body`, in a fresh directory.
+    fn script(name: &str, body: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("chairlift-oracle-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("clickhouse-format");
+        fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    fn failure(oracle: &Oracle) -> String {
+        match &oracle.canonical(&["select 1"])[0] {
+            Verdict::Rejected(Rejection {
+                class: RejectionClass::Failed,
+                message,
+            }) => message.clone(),
+            other => panic!("expected a failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_wrong_program() {
+        let oracle = Oracle::new(script("echo", "echo hello"));
+        assert!(matches!(
+            oracle.probe(),
+            Err(ProbeError::Unexpected { what, .. }) if what == "prints \"hello\""
+        ));
+        let oracle = Oracle::new(script("fails", "echo 'no such option' >&2; exit 3"));
+        assert!(matches!(
+            oracle.probe(),
+            Err(ProbeError::Unexpected { what, .. }) if what == "fails with \"no such option\""
+        ));
+    }
+
+    #[test]
+    fn a_program_that_cannot_be_run() {
+        let path = script("not-executable", "exit 0");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            Oracle::new(path).probe(),
+            Err(ProbeError::CannotRun { .. })
+        ));
+    }
+
+    #[test]
+    fn a_hanging_program_is_killed() {
+        let mut oracle = Oracle::new(script("hangs", "exec sleep 30"));
+        oracle.timeout = Duration::from_millis(300);
+        let started = Instant::now();
+        assert!(failure(&oracle).starts_with("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(matches!(oracle.probe(), Err(ProbeError::CannotRun { .. })));
+    }
+
+    /// A wrapper script whose child hangs: killing the script leaves the
+    /// child holding the pipes, which must not hold up the oracle.
+    #[test]
+    fn a_hanging_child_of_the_program_is_not_waited_for() {
+        let mut oracle = Oracle::new(script("hanging-child", "sleep 10"));
+        oracle.timeout = Duration::from_millis(300);
+        let started = Instant::now();
+        assert!(failure(&oracle).starts_with("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    /// A program that exits and leaves a process behind that holds its
+    /// output open gives no verdict.
+    #[test]
+    fn output_held_open_after_exit_is_a_failure() {
+        let oracle = Oracle::new(script("background", "sleep 10 &\necho 'SELECT 1'"));
+        let started = Instant::now();
+        assert!(failure(&oracle).contains("holds its output open"));
+        assert!(started.elapsed() < Duration::from_secs(9));
+    }
+
+    #[test]
+    fn endless_output_costs_no_memory() {
+        let mut oracle = Oracle::new(script("endless", "exec yes"));
+        oracle.timeout = Duration::from_millis(500);
+        assert!(failure(&oracle).starts_with("timed out"));
+    }
+
+    #[test]
+    fn too_much_output_fails() {
+        let oracle = Oracle::new(script("too-much", "head -c 3000000 /dev/zero"));
+        assert!(failure(&oracle).starts_with("printed more than"));
+    }
+}

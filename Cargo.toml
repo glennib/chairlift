@@ -58,9 +58,9 @@ harness = false
 default = ["cli"]
 # The `chairlift` binary. The library needs none of these; a consumer that only
 # uses the library can disable default features.
-cli = ["dep:clap", "dep:ignore", "dep:miette", "dep:rayon", "dep:similar"]
+cli = ["oracle", "dep:clap", "dep:ignore", "dep:miette", "dep:rayon", "dep:similar"]
 # `chairlift::oracle`, which runs `clickhouse-format` to check formatting kept
-# a text's meaning. No dependencies.
+# a text's meaning, for the binary's `--verify`. No dependencies.
 oracle = []
 # The `corpus` binary, a development tool that formats, verifies and checks
 # whole directory trees. Not part of the published binary.

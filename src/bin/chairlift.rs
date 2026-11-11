@@ -1,13 +1,16 @@
 //! `chairlift` — command-line formatter for ClickHouse SQL.
 //!
-//! Each file is handled on its own by [`process`], which reads, formats and
-//! (unless checking) writes it and returns an [`Outcome`] or a [`FileError`];
-//! reporting and the exit code are worked out from those afterwards.
+//! Each file is handled on its own: read and formatted ([`format_file`]),
+//! judged by `clickhouse-format` with `--verify` ([`verify`]), and written
+//! back or diffed ([`finish`]), giving an [`Outcome`] or a [`FileError`];
+//! files are handled in parallel, and reported in path order afterwards.
 
 #[path = "chairlift/diagnostic.rs"]
 mod diagnostic;
 #[path = "chairlift/parallel.rs"]
 mod parallel;
+#[path = "chairlift/verify.rs"]
+mod verify;
 
 use std::fs;
 use std::io;
@@ -21,12 +24,15 @@ use std::time::Instant;
 
 use chairlift::Options;
 use chairlift::lexer::Mode;
+use chairlift::oracle::Counts;
+use chairlift::oracle::RejectionClass;
 use clap::Parser;
 use clap::ValueEnum;
 use diagnostic::Color;
 use diagnostic::Diagnostic;
 use diagnostic::Reporter;
 use diagnostic::Verbosity;
+use verify::Verifier;
 
 /// Format ClickHouse SQL and Jinja-templated SQL files.
 ///
@@ -40,7 +46,8 @@ use diagnostic::Verbosity;
     after_help = "Exit status: 0 when done, 1 when --check or --diff found files that would \
                   change, 2 when a file could not be formatted (unreadable, not UTF-8, a lexer \
                   error, a failed verification, or a template refused because its rendering \
-                  decides where a line comment ends) or the arguments are wrong."
+                  decides where a line comment ends), --verify cannot run clickhouse-format, \
+                  or the arguments are wrong."
 )]
 struct Cli {
     /// Files or directories to format; `-` reads stdin and writes stdout.
@@ -56,6 +63,20 @@ struct Cli {
     /// there are any.
     #[arg(long)]
     diff: bool,
+
+    /// Also check with ClickHouse's own formatter, `clickhouse-format`, that
+    /// ClickHouse reads each changed file as before. A file it reads
+    /// differently is an error and is not written. Files that formatting
+    /// leaves unchanged are not judged, as there is nothing to compare;
+    /// neither are statements it cannot parse, nor template statements that
+    /// hold Jinja.
+    #[arg(long)]
+    verify: bool,
+
+    /// The `clickhouse-format` program for --verify, or the `clickhouse`
+    /// binary [default: `clickhouse-format` on PATH].
+    #[arg(long, value_name = "PATH", requires = "verify")]
+    clickhouse_binary: Option<PathBuf>,
 
     /// The width to lay lines out to.
     #[arg(long, value_name = "WIDTH", default_value_t = Options::DEFAULT_LINE_WIDTH,
@@ -155,6 +176,93 @@ struct Outcome {
     diff: Option<String>,
 }
 
+/// A file read and formatted, for `--verify` to judge.
+struct Item {
+    /// The file's name in messages.
+    name: String,
+    mode: Mode,
+    result: Result<Formatted, FileError>,
+}
+
+/// What `--verify` found.
+struct Verification {
+    /// Statement counts over every changed file.
+    counts: Counts,
+    /// Templates judged without rendering.
+    unrendered: usize,
+    /// Notes and warnings per item.
+    notes: Vec<Vec<Diagnostic>>,
+}
+
+/// Judges the changed files among `items` with the oracle, turning each one
+/// it reads differently into an error.
+fn verify(verifier: &Verifier, items: &mut [Item]) -> Verification {
+    let changed: Vec<usize> = (0..items.len())
+        .filter(|&i| matches!(&items[i].result, Ok(f) if f.before != f.after))
+        .collect();
+    let jobs: Vec<verify::Job<'_>> = changed
+        .iter()
+        .filter_map(|&i| {
+            let item = &items[i];
+            let formatted = item.result.as_ref().ok()?;
+            Some(verify::Job {
+                name: &item.name,
+                input: &formatted.before,
+                output: &formatted.after,
+                mode: item.mode,
+            })
+        })
+        .collect();
+    let verdicts = verifier.verify(&jobs);
+    drop(jobs);
+    let mut verification = Verification {
+        counts: Counts::default(),
+        unrendered: 0,
+        notes: items.iter().map(|_| Vec::new()).collect(),
+    };
+    for (i, verdict) in changed.into_iter().zip(verdicts) {
+        verification.counts.add(&verdict.counts);
+        let name = &items[i].name;
+        let notes = &mut verification.notes[i];
+        if verdict.unrendered {
+            verification.unrendered += 1;
+            let jinja = verdict.counts.rejected(RejectionClass::UnrenderedJinja);
+            notes.push(Diagnostic::note(
+                "chairlift::verify::template",
+                format!(
+                    "{name}: a template, judged without rendering it: {} with Jinja not judged",
+                    statements(jinja)
+                ),
+            ));
+        }
+        let failed = verdict.counts.rejected(RejectionClass::Failed);
+        if failed > 0 {
+            notes.push(Diagnostic::warning(
+                "chairlift::verify::failed",
+                format!(
+                    "{name}: clickhouse-format failed (crashed, timed out or could not \
+                     start) on {}, not judged",
+                    statements(failed)
+                ),
+            ));
+        }
+        notes.extend(verdict.whole_only);
+        if let Some(bug) = verdict.bug {
+            items[i].result = Err(FileError::Oracle(Box::new(bug)));
+        }
+    }
+    verification
+}
+
+/// `n` statements, in words.
+fn statements(n: usize) -> String {
+    if n == 1 {
+        "1 statement".to_owned()
+    } else {
+        format!("{n} statements")
+    }
+}
+
 /// Why a file was left as it was.
 #[derive(Debug)]
 enum FileError {
@@ -169,6 +277,8 @@ enum FileError {
         text: String,
     },
     Write(io::Error),
+    /// `--verify` found that ClickHouse reads the output differently.
+    Oracle(Box<Diagnostic>),
 }
 
 impl FileError {
@@ -188,6 +298,7 @@ impl FileError {
     /// The diagnostic for the file called `name`.
     fn diagnostic(self, name: &str) -> Diagnostic {
         match self {
+            FileError::Oracle(diagnostic) => *diagnostic,
             FileError::Read(e) => {
                 Diagnostic::error("chairlift::read", format!("{name}: cannot be read: {e}"))
             }
@@ -297,33 +408,71 @@ fn main() -> ExitCode {
             eprintln!("error: `-` (stdin) cannot be combined with other paths");
             return ExitCode::from(2);
         }
-        return stdin(&settings, cli.stdin_filename.as_deref(), reporter);
-    }
-    if cli.stdin_filename.is_some() {
+    } else if cli.stdin_filename.is_some() {
         eprintln!("error: --stdin-filename names the file on stdin, so it needs `-` as the path");
         return ExitCode::from(2);
     }
     let jobs = cli.jobs.map_or_else(parallel::default_jobs, usize::from);
-    files(&cli.paths, &settings, jobs, reporter)
+    let verifier = if cli.verify {
+        match Verifier::new(cli.clickhouse_binary, jobs) {
+            Ok(verifier) => Some(verifier),
+            Err(diagnostic) => {
+                report(reporter, &diagnostic);
+                return ExitCode::from(2);
+            }
+        }
+    } else {
+        None
+    };
+    if cli.paths.iter().any(|p| p.as_os_str() == "-") {
+        return stdin(
+            &settings,
+            cli.stdin_filename.as_deref(),
+            verifier.as_ref(),
+            reporter,
+        );
+    }
+    files(&cli.paths, &settings, jobs, verifier.as_ref(), reporter)
 }
 
 /// Formats stdin to stdout, or checks or diffs it. `filename` is the name
 /// of the file the text comes from, if `--stdin-filename` gives one.
-fn stdin(settings: &Settings, filename: Option<&Path>, reporter: Reporter) -> ExitCode {
+fn stdin(
+    settings: &Settings,
+    filename: Option<&Path>,
+    verifier: Option<&Verifier>,
+    reporter: Reporter,
+) -> ExitCode {
     let shown = filename.map(|f| f.display().to_string());
-    let result = read_stdin()
-        .and_then(|source| format_text(source, &settings.options(filename)))
-        .and_then(|formatted| {
-            let outcome = finish(shown.as_deref().unwrap_or("-"), None, &formatted, settings)?;
-            Ok((formatted, outcome))
-        });
+    let options = settings.options(filename);
+    let mut items = vec![Item {
+        name: shown.clone().unwrap_or_else(|| "<stdin>".to_owned()),
+        mode: options.mode(),
+        result: read_stdin().and_then(|source| format_text(source, &options)),
+    }];
+    if let Some(verifier) = verifier {
+        let verification = verify(verifier, &mut items);
+        for note in verification.notes.iter().flatten() {
+            report(reporter, note);
+        }
+        if reporter.verbosity == Verbosity::Verbose {
+            eprintln!(
+                "{}",
+                verify::summary(&verification.counts, verification.unrendered)
+            );
+        }
+    }
+    let Some(item) = items.pop() else {
+        return ExitCode::from(2);
+    };
+    let result = item.result.and_then(|formatted| {
+        let outcome = finish(shown.as_deref().unwrap_or("-"), None, &formatted, settings)?;
+        Ok((formatted, outcome))
+    });
     let (formatted, outcome) = match result {
         Ok(done) => done,
         Err(e) => {
-            report(
-                reporter,
-                &e.diagnostic(shown.as_deref().unwrap_or("<stdin>")),
-            );
+            report(reporter, &e.diagnostic(&item.name));
             return ExitCode::from(2);
         }
     };
@@ -373,16 +522,52 @@ fn report(reporter: Reporter, diagnostic: &Diagnostic) {
 }
 
 /// Formats, checks or diffs the files under `paths`.
-fn files(paths: &[PathBuf], settings: &Settings, jobs: usize, reporter: Reporter) -> ExitCode {
+fn files(
+    paths: &[PathBuf],
+    settings: &Settings,
+    jobs: usize,
+    verifier: Option<&Verifier>,
+    reporter: Reporter,
+) -> ExitCode {
     let started = Instant::now();
     let (files, mut errors) = discover(paths, reporter);
-    let outcomes = parallel::map(&files, jobs, |path| process(path, settings));
+    let (outcomes, verification) = match verifier {
+        None => (
+            parallel::map(files.iter().collect(), jobs, |path: &PathBuf| {
+                process(path, settings)
+            }),
+            None,
+        ),
+        // Every file is formatted before any is written, so that the oracle
+        // judges them all in one batched run.
+        Some(verifier) => {
+            let mut items = parallel::map(files.iter().collect(), jobs, |path: &PathBuf| Item {
+                name: path.display().to_string(),
+                mode: settings.options(Some(path)).mode(),
+                result: format_file(path, settings),
+            });
+            let verification = verify(verifier, &mut items);
+            let outcomes = parallel::map(
+                files.iter().zip(items).collect(),
+                jobs,
+                |(path, item): (&PathBuf, Item)| {
+                    item.result
+                        .and_then(|formatted| finish(&item.name, Some(path), &formatted, settings))
+                },
+            );
+            (outcomes, Some(verification))
+        }
+    };
     let mut changed = 0;
     let mut unchanged = 0;
     let mut refused = 0;
     let mut stdout = io::stdout().lock();
-    for (path, outcome) in files.iter().zip(outcomes) {
+    for (i, (path, outcome)) in files.iter().zip(outcomes).enumerate() {
         let shown = path.display().to_string();
+        let notes = verification.as_ref().and_then(|v| v.notes.get(i));
+        for note in notes.into_iter().flatten() {
+            report(reporter, note);
+        }
         match outcome {
             Ok(Outcome { changed: false, .. }) => {
                 unchanged += 1;
@@ -429,6 +614,14 @@ fn files(paths: &[PathBuf], settings: &Settings, jobs: usize, reporter: Reporter
         Verbosity::Quiet => {}
         Verbosity::Normal => eprintln!("{summary}"),
         Verbosity::Verbose => eprintln!("{summary} in {:.2} s", started.elapsed().as_secs_f64()),
+    }
+    if let Some(verification) = verification
+        && reporter.verbosity != Verbosity::Quiet
+    {
+        eprintln!(
+            "{}",
+            verify::summary(&verification.counts, verification.unrendered)
+        );
     }
     if errors > 0 || refused > 0 {
         ExitCode::from(2)

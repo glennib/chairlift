@@ -118,6 +118,12 @@ fn help() {
           --diff
               Write nothing; print a unified diff of the changes and exit with 1 if there are any
 
+          --verify
+              Also check with ClickHouse's own formatter, `clickhouse-format`, that ClickHouse reads each changed file as before. A file it reads differently is an error and is not written. Files that formatting leaves unchanged are not judged, as there is nothing to compare; neither are statements it cannot parse, nor template statements that hold Jinja
+
+          --clickhouse-binary <PATH>
+              The `clickhouse-format` program for --verify, or the `clickhouse` binary [default: `clickhouse-format` on PATH]
+
           --line-width <WIDTH>
               The width to lay lines out to
 
@@ -157,7 +163,7 @@ fn help() {
       -V, --version
               Print version
 
-    Exit status: 0 when done, 1 when --check or --diff found files that would change, 2 when a file could not be formatted (unreadable, not UTF-8, a lexer error, a failed verification, or a template refused because its rendering decides where a line comment ends) or the arguments are wrong.
+    Exit status: 0 when done, 1 when --check or --diff found files that would change, 2 when a file could not be formatted (unreadable, not UTF-8, a lexer error, a failed verification, or a template refused because its rendering decides where a line comment ends), --verify cannot run clickhouse-format, or the arguments are wrong.
     ");
 }
 
@@ -792,4 +798,314 @@ fn colour() {
         .output()
         .unwrap();
     assert!(!has_escape(&output), "{}", stderr(&output));
+}
+
+/// `clickhouse-format`, as the oracle tests find it: `CHAIRLIFT_CLICKHOUSE_FORMAT`
+/// or on `PATH`. `None` skips the test, unless `CHAIRLIFT_REQUIRE_CORPUS` is
+/// set.
+fn clickhouse_format() -> Option<String> {
+    let program = std::env::var("CHAIRLIFT_CLICKHOUSE_FORMAT")
+        .unwrap_or_else(|_| "clickhouse-format".to_owned());
+    if chairlift::oracle::Oracle::new(&program).is_available() {
+        Some(program)
+    } else {
+        assert!(
+            std::env::var_os("CHAIRLIFT_REQUIRE_CORPUS").is_none_or(|v| v.is_empty()),
+            "clickhouse-format is unavailable, and CHAIRLIFT_REQUIRE_CORPUS is set"
+        );
+        eprintln!("skipping: clickhouse-format is unavailable");
+        None
+    }
+}
+
+#[test]
+fn verify_needs_clickhouse_format() {
+    let dir = temp_dir("verify-missing");
+    let messy = write(&dir, "q.sql", MESSY);
+    let output = run(
+        &[
+            "--verify",
+            "--clickhouse-binary",
+            "/nonexistent/clickhouse-format",
+            "q.sql",
+        ],
+        None,
+        Some(&*dir),
+    );
+    assert_eq!(output.status.code(), Some(2));
+    insta::assert_snapshot!(stderr(&output), @"
+    chairlift::verify::binary
+
+      × --verify cannot use ClickHouse's formatter: `/nonexistent/clickhouse-format` was not found
+      help: --verify runs `clickhouse-format`, which comes with ClickHouse (https://clickhouse.com/docs/install): put it on PATH, or pass --clickhouse-binary with the path to `clickhouse-format` or to the `clickhouse` binary
+    ");
+    assert_eq!(read(&messy), MESSY, "nothing is written");
+
+    // Not on PATH either.
+    let output = Command::new(env!("CARGO_BIN_EXE_chairlift"))
+        .args(["--verify", "-"])
+        .env("PATH", &*dir)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("`clickhouse-format` was not found"),
+        "{}",
+        stderr(&output)
+    );
+
+    // --clickhouse-binary means nothing without --verify.
+    let output = chairlift(&["--clickhouse-binary", "clickhouse-format", "q.sql"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("--verify"), "{}", stderr(&output));
+}
+
+/// A shell script standing in for `clickhouse-format`.
+#[cfg(unix)]
+fn fake_oracle(dir: &Path, body: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let path = write(
+        dir,
+        "bin/clickhouse-format",
+        &format!("#!/bin/sh\n{body}\n"),
+    );
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+#[cfg(unix)]
+#[test]
+fn verify_refuses_the_wrong_program() {
+    let dir = temp_dir("verify-wrong");
+    let fake = fake_oracle(&dir, "echo 'Usage: something else'");
+    let output = run(
+        &[
+            "--verify",
+            "--clickhouse-binary",
+            fake.to_str().unwrap(),
+            "-",
+        ],
+        Some(b"select 1"),
+        None,
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains(
+            "does not behave like clickhouse-format: given `select 1`, it prints \
+             \"Usage: something else\""
+        ),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(stdout(&output), "");
+}
+
+/// An oracle that reads the output differently from the input is a bug in
+/// chairlift: the file is an error, is not written, and the diagnostic asks
+/// for a bug report. The fake oracle passes the check that it formats, and
+/// otherwise prints its input, so any change of layout is a difference.
+#[cfg(unix)]
+#[test]
+fn verify_rejects_a_file_the_oracle_reads_differently() {
+    let dir = temp_dir("verify-bug");
+    let fake = fake_oracle(&dir, "exec sed -e 's/^select 1$/SELECT 1;/'");
+    let fake = fake.to_str().unwrap();
+    let file = write(&dir, "q.sql", "select a, b from t;\n");
+    let clean = write(&dir, "clean.sql", "SELECT 1;\n");
+    for args in [
+        &[
+            "--verify",
+            "--clickhouse-binary",
+            fake,
+            "q.sql",
+            "clean.sql",
+        ][..],
+        &[
+            "--verify",
+            "--check",
+            "--clickhouse-binary",
+            fake,
+            "q.sql",
+            "clean.sql",
+        ],
+        &[
+            "--verify",
+            "--diff",
+            "--clickhouse-binary",
+            fake,
+            "q.sql",
+            "clean.sql",
+        ],
+    ] {
+        let output = run(args, None, Some(&*dir));
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        assert_eq!(stdout(&output), "", "{args:?}");
+        assert_eq!(read(&file), "select a, b from t;\n");
+        assert_eq!(read(&clean), "SELECT 1;\n");
+    }
+    let output = run(
+        &["--verify", "--clickhouse-binary", fake, "q.sql"],
+        None,
+        Some(&*dir),
+    );
+    insta::assert_snapshot!(stderr(&output), @r#"
+    chairlift::verify::clickhouse
+
+      × q.sql: clickhouse-format reads the formatted text differently at statement 1 (line 1, line 1 of the output), so the file is left unchanged
+       ╭─[q.sql:1:1]
+     1 │ select a, b from t;
+       · ┬
+       · ╰── this statement
+       ╰────
+      help: the oracle prints "select a, b from t;" for the input and "SELECT\n    a,\n    b\nFROM t;" for the output
+            this is a bug in chairlift. Please report it at https://github.com/glennib/chairlift/issues with the file, or the smallest part of it that shows the problem, and the output of `chairlift --version`.
+    0 files reformatted, 0 files already formatted, 1 error
+    clickhouse-format reads 0 of 1 statements in changed files the same
+    "#);
+    let output = run(
+        &["--verify", "--clickhouse-binary", fake, "-"],
+        Some(b"select a, b from t;\n"),
+        None,
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(stdout(&output), "");
+    assert!(
+        stderr(&output).contains("<stdin>: clickhouse-format reads the formatted text differently"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+/// An oracle that crashes on everything but the check that it formats
+/// judges nothing: a warning, and the files are handled as without
+/// `--verify`.
+#[cfg(unix)]
+#[test]
+fn verify_warns_when_the_oracle_crashes() {
+    let dir = temp_dir("verify-crash");
+    let fake = fake_oracle(
+        &dir,
+        r#"input=$(cat)
+if [ "$input" = "select 1" ]; then echo 'SELECT 1;'; else kill -SEGV $$; fi"#,
+    );
+    let fake = fake.to_str().unwrap();
+    let file = write(&dir, "q.sql", "select a from t;\n");
+    let output = run(
+        &["--verify", "--check", "--clickhouse-binary", fake, "q.sql"],
+        None,
+        Some(&*dir),
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert_eq!(stdout(&output), "Would reformat: q.sql\n");
+    assert_eq!(
+        stderr(&output),
+        "chairlift::verify::failed\n\n  ⚠ q.sql: clickhouse-format failed (crashed, timed out \
+         or could not start) on 1 statement, not judged\n\
+         1 file would be reformatted, 0 files already formatted\n\
+         clickhouse-format reads 0 of 1 statements in changed files the same; not judged: 1 \
+         on which it failed\n"
+    );
+    let output = run(
+        &["--verify", "--quiet", "--clickhouse-binary", fake, "q.sql"],
+        None,
+        Some(&*dir),
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(stderr(&output), "");
+    assert_eq!(read(&file), "SELECT a\nFROM t;\n");
+}
+
+#[test]
+fn verify_with_clickhouse_format() {
+    let Some(oracle) = clickhouse_format() else {
+        return;
+    };
+    let dir = temp_dir("verify");
+    let messy = write(&dir, "messy.sql", "select a, b from t;\nselect (;\n");
+    write(&dir, "clean.sql", CLEAN);
+    let template = write(
+        &dir,
+        "model.sql.j2",
+        "{{ config(x=1) }}\nselect a from {{ ref('t') }};\nselect   2;\n",
+    );
+    let args = ["--verify", "--clickhouse-binary", &oracle, "-j", "2"];
+
+    let output = run(&[&args[..], &["--check", "."]].concat(), None, Some(&*dir));
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert_eq!(
+        stdout(&output).replace('\\', "/"),
+        "Would reformat: ./messy.sql\nWould reformat: ./model.sql.j2\n"
+    );
+    assert_eq!(
+        stderr(&output),
+        "2 files would be reformatted, 1 file already formatted\n\
+         clickhouse-format reads 2 of 4 statements in changed files the same; not judged: \
+         1 with Jinja, 1 it cannot parse; 1 template not rendered\n"
+    );
+
+    let output = run(
+        &[&args[..], &["-v", "--diff", "."]].concat(),
+        None,
+        Some(&*dir),
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert!(stdout(&output).contains("+SELECT\n+    a,\n+    b\n+FROM t;\n"));
+    assert!(
+        stderr(&output).contains(
+            "model.sql.j2: a template, judged without rendering it: 1 statement with Jinja \
+             not judged"
+        ),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = run(&[&args[..], &["."]].concat(), None, Some(&*dir));
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        read(&messy),
+        "SELECT\n    a,\n    b\nFROM t;\n\nSELECT (;\n"
+    );
+    assert!(read(&template).ends_with("\nSELECT 2;\n"));
+
+    let output = run(&[&args[..], &["-"]].concat(), Some(b"select 1"), None);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(stdout(&output), "SELECT 1\n");
+    assert_eq!(stderr(&output), "");
+
+    // clickhouse-format takes the rest of the line after `VALUES` data as
+    // data, so the whole texts differ while each statement reads the same:
+    // a warning, not an error.
+    let output = run(
+        &[&args[..], &["-"]].concat(),
+        Some(b"INSERT INTO t VALUES (1); select 2;\n"),
+        None,
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(stdout(&output), "INSERT INTO t VALUES (1);\nSELECT 2;\n");
+    assert!(
+        stderr(&output).contains(
+            "⚠ <stdin>: clickhouse-format reads the formatted text differently as a whole"
+        ),
+        "{}",
+        stderr(&output)
+    );
+
+    // The single `clickhouse` binary formats as `clickhouse format`.
+    let clickhouse = Path::new(&oracle).with_file_name("clickhouse");
+    if clickhouse.is_file() {
+        let output = run(
+            &[
+                "--verify",
+                "--clickhouse-binary",
+                clickhouse.to_str().unwrap(),
+                "-",
+            ],
+            Some(b"select 1"),
+            None,
+        );
+        assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+        assert_eq!(stdout(&output), "SELECT 1\n");
+    }
 }

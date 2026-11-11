@@ -33,7 +33,6 @@
 //! actually judged. The `oracle_*` CSV columns hold the statement counts per
 //! file.
 
-use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::fs;
@@ -52,6 +51,7 @@ use chairlift::Options;
 use chairlift::layout::Decision;
 use chairlift::layout::Kept;
 use chairlift::lexer::Mode;
+use chairlift::oracle;
 use chairlift::oracle::Counts;
 use chairlift::oracle::Judgement;
 use chairlift::oracle::Oracle;
@@ -688,28 +688,6 @@ fn format_file(index: usize, corpus: &Corpus, path: &Path, transform: Transform)
     record
 }
 
-/// A text the oracle judges for a file, with the output formatted from it.
-struct Variant<'a> {
-    /// What the variant is, to prefix its findings with; empty for the file
-    /// itself.
-    label: String,
-    input: Cow<'a, str>,
-    output: Cow<'a, str>,
-    mode: Mode,
-}
-
-/// The texts the oracle judges for a file: the file as it is. Rendering a
-/// template per combination of its branches gives a variant per rendering,
-/// in [`Mode::Sql`] and labelled with its branches.
-fn variants<'a>(input: &'a str, output: &'a str, mode: Mode) -> Vec<Variant<'a>> {
-    vec![Variant {
-        label: String::new(),
-        input: Cow::Borrowed(input),
-        output: Cow::Borrowed(output),
-        mode,
-    }]
-}
-
 /// `transform` applied to `source`: formatted, with what the layout did
 /// with each statement, or re-cased and verified. `Err` holds a panic's
 /// message.
@@ -839,9 +817,9 @@ fn judge_all(
     let mut texts = Vec::new();
     for (r, record) in records.iter().enumerate() {
         if let Some((input, output)) = &record.texts {
-            for variant in variants(input, output, record.mode) {
+            for variant in oracle::variants(input, output, record.mode) {
                 owners.push(r);
-                labels.push(variant.label);
+                labels.push(variant.rendering.unwrap_or_default());
                 texts.push((variant.input, variant.output, variant.mode));
             }
         }
@@ -931,7 +909,7 @@ fn findings(label: &str, report: &Report) -> Vec<String> {
         );
         match &statement.judgement {
             Judgement::Differs { input, output } => {
-                out.push(format!("{at}: {}", difference(input, output)));
+                out.push(format!("{at}: {}", oracle::difference(input, output)));
             }
             Judgement::OutputRejected(why) => {
                 out.push(format!(
@@ -947,7 +925,7 @@ fn findings(label: &str, report: &Report) -> Vec<String> {
         match &report.whole {
             Judgement::Differs { input, output } => out.push(format!(
                 "{prefix}the whole text, though no statement on its own: {}",
-                difference(input, output)
+                oracle::difference(input, output)
             )),
             Judgement::OutputRejected(why) => out.push(format!(
                 "{prefix}the whole text, though no statement on its own: the oracle rejects \
@@ -958,40 +936,6 @@ fn findings(label: &str, report: &Report) -> Vec<String> {
         }
     }
     out
-}
-
-/// Characters of a canonical form shown before the point where it differs.
-const EXCERPT_BEFORE: usize = 40;
-/// Characters of a canonical form shown, at most.
-const EXCERPT: usize = 160;
-
-/// Two canonical forms, cut to where they first differ.
-fn difference(input: &str, output: &str) -> String {
-    let (a, b) = (input.trim_end(), output.trim_end());
-    let first = a
-        .char_indices()
-        .zip(b.chars())
-        .find(|((_, x), y)| x != y)
-        .map_or(a.len().min(b.len()), |((i, _), _)| i);
-    // The texts agree up to `first`, so a boundary in one is in both.
-    let start = a.floor_char_boundary(first.saturating_sub(EXCERPT_BEFORE));
-    let cut = |s: &str| {
-        let rest = &s[start..];
-        let mut out = String::new();
-        if start > 0 {
-            out.push('…');
-        }
-        out.extend(rest.chars().take(EXCERPT));
-        if rest.chars().nth(EXCERPT).is_some() {
-            out.push('…');
-        }
-        out
-    };
-    format!(
-        "the oracle prints {:?} for the input and {:?} for the output",
-        cut(a),
-        cut(b)
-    )
 }
 
 fn summary(corpora: &[Corpus], records: &[Record], with_oracle: bool) -> String {
@@ -1572,17 +1516,5 @@ mod tests {
             found[0].starts_with("variant: the whole text, though no statement on its own: "),
             "{found:?}"
         );
-    }
-
-    #[test]
-    fn long_canonical_forms_are_cut_around_the_difference() {
-        let a = format!("SELECT {}1", "x, ".repeat(100));
-        let b = format!("SELECT {}2", "x, ".repeat(100));
-        let message = difference(&a, &b);
-        assert!(message.contains("\"… x, x, "), "{message}");
-        assert!(message.contains("x, 1\" for the input"), "{message}");
-        assert!(message.contains("x, 2\" for the output"), "{message}");
-        let long = format!("{a}{}", " AND y".repeat(100));
-        assert!(difference(&long, &b).contains("…\" for the input"));
     }
 }
