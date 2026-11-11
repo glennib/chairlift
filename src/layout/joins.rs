@@ -299,7 +299,7 @@ impl Search<'_> {
                 ("if", Side::Before) if j < last => vec![first],
                 ("for", Side::After) if j > 0 => vec![first, end],
                 ("for", Side::Before) if j > 0 && j < last => vec![first],
-                _ => members,
+                _ => members.to_vec(),
             },
         )
     }

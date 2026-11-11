@@ -20,6 +20,8 @@
 //! A tag whose rendering holds a line break ends the comment early, inside
 //! its own text, which formatting does not change.
 
+use std::collections::HashSet;
+
 use super::writer::TagRole;
 use super::writer::tag_name;
 use super::writer::tag_role;
@@ -94,34 +96,57 @@ fn runs_on_safely(
     next: Option<usize>,
 ) -> Result<(), CommentEnd> {
     let mut work: Vec<usize> = next.into_iter().collect();
-    let mut seen = Vec::new();
+    // The tokens and blocks reached: where the render goes on from a tag
+    // does not depend on how it got there, so each is followed once.
+    let mut seen = HashSet::new();
+    let mut blocks_seen = HashSet::new();
     while let Some(i) = work.pop() {
-        if seen.contains(&i) {
+        if !seen.insert(i) {
             continue;
         }
-        seen.push(i);
         let token = tokens[i];
-        let resumes: Vec<usize> = match token.kind() {
-            TokenKind::JinjaComment => vec![i],
-            TokenKind::JinjaBlock => match tag_name(token.text(source)).0 {
-                // The render goes on after the tag, or jumps to another of
-                // its block.
-                "if" | "elif" | "else" | "endif" | "for" | "endfor" | "set" | "endset" => {
-                    blocks.members(i).ok_or(CommentEnd::MarkerAfter)?
+        let resumes: &[usize] = match token.kind() {
+            TokenKind::JinjaComment => std::slice::from_ref(&i),
+            TokenKind::JinjaBlock => {
+                let name = tag_name(token.text(source)).0;
+                if name == "endmacro" {
+                    return Err(CommentEnd::MacroBody);
                 }
-                // A macro's body renders where the macro is called, not
-                // here: the render goes on after `{% endmacro %}`.
-                "macro" => blocks
-                    .members(i)
-                    .and_then(|m| m.last().copied().filter(|&c| c != i))
-                    .map(|c| vec![c])
-                    .ok_or(CommentEnd::MarkerAfter)?,
-                "endmacro" => return Err(CommentEnd::MacroBody),
-                _ => return Err(CommentEnd::MarkerAfter),
-            },
+                if !matches!(
+                    name,
+                    "if" | "elif"
+                        | "else"
+                        | "endif"
+                        | "for"
+                        | "endfor"
+                        | "set"
+                        | "endset"
+                        | "macro"
+                ) {
+                    return Err(CommentEnd::MarkerAfter);
+                }
+                let block = blocks.block_of(i).ok_or(CommentEnd::MarkerAfter)?;
+                if !blocks_seen.insert(block) {
+                    continue;
+                }
+                let members = blocks.members_of(block).ok_or(CommentEnd::MarkerAfter)?;
+                if name == "macro" {
+                    // A macro's body renders where the macro is called, not
+                    // here: the render goes on after `{% endmacro %}`.
+                    members
+                        .last()
+                        .filter(|&&c| c != i)
+                        .map(std::slice::from_ref)
+                        .ok_or(CommentEnd::MarkerAfter)?
+                } else {
+                    // The render goes on after the tag, or jumps to another
+                    // of its block.
+                    members
+                }
+            }
             _ => return Err(CommentEnd::MarkerAfter),
         };
-        for r in resumes {
+        for &r in resumes {
             let text = tokens[r].text(source);
             let strips_after = jinja::tags(text)
                 .next()
@@ -211,7 +236,39 @@ impl Blocks {
 
     /// The tokens of the tags of the block of token `i`, a block tag of its
     /// own, if each is one.
-    pub(super) fn members(&self, i: usize) -> Option<Vec<usize>> {
-        self.block_of[i].and_then(|b| self.blocks[b].clone())
+    pub(super) fn members(&self, i: usize) -> Option<&[usize]> {
+        self.block_of(i).and_then(|b| self.members_of(b))
+    }
+
+    /// The block of token `i`, if it is a block tag of its own.
+    fn block_of(&self, i: usize) -> Option<usize> {
+        self.block_of[i]
+    }
+
+    /// The tokens of the tags of block `b`, if each is a token of its own.
+    fn members_of(&self, b: usize) -> Option<&[usize]> {
+        self.blocks[b].as_deref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexer::Mode;
+    use crate::lexer::tokenize;
+
+    /// Each tag of a long `elif` chain after a comment is followed once:
+    /// following the whole chain from each of its tags takes time that
+    /// grows with the square of its length, more than this test can wait.
+    #[test]
+    fn a_long_chain_after_a_comment_is_followed_once() {
+        use std::fmt::Write as _;
+        let mut source = String::from("select 1 -- c\n{%- if x0 %}\n");
+        for k in 1..20_000 {
+            let _ = writeln!(source, "{{%- elif x{k} %}}");
+        }
+        source.push_str("{%- endif %}\n, 2\n");
+        let tokens = tokenize(&source, Mode::Jinja);
+        assert_eq!(comment_ended_by_rendering(&source, &tokens), None);
     }
 }
