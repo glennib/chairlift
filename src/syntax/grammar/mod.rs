@@ -5,6 +5,7 @@
 //! | Module | What it parses |
 //! | --- | --- |
 //! | this one | statement dispatch |
+//! | [`header`] | Jinja expressions on lines of their own before a statement |
 //! | [`fallback`] | the fallback ladder, bracketed and comma-separated lists, opaque regions |
 //! | [`names`] | names, dotted names, Jinja expressions in name position |
 //! | [`exprs`] | expressions, function calls, aliases |
@@ -151,6 +152,7 @@ pub(crate) mod create;
 pub(crate) mod create_other;
 pub(crate) mod exprs;
 pub(crate) mod fallback;
+pub(crate) mod header;
 pub(crate) mod insert;
 pub(crate) mod names;
 pub(crate) mod probe;
@@ -176,6 +178,7 @@ pub(crate) fn statement(p: &mut Parser<'_>, entry: Entry) {
     }
     match entry {
         Entry::File => {
+            header::header(p);
             if at_parallel_with(p) {
                 fallback::verbatim_statement(p);
             } else if insert::at_statement(p) || (p.at_kw(K::With) && at_insert_after_with(p)) {

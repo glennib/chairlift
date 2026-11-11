@@ -123,19 +123,37 @@ pub(crate) fn root(w: &mut Writer<'_>, root: &Node, plan: &[Planned]) {
             // `;;`: the empty statement stays on the line of the one before.
             freeze_trailing(w, part.trivia.clone(), previous_kept);
             w.gap(part.trivia.clone(), Sep::Nothing, 0);
-            statement(w, &planned.node, planned.decision);
+            statement(w, &planned.node, planned.decision, w.range(&planned.node).0);
             continue;
+        }
+        let mut trivia = part.trivia.clone();
+        let mut from = w.range(&planned.node).0;
+        if let Some((_, previous_kept)) = previous
+            && same_line()
+            && let Some(header) = w.parts(&planned.node).first().and_then(|p| p.el.node())
+            && header.kind() == SyntaxKind::JinjaHeader
+        {
+            // A header that follows the statement before on its line, as a
+            // test hint for it does (`…; {{ hint() }}`), stays there.
+            freeze_trailing(w, trivia.clone(), previous_kept);
+            w.gap(trivia.clone(), Sep::Space, 0);
+            w.token(SyntaxKind::JinjaExpr, from);
+            let next = (from + 1..w.range(&planned.node).1)
+                .find(|&i| w.token_kind(i).is_significant())
+                .unwrap_or(from + 1);
+            trivia = from + 1..next;
+            from = next;
         }
         let id = w.reserve_group();
         match previous {
-            None => leading(w, part.trivia.clone()),
+            None => leading(w, trivia),
             Some((previous, previous_kept)) => {
-                between(w, part.trivia.clone(), previous, previous_kept, id);
+                between(w, trivia, previous, previous_kept, id);
             }
         }
-        w.frozen_before(w.range(&planned.node).0);
+        w.frozen_before(from);
         let open = w.b.open_reserved_group(id);
-        statement(w, &planned.node, planned.decision);
+        statement(w, &planned.node, planned.decision, from);
         w.b.close(open);
         previous = Some((id, kept || ends_with_rows(w, &planned.node)));
     }
@@ -165,19 +183,40 @@ fn freeze_trailing(w: &mut Writer<'_>, trivia: Range<usize>, kept: bool) {
     }
 }
 
-/// A statement: laid out by its rule, or as written.
-fn statement(w: &mut Writer<'_>, node: &Node, decision: Decision) {
+/// A statement from its token `from` on, the tokens before it added already:
+/// laid out by its rule, or as written. A header goes on lines of its own,
+/// keeping one blank line at most between its lines and before the body.
+fn statement(w: &mut Writer<'_>, node: &Node, decision: Decision, from: usize) {
     if decision != Decision::Formatted {
-        let (first, last) = w.range(node);
-        w.as_written(first, last);
+        let (_, last) = w.range(node);
+        w.as_written(from, last);
         return;
     }
     let parts = w.parts(node);
     for (k, part) in parts.iter().enumerate() {
-        if k > 0 {
-            w.gap(part.trivia.clone(), Sep::Nothing, 0);
+        if k > 0 && part.trivia.end > from {
+            let after_header = parts[k - 1].el.kind() == SyntaxKind::JinjaHeader;
+            if after_header {
+                w.gap(part.trivia.clone(), Sep::Hard, 1);
+            } else {
+                w.gap(part.trivia.clone(), Sep::Nothing, 0);
+            }
         }
         match &part.el {
+            El::Node(header) if header.kind() == SyntaxKind::JinjaHeader => {
+                for (k, part) in w.parts(header).iter().enumerate() {
+                    let El::Token { index, .. } = part.el else {
+                        continue;
+                    };
+                    if index < from {
+                        continue;
+                    }
+                    if k > 0 && part.trivia.end > from {
+                        w.gap(part.trivia.clone(), Sep::Hard, 1);
+                    }
+                    w.el(&part.el);
+                }
+            }
             El::Node(body) => match rule_for(body.kind()) {
                 Some(rule) => rule(w, body),
                 None => w.verbatim(body),
@@ -273,7 +312,10 @@ pub(crate) fn plan<'g>(
             if node.kind() != SyntaxKind::Statement {
                 return None;
             }
-            let body = w.parts(&node).into_iter().find_map(|p| p.el.node());
+            let body = w
+                .parts(&node)
+                .into_iter()
+                .find_map(|p| p.el.node().filter(|n| n.kind() != SyntaxKind::JinjaHeader));
             let empty = body.is_none();
             let decision = match decide(w, &node, body.as_ref()) {
                 Decision::Formatted => match keep_all {

@@ -66,7 +66,9 @@ impl StatementOutcome {
 
 pub(crate) fn statement_stats(statement: &SyntaxNode) -> StatementStats {
     let range = statement.text_range();
-    let body = statement.first_child();
+    let body = statement
+        .children()
+        .find(|n| n.kind() != SyntaxKind::JinjaHeader);
     let mut stats = StatementStats {
         kind: statement_label(statement),
         range: usize::from(range.start())..usize::from(range.end()),
@@ -116,7 +118,8 @@ pub(crate) fn statement_stats(statement: &SyntaxNode) -> StatementStats {
     stats
 }
 
-/// A statement's kind, from its first words, in lower case.
+/// A statement's kind, from its first words after its header, in lower
+/// case.
 ///
 /// The first word names it (`select`, `insert`, `set`, …), with these
 /// refinements: a statement that starts with `(` is a `select`;
@@ -130,7 +133,11 @@ pub(crate) fn statement_label(statement: &SyntaxNode) -> String {
     let mut words = statement
         .descendants_with_tokens()
         .filter_map(NodeOrToken::into_token)
-        .filter(|t| !t.kind().is_trivia())
+        .filter(|t| {
+            !t.kind().is_trivia()
+                && t.parent()
+                    .is_none_or(|p| p.kind() != SyntaxKind::JinjaHeader)
+        })
         .take(6)
         .map(|t| match t.kind() {
             SyntaxKind::BareWord | SyntaxKind::Keyword | SyntaxKind::LiteralWord => {

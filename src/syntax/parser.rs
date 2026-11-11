@@ -145,10 +145,33 @@ pub(crate) struct Parser<'t> {
     fuel_given: usize,
     /// The fuel spent by the statements before this one.
     steps: u64,
+    /// For each significant token, what the trivia before it holds, as bits
+    /// of [`BLOCK_TAG_BEFORE`] and [`LINE_BREAK_BEFORE`].
+    before: Vec<u8>,
 }
+
+/// A Jinja block tag stands in the trivia before the token.
+const BLOCK_TAG_BEFORE: u8 = 1;
+/// The trivia before the token holds a line break, or the token is the first
+/// of the text.
+const LINE_BREAK_BEFORE: u8 = 2;
 
 impl<'t> Parser<'t> {
     pub(crate) fn new(source: &'t str, tokens: &'t [Token], significant: &'t [u32]) -> Self {
+        let mut before = Vec::with_capacity(significant.len());
+        let mut from = 0;
+        for (k, &i) in significant.iter().enumerate() {
+            let trivia = &tokens[from..i as usize];
+            let mut bits = 0;
+            if k == 0 || trivia.iter().any(|t| t.text(source).contains('\n')) {
+                bits |= LINE_BREAK_BEFORE;
+            }
+            if trivia.iter().any(|t| t.kind() == TokenKind::JinjaBlock) {
+                bits |= BLOCK_TAG_BEFORE;
+            }
+            before.push(bits);
+            from = i as usize + 1;
+        }
         Parser {
             source,
             tokens,
@@ -168,6 +191,7 @@ impl<'t> Parser<'t> {
             fuel: std::cell::Cell::new(0),
             fuel_given: 0,
             steps: 0,
+            before,
         }
     }
 
@@ -364,6 +388,26 @@ impl<'t> Parser<'t> {
     #[must_use]
     pub(crate) fn at_closer(&self) -> bool {
         self.nth(0).is_some_and(is_closer)
+    }
+
+    /// Whether a Jinja block tag stands between the `n`th token and the one
+    /// before it, so that some renders of the template leave out one of the
+    /// two or put other text between them.
+    #[must_use]
+    pub(crate) fn block_tag_before(&self, n: usize) -> bool {
+        self.trivia_before(n) & BLOCK_TAG_BEFORE != 0
+    }
+
+    /// Whether a line break comes between the `n`th token and the one before
+    /// it, or the `n`th token is the first of the text.
+    #[must_use]
+    pub(crate) fn line_break_before(&self, n: usize) -> bool {
+        self.trivia_before(n) & LINE_BREAK_BEFORE != 0
+    }
+
+    fn trivia_before(&self, n: usize) -> u8 {
+        let i = self.pos + n;
+        if i < self.end { self.before[i] } else { 0 }
     }
 
     /// The position, for comparing how far two attempts got.

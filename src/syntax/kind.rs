@@ -267,9 +267,13 @@ syntax_kinds! {
         // ---- Structure -------------------------------------------------
         /// The whole text: statements, and the trivia between them.
         Root: Node,
-        /// One statement: its body, if it has one, then the `;` that ends it,
-        /// if there is one.
+        /// One statement: its header, if it has one, its body, if it has one,
+        /// then the `;` that ends it, if there is one.
         Statement: Node,
+        /// Jinja expressions on lines of their own before a statement's body,
+        /// such as dbt's `{{ config(…) }}`: text the template renders before
+        /// the statement, no part of its syntax.
+        JinjaHeader: Node,
         /// A statement kept verbatim: one of a kind the parser does not know,
         /// or one that did not parse.
         VerbatimStatement: FallbackStatement,
