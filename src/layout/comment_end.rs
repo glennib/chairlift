@@ -143,13 +143,13 @@ fn runs_on_safely(
 }
 
 /// The index of the first token from `from` on that is not whitespace.
-fn next_solid(tokens: &[Token], from: usize) -> Option<usize> {
+pub(super) fn next_solid(tokens: &[Token], from: usize) -> Option<usize> {
     (from..tokens.len()).find(|&i| tokens[i].kind() != TokenKind::Whitespace)
 }
 
 /// Whether `token` starts with a tag whose `-` marker strips the whitespace
 /// before it.
-fn strips_before(source: &str, token: Token) -> bool {
+pub(super) fn strips_before(source: &str, token: Token) -> bool {
     let text = token.text(source);
     jinja::tags(text).next().is_some_and(|tag| {
         tag.range.start == 0 && tag.whitespace_control(text).0 == WhitespaceControl::Strip
@@ -158,7 +158,7 @@ fn strips_before(source: &str, token: Token) -> bool {
 
 /// The blocks of a template, as the renderer nests them: every block tag
 /// counts, also one inside a SQL string or comment.
-struct Blocks {
+pub(super) struct Blocks {
     /// For each token that is a block tag of its own, its block.
     block_of: Vec<Option<usize>>,
     /// The tokens of each block's tags, in order; `None` where one of them
@@ -167,7 +167,7 @@ struct Blocks {
 }
 
 impl Blocks {
-    fn new(source: &str, tokens: &[Token]) -> Blocks {
+    pub(super) fn new(source: &str, tokens: &[Token]) -> Blocks {
         let mut block_of = vec![None; tokens.len()];
         let mut blocks: Vec<Option<Vec<usize>>> = Vec::new();
         let mut open: Vec<usize> = Vec::new();
@@ -206,7 +206,7 @@ impl Blocks {
 
     /// The tokens of the tags of the block of token `i`, a block tag of its
     /// own, if each is one.
-    fn members(&self, i: usize) -> Option<Vec<usize>> {
+    pub(super) fn members(&self, i: usize) -> Option<Vec<usize>> {
         self.block_of[i].and_then(|b| self.blocks[b].clone())
     }
 }

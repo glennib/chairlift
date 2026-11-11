@@ -61,6 +61,9 @@ pub(crate) struct Writer<'s> {
     one_line: u32,
     /// How many data types the node being laid out is inside.
     pub(crate) type_depth: u32,
+    /// The words that keep their case, even in a keyword slot: those a render
+    /// can join to a token beyond a block tag (see `super::joins`).
+    keep_case: Vec<bool>,
 }
 
 /// A closer that starts a line of its own when its list or `CASE` breaks.
@@ -83,6 +86,11 @@ pub(crate) enum CloserLine {
 
 impl<'s> Writer<'s> {
     pub(crate) fn new(source: &'s str, tokens: &'s [Token], mode: Mode, tree: Tree) -> Writer<'s> {
+        let keep_case = if mode == Mode::Jinja {
+            super::joins::joinable(source, tokens)
+        } else {
+            Vec::new()
+        };
         Writer {
             b: Builder::new(source, tokens, mode),
             source,
@@ -96,6 +104,7 @@ impl<'s> Writer<'s> {
             closer: None,
             one_line: 0,
             type_depth: 0,
+            keep_case,
         }
     }
 
@@ -262,10 +271,14 @@ impl<'s> Writer<'s> {
     // Tokens.
 
     /// Adds token `index`, of syntax kind `kind`: a keyword in a keyword
-    /// slot upper case, a literal word in its canonical case, anything else
-    /// as written.
+    /// slot upper case, a literal word in its canonical case, anything else,
+    /// and a word a render can join to another, as written.
     pub(crate) fn token(&mut self, kind: SyntaxKind, index: usize) {
         self.started = true;
+        if self.keep_case.get(index).copied().unwrap_or(false) {
+            self.b.token(index);
+            return;
+        }
         match kind {
             SyntaxKind::Keyword if self.tokens[index].keyword().is_some() => self.b.keyword(index),
             SyntaxKind::LiteralWord => self.b.literal_word(index),

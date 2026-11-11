@@ -96,6 +96,7 @@ mod create_other;
 mod expr;
 mod file;
 mod insert;
+mod joins;
 mod query;
 mod shapes;
 mod simple;
