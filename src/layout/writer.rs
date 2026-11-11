@@ -424,6 +424,23 @@ impl<'s> Writer<'s> {
         broke
     }
 
+    /// Opens an indentation scope for the body of a clause if `trivia`, what
+    /// comes between the clause's keywords and its body, ends the keywords'
+    /// line: a line comment, or a comment or tag on a line of its own. The
+    /// comments then go at the body's indentation and the body after them,
+    /// rather than at the clause's. The caller closes the scope after the
+    /// body.
+    pub(crate) fn body_scope(&mut self, trivia: Range<usize>) -> Option<Open> {
+        let ends_line = trivia.into_iter().any(|i| {
+            let kind = self.tokens[i].kind();
+            kind != TokenKind::Whitespace
+                && (kind == TokenKind::LineComment
+                    || kind == TokenKind::JinjaBlock
+                    || self.newlines_before(i) > 0)
+        });
+        ends_line.then(|| self.b.open_indent())
+    }
+
     /// Keeps up to `max` of the blank lines the input has before token
     /// `index`.
     pub(crate) fn blank_before(&mut self, index: usize, max: u8) {

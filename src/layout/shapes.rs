@@ -206,6 +206,7 @@ pub(crate) fn list_body(w: &mut Writer<'_>, list_part: &Part, force: bool) -> Op
     let parts = w.parts(&list);
     let all = split_items(&parts);
     if count_items(&all) <= 1 && !force && all.iter().all(|i| i.comma.is_none()) {
+        let scope = w.body_scope(list_part.trivia.clone());
         items(
             w,
             list.kind(),
@@ -213,6 +214,9 @@ pub(crate) fn list_body(w: &mut Writer<'_>, list_part: &Part, force: bool) -> Op
             Sep::Space,
             Some(list_part.trivia.clone()),
         );
+        if let Some(scope) = scope {
+            w.b.close(scope);
+        }
         return None;
     }
     let open = w.b.open_group();

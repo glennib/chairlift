@@ -101,6 +101,27 @@ pub(crate) fn list_clause(w: &mut Writer<'_>, node: &Node) {
     }
 }
 
+/// A clause of keywords and an expression or other parts, such as
+/// `WHERE`, `LIMIT` or `ENGINE`: the parts after the keywords on their line,
+/// spaced as the generic rule spaces them, and indented as the clause's body
+/// where comments come before them on lines of their own.
+pub(crate) fn keyword_clause(w: &mut Writer<'_>, node: &Node) {
+    let parts = w.parts(node);
+    let kind = node.kind();
+    let n = shapes::keywords(w, kind, &parts);
+    let scope = parts.get(n).and_then(|p| w.body_scope(p.trivia.clone()));
+    for (k, part) in parts.iter().enumerate().skip(n) {
+        if k > 0 {
+            let sep = w.join(kind, &parts[k - 1].el, &part.el);
+            w.gap(part.trivia.clone(), sep, 0);
+        }
+        w.el(&part.el);
+    }
+    if let Some(scope) = scope {
+        w.b.close(scope);
+    }
+}
+
 /// `GROUP BY keys [WITH TOTALS]`: the keys as a list; a modifier on their
 /// line if they fit on one, otherwise on a line of its own after them.
 pub(crate) fn group_by(w: &mut Writer<'_>, node: &Node) {
@@ -157,6 +178,7 @@ pub(crate) fn with_clause(w: &mut Writer<'_>, node: &Node) {
         && items[0].parts.len() == 1
         && items[0].parts[0].el.kind() == SyntaxKind::CommonTableExpr;
     if single_cte {
+        let scope = w.body_scope(list_part.trivia.clone());
         shapes::items(
             w,
             SyntaxKind::WithList,
@@ -164,6 +186,9 @@ pub(crate) fn with_clause(w: &mut Writer<'_>, node: &Node) {
             Sep::Space,
             Some(list_part.trivia.clone()),
         );
+        if let Some(scope) = scope {
+            w.b.close(scope);
+        }
     } else {
         let open = w.b.open_group();
         let indent = w.b.open_indent();
@@ -212,7 +237,20 @@ pub(crate) fn join(w: &mut Writer<'_>, node: &Node) {
         .position(|p| matches!(p.el.kind(), SyntaxKind::JoinOn | SyntaxKind::JoinUsing));
     let head = condition.unwrap_or(parts.len());
     let open = w.b.open_group();
-    w.inline(kind, &parts[..head]);
+    let n = shapes::keywords(w, kind, &parts[..head]);
+    let scope = parts[n..head]
+        .first()
+        .and_then(|p| w.body_scope(p.trivia.clone()));
+    for k in n..head {
+        if k > 0 {
+            let sep = w.join(kind, &parts[k - 1].el, &parts[k].el);
+            w.gap(parts[k].trivia.clone(), sep, 0);
+        }
+        w.el(&parts[k].el);
+    }
+    if let Some(scope) = scope {
+        w.b.close(scope);
+    }
     if let Some(i) = condition {
         let indent = w.b.open_indent();
         for part in &parts[i..] {

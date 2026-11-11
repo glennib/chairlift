@@ -49,6 +49,22 @@ fn comments_between_list_items() {
 }
 
 #[test]
+fn comments_after_a_clause_keyword_go_with_its_body() {
+    assert_eq!(
+        fmt(
+            "select\n-- k\na\nfrom\n-- t\nt\njoin\n-- u\nu on x\nwhere\n-- w\na = 1\n\
+             group by\n-- g\na\nlimit -- l\n10"
+        ),
+        "SELECT\n    -- k\n    a\nFROM\n    -- t\n    t\nJOIN\n    -- u\n    u\n    ON x\nWHERE\n    -- w\n    \
+         a = 1\nGROUP BY\n    -- g\n    a\nLIMIT  -- l\n    10\n"
+    );
+    assert_eq!(
+        fmt("create table t (a Int8) engine =\n-- e\nMergeTree order by\n-- o\na"),
+        "CREATE TABLE t\n(\n    a Int8\n)\nENGINE =\n    -- e\n    MergeTree\nORDER BY\n    -- o\n    a\n"
+    );
+}
+
+#[test]
 fn comments_between_clauses_and_before_the_semicolon() {
     assert_eq!(
         fmt("select 1 -- one\n-- before from\nfrom t /* t */\nwhere x -- x\n;"),

@@ -318,7 +318,7 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         S::IndexDef => create::index(w, node),
         S::ProjectionDef => create::projection(w, node),
         S::ColumnCodec | S::ColumnStatistics => create::codec(w, node),
-        S::OrderByClause if create::is_table_order_by(w, node) => w.generic(node),
+        S::OrderByClause if create::is_table_order_by(w, node) => query::keyword_clause(w, node),
         S::OrderByTuple => create::order_by_tuple(w, node),
         S::RefreshClause => create::refresh(w, node),
         S::SqlSecurityClause => create::sql_security(w, node),
@@ -351,6 +351,7 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
                 shapes::plain_list(w, node);
             }
         }
+        _ if kind.is_clause() => query::keyword_clause(w, node),
         _ => w.generic(node),
     }
 }
