@@ -642,7 +642,8 @@ fn files(
 }
 
 /// The files to format: each path that is a file, and the SQL files under
-/// each path that is a directory, sorted and without duplicates. Paths that
+/// each path that is a directory, sorted, each file once under the first of
+/// its spellings. Paths that
 /// cannot be read are reported, and counted in the second value.
 fn discover(paths: &[PathBuf], reporter: Reporter) -> (Vec<PathBuf>, usize) {
     let mut files = Vec::new();
@@ -681,7 +682,10 @@ fn discover(paths: &[PathBuf], reporter: Reporter) -> (Vec<PathBuf>, usize) {
         }
     }
     files.sort();
-    files.dedup();
+    // The same file under two spellings, such as `d` and `./d/a.sql`, would
+    // be formatted and written twice at once.
+    let mut seen = std::collections::HashSet::new();
+    files.retain(|file| seen.insert(fs::canonicalize(file).unwrap_or_else(|_| file.clone())));
     (files, errors)
 }
 

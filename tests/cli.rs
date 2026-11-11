@@ -469,6 +469,30 @@ fn directories_are_searched_for_sql_files() {
     );
 }
 
+/// A file reached by two spellings, or through a directory and by name, is
+/// formatted once, under the first spelling in path order.
+#[test]
+fn a_file_named_twice_is_formatted_once() {
+    let dir = temp_dir("spellings");
+    let nested = write(&dir, "d/f1.sql", MESSY);
+    let file = write(&dir, "b.sql", MESSY);
+    let args = ["d", "./d/f1.sql", "b.sql", "./b.sql", "d/../b.sql"];
+    let output = run(&[&["--check"][..], &args].concat(), None, Some(&*dir));
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert_eq!(
+        stdout(&output).replace('\\', "/"),
+        "Would reformat: ./b.sql\nWould reformat: ./d/f1.sql\n"
+    );
+    let output = run(&args, None, Some(&*dir));
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        stderr(&output),
+        "2 files reformatted, 0 files already formatted\n"
+    );
+    assert_eq!(read(&nested), CLEAN);
+    assert_eq!(read(&file), CLEAN);
+}
+
 #[test]
 fn jinja_mode_by_name() {
     let dir = temp_dir("jinja");
