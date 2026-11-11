@@ -792,6 +792,9 @@ fn a_delimiter_a_render_can_pair_keeps_the_text_byte_for_byte() {
         // Run twice, the loop renders `$h$` and `$h$` around a line break.
         "select\n{% for i in xs %}\n  $h$\n{% endfor %}\nfrom t\n",
         "select 1,\n{% for i in xs %}\n  $$\n{% endfor %}\n  2   \n  , 3\n",
+        // Run twice, `v` takes in the first opener and the closer opens a
+        // heredoc up to the second.
+        "select\n{% for i in xs %}\n  {{ v -}}\n  $h$ a $h$,   \n{% endfor %}\n  1\n",
         // With `x` false, `/` meets `*`: a comment over the blank lines.
         "select a /{%- if x %} b {% else -%}* c   \n\n\n  d */ from t {% endif %}\n",
         "select a -{%- if x %} b {% else -%}- c   \n, d {% endif %}\n",

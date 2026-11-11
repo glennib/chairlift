@@ -110,7 +110,10 @@ pub(crate) fn free_punctuation(source: &str, tokens: &[Token]) -> Vec<bool> {
 /// against a word or another `$`, or one that starts a bare word or follows
 /// a tag in a run of tags glued to text (`$tag$`, `{{ x }}$$`). A render
 /// that runs a loop twice, or leaves out a branch, can pair it with another,
-/// and the whitespace between them is then the heredoc's text.
+/// and the whitespace between them is then the heredoc's text. The same holds
+/// for a heredoc whose opener a render can glue to a word before it, across a
+/// tag or whitespace a `-` marker strips (`{{ v -}} $h$…$h$`): the opener
+/// is then part of the word, and its closer opens another heredoc.
 pub(crate) fn unpaired_heredoc(source: &str, tokens: &[Token]) -> bool {
     if !source.contains("{%") {
         return false;
@@ -133,6 +136,16 @@ pub(crate) fn unpaired_heredoc(source: &str, tokens: &[Token]) -> bool {
             }
             text[from..].starts_with('$')
         }
+        TokenKind::HereDoc => previous_solid(tokens, i).is_some_and(|k| {
+            let before = tokens[k];
+            let text = before.text(source);
+            let jinja = matches!(
+                before.kind(),
+                TokenKind::JinjaBlock | TokenKind::JinjaComment | TokenKind::JinjaExpr
+            ) || text.contains("{{")
+                || text.contains("{%");
+            jinja && (k + 1 == i || strips_after(source, before))
+        }),
         _ => false,
     })
 }
