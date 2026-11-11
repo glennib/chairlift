@@ -454,9 +454,9 @@ impl<'s> Builder<'s> {
 
     /// Prints the input's whitespace between the last token added and the
     /// next token, byte for byte, in place of whatever the layout puts
-    /// there: for whitespace a Jinja `-` marker strips, which must not move
-    /// across a line break. Where the tokens touched in the input, they
-    /// touch.
+    /// there: for whitespace that is part of another token once a template
+    /// is rendered, or that comes before a group which must not start with
+    /// it. Where the tokens touched in the input, they touch.
     pub fn frozen(&mut self) {
         let Some(last) = self.adj.last else {
             return;

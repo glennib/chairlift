@@ -179,7 +179,7 @@
 //! | A line comment breaks its group; `/* */` in a line is an atom | automatic; `token` |
 //! | A block of `--` lines keeps its relative indent | `comment_block` |
 //! | Block tags on their own line, closers aligned; at column 0 between statements | `block_tag`, `block_tag_aligned`; `at_root` |
-//! | `{{ }}` adjacency as written; whitespace next to a `-` marker fixed | automatic; `frozen`, `freeze` |
+//! | `{{ }}` adjacency as written; text a rendered template joins kept | automatic; `frozen`, `freeze` |
 //! | Verbatim regions re-indented as a block; `::` operand and `INSERT` data untouched | `verbatim`; `verbatim_exact` |
 //!
 //! # Invariants for layout rules
@@ -198,10 +198,16 @@
 //!   count ([`Builder::newlines_before`] less one), at most two between
 //!   statements and one inside them.
 //! - Record every re-cased token for the verifier from [`Doc::recased`].
-//! - In a template, freeze the whitespace the safe cleanup would keep (next
-//!   to a `-` marker where a move across a line break changes the render);
-//!   whitespace with a character the renderer does not strip is frozen
-//!   automatically.
+//! - In a template, freeze the whitespace that the rendering makes part of
+//!   another token (a string or heredoc around a tag, `INSERT` data) and, in
+//!   text kept as written, what the safe cleanup keeps; whitespace with a
+//!   character the renderer does not strip is frozen automatically.
+//!   Whitespace next to a `-` marker is not frozen: the renderer strips the
+//!   whole run of it in every render, so what the layout puts there renders
+//!   the same, and the verifier checks the render. The exception is a line
+//!   comment that the stripped whitespace would end, whose end the render
+//!   then decides; [`format`](crate::format) leaves such a template as it
+//!   is (see [`Error::Template`](crate::Error::Template)).
 
 mod build;
 mod check;
