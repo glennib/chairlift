@@ -775,8 +775,27 @@ fn write_atomically(path: &Path, contents: &str) -> io::Result<()> {
     result
 }
 
+/// The unified diff from `before` to `after`.
+///
+/// Myers's algorithm takes time growing with the product of the size and
+/// the number of differences: for a megabyte whose every statement is
+/// relaid, half a minute. Past the deadline the diff is coarser, never
+/// wrong; a file of ordinary size never gets near it.
 fn unified_diff(name: &str, before: &str, after: &str) -> String {
-    similar::TextDiff::from_lines(before, after)
+    unified_diff_within(name, before, after, std::time::Duration::from_millis(500))
+}
+
+/// The unified diff from `before` to `after`, as fine as `deadline` allows.
+fn unified_diff_within(
+    name: &str,
+    before: &str,
+    after: &str,
+    deadline: std::time::Duration,
+) -> String {
+    similar::TextDiff::configure()
+        .algorithm(similar::Algorithm::Myers)
+        .timeout(deadline)
+        .diff_lines(before, after)
         .unified_diff()
         .header(&format!("a/{name}"), &format!("b/{name}"))
         .to_string()
@@ -902,5 +921,94 @@ mod tests {
            ╰────
           help: the `-` marker of the tag after it strips the line break after it, and the comment can run on into text that follows a tag on its line; remove the marker, or end the lines of the tags there
         ");
+    }
+
+    /// A hunk of a unified diff: where it starts in the input, how many
+    /// lines of the input it spans, and its lines with their signs.
+    type Hunk = (usize, usize, Vec<(char, String)>);
+
+    /// `before` with the unified diff `diff` applied, checking that every
+    /// context and removed line is there.
+    fn patch(before: &str, diff: &str) -> String {
+        let old: Vec<&str> = before.split_inclusive('\n').collect();
+        let mut lines = diff.split_inclusive('\n');
+        assert!(lines.next().is_some_and(|l| l.starts_with("--- ")));
+        assert!(lines.next().is_some_and(|l| l.starts_with("+++ ")));
+        // Each hunk, and its lines with their signs; `\ No newline at end of
+        // file` takes the newline off the line before it.
+        let mut hunks: Vec<Hunk> = Vec::new();
+        for line in lines {
+            if let Some(header) = line.strip_prefix("@@ -") {
+                let range = header.split(' ').next().unwrap();
+                let mut parts = range.split(',');
+                let start: usize = parts.next().unwrap().parse().unwrap();
+                let len: usize = parts.next().map_or(1, |n| n.parse().unwrap());
+                hunks.push((start, len, Vec::new()));
+            } else if line.starts_with('\\') {
+                let body = &mut hunks.last_mut().unwrap().2;
+                assert_eq!(body.last_mut().unwrap().1.pop(), Some('\n'));
+            } else {
+                let mut chars = line.chars();
+                let sign = chars.next().unwrap();
+                hunks
+                    .last_mut()
+                    .unwrap()
+                    .2
+                    .push((sign, chars.as_str().to_owned()));
+            }
+        }
+        let mut out = String::new();
+        let mut at = 0;
+        for (start, len, body) in hunks {
+            // An empty range starts after its line, a range at its line.
+            let first = if len == 0 { start } else { start - 1 };
+            assert!(first >= at, "hunks overlap");
+            out.extend(old[at..first].iter().copied());
+            at = first;
+            for (sign, text) in body {
+                match sign {
+                    ' ' | '-' => {
+                        assert_eq!(old[at], text, "line {} of the input", at + 1);
+                        at += 1;
+                        if sign == ' ' {
+                            out.push_str(&text);
+                        }
+                    }
+                    '+' => out.push_str(&text),
+                    other => panic!("a diff line starting with {other:?}"),
+                }
+            }
+        }
+        out.extend(old[at..].iter().copied());
+        out
+    }
+
+    /// Past the deadline the diff is coarser, but still turns the input into
+    /// the output; with no time at all it is as coarse as it gets.
+    #[test]
+    fn a_diff_past_its_deadline_still_applies() {
+        let unchanged = "SELECT 1;\n".repeat(50);
+        let cases = [
+            ("select 1;\n", "SELECT 1;\n"),
+            ("select 1;", "SELECT 1;\n"),
+            (
+                &*format!("select a;\n{unchanged}select b;  \n\n\n\n{unchanged}select c"),
+                &*format!("SELECT a;\n{unchanged}SELECT b;\n\n\n{unchanged}SELECT c;\n"),
+            ),
+            (&*format!("{unchanged}select 1;\n"), &*unchanged),
+        ];
+        let mut coarser = 0;
+        for (before, after) in cases {
+            let diffs = [
+                std::time::Duration::ZERO,
+                std::time::Duration::from_secs(60),
+            ]
+            .map(|deadline| unified_diff_within("q.sql", before, after, deadline));
+            for diff in &diffs {
+                assert_eq!(patch(before, diff), after, "{diff}");
+            }
+            coarser += usize::from(diffs[0].len() > diffs[1].len());
+        }
+        assert!(coarser > 0, "no case is diffed past its deadline");
     }
 }

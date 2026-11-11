@@ -397,6 +397,26 @@ fn diff_prints_changes_and_writes_nothing() {
     assert!(stdout(&output).starts_with("--- a/q.sql\n"));
 }
 
+/// A diff where every line changes takes Myers's algorithm time growing with
+/// the square of the lines; past a deadline it is coarser, but still a
+/// diff from the input to the output.
+#[test]
+fn a_diff_of_a_large_file_is_bounded_in_time() {
+    let input = "select 1;\n\n".repeat(20_000);
+    let started = std::time::Instant::now();
+    let output = run(&["--diff", "-"], Some(input.as_bytes()), None);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(started.elapsed() < std::time::Duration::from_secs(60));
+    let diff = stdout(&output);
+    assert!(
+        diff.starts_with("--- a/-\n+++ b/-\n@@ "),
+        "{}",
+        &diff[..100]
+    );
+    assert_eq!(diff.matches("\n-select 1;").count(), 20_000);
+    assert_eq!(diff.matches("\n+SELECT 1;").count(), 20_000);
+}
+
 #[test]
 fn directories_are_searched_for_sql_files() {
     let dir = temp_dir("discovery");
