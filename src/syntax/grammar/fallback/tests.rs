@@ -431,6 +431,33 @@ const SHAPES: &[Shape] = &[
     ),
     statement("CREATE FUNCTION f AS ", "x -> ", "x", "", ""),
     run("CREATE VIEW v (", "a UInt8, ", "b UInt8) AS SELECT 1"),
+    run("GRANT ", "SELECT, ", "INSERT ON t TO u"),
+    run("GRANT ", "ALTER ", "UPDATE ON t TO u"),
+    run("GRANT ", "SELECT ON a, ", "INSERT ON b TO u"),
+    run("GRANT SELECT ON t TO ", "a, ", "b"),
+    run("GRANT ", "r, ", "s TO u"),
+    run("REVOKE SELECT ON t FROM ALL EXCEPT ", "a, ", "b"),
+    run("CREATE USER ", "a, ", "b IDENTIFIED BY 'x'"),
+    run("CREATE USER u SETTINGS ", "a = 1, ", "b = 2"),
+    run("CREATE USER u ", "HOST LOCAL ", "DEFAULT ROLE r"),
+    run("CREATE ROLE r SETTINGS a = 1 ", "MIN 1 ", "MAX 2"),
+    run(
+        "CREATE QUOTA q FOR INTERVAL 1 HOUR MAX ",
+        "queries = 1, ",
+        "errors = 2",
+    ),
+    run(
+        "CREATE QUOTA q ",
+        "FOR INTERVAL 1 HOUR NO LIMITS, ",
+        "FOR INTERVAL 1 DAY NO LIMITS",
+    ),
+    run("CREATE ROW POLICY ", "p ON a, ", "q ON b USING 1"),
+    run("CREATE ROW POLICY p ON ", "a, ", "b USING 1"),
+    run("DROP USER ", "a, ", "b"),
+    run("SHOW GRANTS FOR ", "a, ", "b"),
+    run("SHOW TABLES ", "FROM d ", ""),
+    statement("DESCRIBE ", "(", "SELECT 1", ")", ""),
+    unclosed("GRANT SELECT(", "("),
 ];
 
 /// A statement of `head` and `open` repeated, never closed, at lengths
