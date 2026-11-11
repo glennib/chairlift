@@ -8,7 +8,8 @@
 //! table function. They stay on the line if it fits; otherwise each goes on
 //! a line of its own, one level in. `AS` and a query end the line before
 //! them, and the query starts the next line at the statement's indentation,
-//! so that a view's clauses line up as a plain query's do.
+//! so that a view's clauses line up as a plain query's do; a query alone in
+//! brackets hugs them, as a subquery does.
 
 use super::query;
 use super::shapes;
@@ -86,7 +87,8 @@ fn query_at(w: &Writer<'_>, node: &Node) -> Option<usize> {
 }
 
 /// `AS` and a table or a table function, on one line; or `AS` and a query,
-/// which starts the next line at the indentation of the line `AS` is on.
+/// which starts the next line at the indentation of the line `AS` is on,
+/// or hugs its brackets after `AS (` if it is alone in them.
 pub(crate) fn as_clause(w: &mut Writer<'_>, node: &Node) {
     let Some(body) = query_at(w, node) else {
         w.generic(node);
@@ -94,13 +96,28 @@ pub(crate) fn as_clause(w: &mut Writer<'_>, node: &Node) {
     };
     let parts = w.parts(node);
     w.inline(node.kind(), &parts[..body]);
-    for part in &parts[body..] {
-        w.gap(part.trivia.clone(), Sep::Hard, 0);
+    for (k, part) in parts[body..].iter().enumerate() {
+        // A query alone in brackets hugs them: `AS (` ends the line.
+        let sep = if k == 0 && in_brackets(w, &part.el) {
+            Sep::Space
+        } else {
+            Sep::Hard
+        };
+        w.gap(part.trivia.clone(), sep, 0);
         match &part.el {
             El::Node(node) => query::query(w, node),
             el @ El::Token { .. } => w.el(el),
         }
     }
+}
+
+/// Whether `el` is a query alone in brackets: a union of one bracketed
+/// query.
+fn in_brackets(w: &Writer<'_>, el: &El) -> bool {
+    el.node().is_some_and(|node| {
+        node.kind() == SyntaxKind::UnionQuery
+            && matches!(w.parts(&node).as_slice(), [only] if only.el.kind() == SyntaxKind::Subquery)
+    })
 }
 
 /// `( elements )` of a table, a view or a `TimeSeries` target: `(` where

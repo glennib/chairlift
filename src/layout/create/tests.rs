@@ -262,6 +262,37 @@ SELECT 1
         "create table t empty as select 1",
         "CREATE TABLE t EMPTY AS\nSELECT 1\n",
     );
+    // A query alone in brackets hugs them; a union of them does not.
+    check(
+        "create table t engine = Memory as (select a, b from u)",
+        "
+CREATE TABLE t
+ENGINE = Memory AS (
+    SELECT
+        a,
+        b
+    FROM u
+)
+",
+    );
+    check(
+        "create materialized view v to t as (select 1)",
+        "CREATE MATERIALIZED VIEW v TO t AS (\n    SELECT 1\n)\n",
+    );
+    check(
+        "create table t engine = Memory as (select 1) union all (select 2)",
+        "
+CREATE TABLE t
+ENGINE = Memory AS
+(
+    SELECT 1
+)
+UNION ALL
+(
+    SELECT 2
+)
+",
+    );
 }
 
 #[test]
