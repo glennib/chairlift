@@ -57,6 +57,8 @@ pub(crate) struct Writer<'s> {
     /// The last closer added that starts a line of its own when its list or
     /// `CASE` breaks.
     closer: Option<Closer>,
+    /// How many [`on_one_line`](Self::on_one_line) scopes are open.
+    one_line: u32,
 }
 
 /// A closer that starts a line of its own when its list or `CASE` breaks.
@@ -90,7 +92,16 @@ impl<'s> Writer<'s> {
             between_statements: false,
             breaks: 0,
             closer: None,
+            one_line: 0,
         }
+    }
+
+    /// Lays out what `f` adds on one line: where a line could break, a space
+    /// or nothing; only a comment still ends a line.
+    pub(crate) fn on_one_line(&mut self, f: impl FnOnce(&mut Self)) {
+        self.one_line += 1;
+        f(self);
+        self.one_line -= 1;
     }
 
     // Closers.
@@ -299,6 +310,11 @@ impl<'s> Writer<'s> {
 
     /// Adds `sep`, counting it if a line can break there.
     pub(crate) fn sep(&mut self, sep: Sep) {
+        let sep = match sep {
+            Sep::Line if self.one_line > 0 => Sep::Space,
+            Sep::Soft if self.one_line > 0 => Sep::Nothing,
+            sep => sep,
+        };
         self.breaks += u32::from(matches!(sep, Sep::Line | Sep::Soft | Sep::Hard));
         match sep {
             Sep::Nothing => {}

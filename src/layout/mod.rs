@@ -360,6 +360,7 @@ pub(crate) fn node(w: &mut Writer<'_>, node: &Node) {
         S::CaseExpr => expr::case(w, node),
         S::LambdaExpr => expr::lambda(w, node),
         S::TernaryExpr => expr::ternary(w, node),
+        S::CastExpr => expr::cast(w, node),
         _ if kind.is_list() => {
             let (_, last) = w.range(node);
             if matches!(

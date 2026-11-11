@@ -487,6 +487,20 @@ fn between_never_breaks_at_its_and() {
     );
 }
 
+/// The type of a `::` cast is an atom, as the literal before it is: on one
+/// line whatever the width.
+#[test]
+fn a_cast_type_stays_on_one_line() {
+    assert_eq!(
+        fmt_in(
+            "select [1,2]::Array(UInt8), x::Map(String, Tuple(aaaaaaaa UInt8, bbbbbbbbbb String))",
+            false,
+            30
+        ),
+        "SELECT\n    [1,2]::Array(UInt8),\n    x::Map(String, Tuple(aaaaaaaa UInt8, bbbbbbbbbb String))\n"
+    );
+}
+
 #[test]
 fn spacing_of_expressions() {
     // JSON paths.

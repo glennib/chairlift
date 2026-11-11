@@ -283,6 +283,28 @@ pub(crate) fn ternary(w: &mut Writer<'_>, node: &Node) {
     w.b.close(open);
 }
 
+/// `x::Type`: the type on one line, never broken inside, as the proposal
+/// has casts.
+pub(crate) fn cast(w: &mut Writer<'_>, node: &Node) {
+    let parts = w.parts(node);
+    let kind = node.kind();
+    let Some(colons) = parts
+        .iter()
+        .position(|p| p.el.is_token(SyntaxKind::DoubleColon))
+    else {
+        w.generic(node);
+        return;
+    };
+    w.inline(kind, &parts[..=colons]);
+    w.on_one_line(|w| {
+        for (k, part) in parts.iter().enumerate().skip(colons + 1) {
+            let sep = w.join(kind, &parts[k - 1].el, &part.el);
+            w.gap(part.trivia.clone(), sep, 0);
+            w.el(&part.el);
+        }
+    });
+}
+
 /// Whether `node` is a run of `AND`s or `OR`s.
 pub(crate) fn is_condition_run(node: &Node) -> bool {
     matches!(node.kind(), SyntaxKind::AndExpr | SyntaxKind::OrExpr)
