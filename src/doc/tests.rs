@@ -692,6 +692,28 @@ fn exact_verbatim_text_keeps_every_byte() {
     assert_eq!(out, "x\n    [1,  2,\n 3]::t\n");
 }
 
+/// Finding the line a verbatim block starts on takes the same time however
+/// long that line is: a million blocks on one line print in seconds, where
+/// a search back to the line's start for each takes about ten minutes.
+#[test]
+fn many_verbatim_blocks_on_one_line_print_in_linear_time() {
+    let blocks = 1_000_000;
+    let source = vec!["abcdefghijklmnop"; blocks].join(" ");
+    let started = std::time::Instant::now();
+    let split = split(&source, Mode::Sql);
+    let tokens = split.tokens();
+    let mut b = Builder::new(&source, tokens, Mode::Sql);
+    for i in (0..tokens.len()).step_by(2) {
+        if i > 0 {
+            b.space();
+        }
+        b.verbatim(i, i);
+    }
+    let out = b.finish().print(&PrintOptions::default());
+    assert_eq!(out.len(), source.len() + 1);
+    assert!(started.elapsed().as_secs() < 60, "{:?}", started.elapsed());
+}
+
 #[test]
 fn a_block_of_comments_keeps_its_relative_indentation() {
     let source = "a\n      -- one\n      --   two\n\n\n        -- three\n  b";

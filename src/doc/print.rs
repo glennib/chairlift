@@ -1,5 +1,7 @@
 //! Printing a document.
 
+use std::cell::OnceCell;
+
 use super::Doc;
 use super::Ending;
 use super::Gap;
@@ -213,6 +215,9 @@ struct Printer<'d, 's> {
     /// The output offsets and indices of the last three tokens printed.
     tail: [(usize, u32); 3],
     tail_len: usize,
+    /// The offset of each line of the source after the first, made when a
+    /// verbatim block first needs the line it starts on.
+    line_starts: OnceCell<Vec<usize>>,
     #[cfg(test)]
     measure: Measure,
     #[cfg(test)]
@@ -248,6 +253,7 @@ impl<'d, 's> Printer<'d, 's> {
             last_kind: None,
             tail: [(0, 0); 3],
             tail_len: 0,
+            line_starts: OnceCell::new(),
             #[cfg(test)]
             measure: Measure::Fast,
             #[cfg(test)]
@@ -610,7 +616,16 @@ impl<'d, 's> Printer<'d, 's> {
     fn common_indent(&self, first: usize, last: usize) -> usize {
         let doc = self.doc;
         let start = doc.tokens[first].start();
-        let line_start = doc.source[..start].rfind('\n').map_or(0, |at| at + 1);
+        let line_starts = self.line_starts.get_or_init(|| {
+            doc.source
+                .match_indices('\n')
+                .map(|(at, _)| at + 1)
+                .collect()
+        });
+        let line_start = match line_starts.partition_point(|&line| line <= start) {
+            0 => 0,
+            n => line_starts[n - 1],
+        };
         let mut common = indent_columns(&doc.source[line_start..], self.indent_width);
         for (i, token) in doc.tokens.iter().enumerate().take(last + 1).skip(first) {
             let text = token.text(doc.source);
