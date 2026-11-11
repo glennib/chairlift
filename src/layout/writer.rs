@@ -227,22 +227,47 @@ impl<'s> Writer<'s> {
             self.blank_before(next, blank);
             return false;
         }
+        let after_opener = trivia.start.checked_sub(1).is_some_and(|i| {
+            matches!(
+                self.tokens[i].kind(),
+                TokenKind::OpeningRoundBracket | TokenKind::OpeningSquareBracket
+            )
+        });
+        let closes = self.tokens.get(next).is_some_and(|t| {
+            matches!(
+                t.kind(),
+                TokenKind::Comma
+                    | TokenKind::Semicolon
+                    | TokenKind::ClosingRoundBracket
+                    | TokenKind::ClosingSquareBracket
+            )
+        });
         let solid: Vec<usize> = trivia.filter(|&i| !whitespace(i)).collect();
         let mut broke = false;
         let mut k = 0;
-        // Comments that trail the line before.
+        // Comments that trail the line before: a `/* */` one is an atom,
+        // spaced from what is around it but brackets and commas.
+        let mut inline = false;
         while let Some(&i) = solid.get(k) {
             if !self.started || self.newlines_before(i) > 0 || self.is_tag(i) {
                 break;
             }
-            k += 1;
             if self.tokens[i].kind() == TokenKind::LineComment {
                 self.b.trailing_comment(i);
+                k += 1;
                 broke = true;
+                inline = false;
                 break;
             }
-            self.b.space();
+            if !(k == 0 && after_opener) {
+                self.b.space();
+            }
             self.b.token(i);
+            inline = true;
+            k += 1;
+        }
+        if inline && matches!(sep, Sep::Nothing | Sep::Soft) && !closes && k == solid.len() {
+            self.b.space();
         }
         self.sep(sep);
         while let Some(&i) = solid.get(k) {
@@ -265,20 +290,24 @@ impl<'s> Writer<'s> {
                     && !self.text(i).contains('\n')
             };
             if leads(k) {
+                // It starts its line, as in the input, so that what follows
+                // on that line stays with it; a Jinja comment keeps the
+                // whitespace after it, which once rendered is between what
+                // comes before and after it.
                 self.started = true;
+                self.b.hard_line();
                 self.b.token(i);
-                let closes = self.tokens.get(next).is_some_and(|t| {
-                    matches!(
-                        t.kind(),
-                        TokenKind::Comma
-                            | TokenKind::Semicolon
-                            | TokenKind::ClosingRoundBracket
-                            | TokenKind::ClosingSquareBracket
-                    )
-                });
-                if !closes {
+                let spaced = if self.tokens[i].kind() == TokenKind::JinjaComment {
+                    self.tokens
+                        .get(i + 1)
+                        .is_some_and(|t| t.kind() == TokenKind::Whitespace)
+                } else {
+                    !closes
+                };
+                if spaced {
                     self.b.space();
                 }
+                broke = true;
                 k += 1;
                 continue;
             }
