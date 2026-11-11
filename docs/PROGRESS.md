@@ -10,8 +10,8 @@ M9 (chum integration) is not part of this run.
 | M0. Repository scaffolding | done | CI green |
 | M1. Lossless lexer | done | reviewed; CI green |
 | M2. Verifier, splitter, safe-cleanup CLI | done | review findings fixed |
-| M3. Parser core | implemented | all three parts and the part 1 review fixes are in; review of the `SELECT` and `CREATE` grammars running |
-| M4. Formatting rules and printer | in progress | part 1: document IR and printer |
+| M3. Parser core | implemented | fixes for the review of the `SELECT` and `CREATE` grammars in progress |
+| M4. Formatting rules and printer | in progress | part 1 (document IR and printer) done; part 2: layout framework and `SELECT` |
 | M5. Jinja templates | not started | |
 | M6. CLI polish and performance | not started | |
 | M7. Remaining statement kinds | not started | |
@@ -60,10 +60,22 @@ Those assumptions are used unless the project owner decides otherwise:
 - Snapshot review: `insta` snapshots are committed so that every commit passes its tests.
   They are listed here per milestone until reviewed.
   - M0: the inline snapshot of `--help` in `tests/cli.rs`.
+  - M4 part 1: the inline snapshot in `doc::tests::a_document_dumps_as_indented_nodes`.
   - M3 part 2: 11 tree-dump snapshots under `src/syntax/grammar/select/snapshots/`.
   - M3 part 3: 10 tree-dump snapshots under `src/syntax/grammar/create/snapshots/`.
   - M3 part 1: 24 tree-dump snapshots under `src/syntax/snapshots/`
     and `src/syntax/grammar/{exprs,types,common,fallback}/snapshots/`.
+
+## Style questions for the project owner
+
+Readings chosen where the plan and the layout proposal leave a rule open.
+None blocks the work.
+
+- The proposal's section 2b fills literal lists and its section 3 keeps `true` and `NULL` as written.
+  `MILESTONES.md` says one item per line and fixed casing, and it wins.
+- A `;` that has to go on its own line after a trailing line comment is printed at the statement's column.
+- "A statement spans several lines" (the blank-line rule) is read as "its layout broke".
+- A lambda body that does not fit goes one indent in from the line the lambda starts on.
 
 ## Deviations from the plan
 
@@ -299,3 +311,30 @@ The numbers are for the whole of M3, with the part 1 review fixes in.
   - A projection's query has its own entry point: ClickHouse reads `distinct`, `all` and `top` as names there.
 - Differences from the plan: joins sit beside `FROM`, not inside it;
   `INTO OUTFILE` parses its keywords and keeps only the file name and options opaque; pipe syntax is not parsed.
+
+Review of the `SELECT` and `CREATE` grammars: no blockers; every reported number reproduced.
+Fixes in progress for:
+
+- Six classes of wrong keyword slot, each needing a rare name in one position and none occurring in a corpus:
+  `(with - 1)` with a column named `with`, a table alias `select`, the `ELSE` branch of `viewIfPermitted(…)`,
+  `from(` read as a `FROM`-first query, `CREATE TABLE t AS with(1)`,
+  and a setting or TTL key named like a `CREATE` clause word.
+- `FORMAT`, `INTO OUTFILE` and a `SETTINGS` after `FORMAT` belong to the whole union
+  or `CREATE` statement in ClickHouse, but sit inside the last `SELECT` in the tree.
+- 385 of the 778 keyword-slot positions in the stateless corpus appear only in upper case,
+  so re-casing the corpus never exercises them; the generated position test is being extended to cover them.
+
+### M4
+
+Part 1: the document IR and printer, in `chairlift::doc`, independent of the syntax tree.
+
+- 35 hand-built documents reproduce the layout proposal's examples byte for byte, the DESIGN.md example included,
+  and every output passes the verifier.
+- The printer measures each group once.
+  It agrees with a reference printer that decides each group by printing it on 5 million random documents.
+- Property tests over random documents and random SQL: no trailing whitespace, every token printed once,
+  the output verifies, re-printing changes nothing.
+- Two tokens touch only where `can_touch` allows it: `-` and `-1` print as `- -1`.
+- Building, checking and printing a 1.1 MB document takes about 15 ms.
+- Known gaps: a trailing comment is not measured, so a line with one can exceed the width; width counts characters,
+  not East Asian display width; there is no fill layout, which the plan rejects.
