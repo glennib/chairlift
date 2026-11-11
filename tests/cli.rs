@@ -1429,14 +1429,22 @@ fn verify_with_clickhouse_format() {
 
     // clickhouse-format takes the rest of the line after `VALUES` data as
     // data, so the whole texts differ while each statement reads the same:
-    // a warning, not an error.
+    // a warning, not an error. It shows nothing of what the oracle printed,
+    // as that holds the secrets `--show_secrets` reveals.
     let output = run(
         &[&args[..], &["-"]].concat(),
-        Some(b"INSERT INTO t VALUES (1); select 2;\n"),
+        Some(
+            b"INSERT INTO t VALUES (1); select 2; \
+              create user u identified with plaintext_password by 'hunter2';\n",
+        ),
         None,
     );
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
-    assert_eq!(stdout(&output), "INSERT INTO t VALUES (1);\nSELECT 2;\n");
+    assert!(
+        stdout(&output).starts_with("INSERT INTO t VALUES (1);\nSELECT 2;\n"),
+        "{}",
+        stdout(&output)
+    );
     assert!(
         stderr(&output).contains(
             "⚠ <stdin>: clickhouse-format reads the formatted text differently as a whole"
@@ -1444,6 +1452,7 @@ fn verify_with_clickhouse_format() {
         "{}",
         stderr(&output)
     );
+    assert!(!stderr(&output).contains("hunter2"), "{}", stderr(&output));
 
     // The single `clickhouse` binary formats as `clickhouse format`.
     let clickhouse = Path::new(&oracle).with_file_name("clickhouse");

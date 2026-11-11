@@ -137,7 +137,7 @@ impl Verifier {
             if report.mismatch.is_some() || report.statements.iter().any(|s| is_bad(&s.judgement)) {
                 verdict.bug = Some(bug(&jobs[j], variant.rendering.as_deref(), report));
             } else if is_bad(&report.whole) && verdict.whole_only.is_none() {
-                verdict.whole_only = Some(whole_only(&jobs[j], report));
+                verdict.whole_only = Some(whole_only(&jobs[j]));
             }
         }
         for ((verdict, job), rendered) in verdicts.iter_mut().zip(jobs).zip(rendered) {
@@ -164,14 +164,11 @@ fn is_bad(judgement: &Judgement) -> bool {
 /// splits them, so they decide. `clickhouse-format` splits differently in
 /// places: it ends `INSERT … VALUES` data at the end of the line, so a
 /// statement after it on the same line becomes part of the data.
-fn whole_only(job: &Job<'_>, report: &Report) -> Diagnostic {
-    let help = match &report.whole {
-        Judgement::Differs { input, output } => oracle::difference(input, output),
-        Judgement::OutputRejected(why) => {
-            format!("the oracle rejects the output: {}", why.message)
-        }
-        Judgement::Same | Judgement::Unjudgeable(_) => String::new(),
-    };
+///
+/// It shows nothing the oracle printed: that is printed with
+/// `--show_secrets`, so it can hold passwords, and a warning ends up in
+/// logs where nobody needs them.
+fn whole_only(job: &Job<'_>) -> Diagnostic {
     Diagnostic::warning(
         "chairlift::verify::whole_text",
         format!(
@@ -181,7 +178,6 @@ fn whole_only(job: &Job<'_>, report: &Report) -> Diagnostic {
             job.name
         ),
     )
-    .with_help(help)
 }
 
 /// The diagnostic for a report that shows a bug in formatting `job`.
