@@ -1,0 +1,6 @@
+- id: chairlift
+  name: chairlift
+  description: Format ClickHouse SQL and Jinja-templated SQL.
+  entry: chairlift
+  language: rust
+  files: \.sql(\.j2)?$
