@@ -130,6 +130,9 @@ fn help() {
           --stdin-filename <PATH>
               The name of the file whose text `-` reads from stdin, as an editor passes it: `--jinja auto` decides by it, and messages and diffs show it. The file itself is not read
 
+          --exclude <GLOB>
+              Skip the files and directories in searched directories that GLOB matches, in gitignore syntax relative to the current directory; may be given more than once, and `!GLOB` brings back what an earlier --exclude skipped. A file named on the command line is formatted whatever GLOB says
+
       -j, --jobs <N>
               Files formatted at once [default: the number of CPUs]. Results are reported in path order whatever the number
 
@@ -569,6 +572,102 @@ fn chlignore_in_a_parent_directory_applies() {
     assert_eq!(
         listed(&dir, &[sub]),
         [format!("{}/a.sql", sub.replace('\\', "/"))]
+    );
+}
+
+/// `--exclude` globs are relative to the current directory whichever way
+/// the searched directory is spelled, and an excluded directory is not
+/// searched.
+#[test]
+fn exclude_skips_files_and_directories() {
+    let dir = temp_dir("exclude");
+    for name in [
+        "a.sql",
+        "b.gen.sql",
+        "models/c.sql",
+        "models/d.gen.sql",
+        "models/vendor/e.sql",
+        "models/vendor/deep/f.sql",
+    ] {
+        write(&dir, name, "SELECT 1; ");
+    }
+    let vendor = ["--exclude", "models/vendor"];
+    assert_eq!(
+        listed(&dir, &[&vendor[..], &["models"]].concat()),
+        ["models/c.sql", "models/d.gen.sql"]
+    );
+    assert_eq!(
+        listed(&dir, &[&vendor[..], &["."]].concat()),
+        [
+            "./a.sql",
+            "./b.gen.sql",
+            "./models/c.sql",
+            "./models/d.gen.sql"
+        ]
+    );
+    let models = dir.join("models");
+    let shown = models.to_str().unwrap().replace('\\', "/");
+    assert_eq!(
+        listed(&dir, &[&vendor[..], &[models.to_str().unwrap()]].concat()),
+        [format!("{shown}/c.sql"), format!("{shown}/d.gen.sql")]
+    );
+    assert_eq!(
+        listed(&dir, &["--exclude", "*.gen.sql", "--exclude", "deep/", "."]),
+        ["./a.sql", "./models/c.sql", "./models/vendor/e.sql"]
+    );
+    // Anchored to the current directory, not to the searched one.
+    assert_eq!(listed(&dir, &["--exclude", "/c.sql", "models"]).len(), 4);
+    assert_eq!(
+        listed(&dir, &["--exclude", "/models/c.sql", "models"]).len(),
+        3
+    );
+    assert_eq!(
+        listed(&models, &["--exclude", "/vendor", "."]),
+        ["./c.sql", "./d.gen.sql"]
+    );
+    // A file named on the command line is formatted whatever `--exclude`
+    // says.
+    assert_eq!(
+        listed(&dir, &["--exclude", "*.gen.sql", "b.gen.sql"]),
+        ["b.gen.sql"]
+    );
+}
+
+/// `!GLOB` brings back what an earlier `--exclude` skipped, as a `!` line
+/// does in a `.gitignore`, but not what an ignore file excludes.
+#[test]
+fn exclude_negation_undoes_only_an_earlier_exclude() {
+    let dir = temp_dir("exclude-negation");
+    for name in ["a.gen.sql", "keep.gen.sql", "ignored.sql", "chlignored.sql"] {
+        write(&dir, name, "SELECT 1; ");
+    }
+    write(&dir, ".ignore", "ignored.sql\n");
+    write(&dir, ".chlignore", "chlignored.sql\n");
+    let args = [
+        "--exclude",
+        "*.gen.sql",
+        "--exclude",
+        "!keep.gen.sql",
+        "--exclude",
+        "!ignored.sql",
+        "--exclude",
+        "!chlignored.sql",
+        ".",
+    ];
+    assert_eq!(listed(&dir, &args), ["./keep.gen.sql"]);
+    // The last glob that matches decides.
+    let args = ["--exclude", "!keep.gen.sql", "--exclude", "*.gen.sql", "."];
+    assert_eq!(listed(&dir, &args), Vec::<String>::new());
+}
+
+#[test]
+fn an_invalid_exclude_glob_exits_with_2() {
+    let output = chairlift(&["--exclude", "a[b", "x.sql"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("invalid --exclude: error parsing glob 'a[b'"),
+        "{}",
+        stderr(&output)
     );
 }
 

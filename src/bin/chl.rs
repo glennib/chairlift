@@ -16,6 +16,8 @@ macro_rules! say {
 
 #[path = "chl/diagnostic.rs"]
 mod diagnostic;
+#[path = "chl/exclude.rs"]
+mod exclude;
 #[path = "chl/parallel.rs"]
 mod parallel;
 
@@ -26,6 +28,7 @@ use std::io::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -39,6 +42,7 @@ use diagnostic::Color;
 use diagnostic::Diagnostic;
 use diagnostic::Reporter;
 use diagnostic::Verbosity;
+use exclude::Excludes;
 
 /// Format ClickHouse SQL and Jinja-templated SQL files.
 ///
@@ -88,6 +92,14 @@ struct Cli {
     /// it. The file itself is not read.
     #[arg(long, value_name = "PATH")]
     stdin_filename: Option<PathBuf>,
+
+    /// Skip the files and directories in searched directories that GLOB
+    /// matches, in gitignore syntax relative to the current directory; may
+    /// be given more than once, and `!GLOB` brings back what an earlier
+    /// --exclude skipped. A file named on the command line is formatted
+    /// whatever GLOB says.
+    #[arg(long, value_name = "GLOB")]
+    exclude: Vec<String>,
 
     /// Files formatted at once [default: the number of CPUs]. Results are
     /// reported in path order whatever the number.
@@ -335,8 +347,26 @@ fn main() -> ExitCode {
         say!("error: --stdin-filename names the file on stdin, so it needs `-` as the path");
         return ExitCode::from(2);
     }
+    let excludes = if cli.exclude.is_empty() {
+        None
+    } else {
+        let built = std::env::current_dir()
+            .map_err(|e| {
+                format!("cannot read the current directory, which --exclude is relative to: {e}")
+            })
+            .and_then(|cwd| {
+                Excludes::new(&cwd, &cli.exclude).map_err(|e| format!("invalid --exclude: {e}"))
+            });
+        match built {
+            Ok(excludes) => Some(Arc::new(excludes)),
+            Err(e) => {
+                say!("error: {e}");
+                return ExitCode::from(2);
+            }
+        }
+    };
     let jobs = cli.jobs.map_or_else(parallel::default_jobs, usize::from);
-    files(&cli.paths, &settings, jobs, reporter)
+    files(&cli.paths, excludes.as_ref(), &settings, jobs, reporter)
 }
 
 /// Formats stdin to stdout, or checks or diffs it. `filename` is the name
@@ -411,9 +441,15 @@ fn report(reporter: Reporter, diagnostic: &Diagnostic) {
 }
 
 /// Formats, checks or diffs the files under `paths`.
-fn files(paths: &[PathBuf], settings: &Settings, jobs: usize, reporter: Reporter) -> ExitCode {
+fn files(
+    paths: &[PathBuf],
+    excludes: Option<&Arc<Excludes>>,
+    settings: &Settings,
+    jobs: usize,
+    reporter: Reporter,
+) -> ExitCode {
     let started = Instant::now();
-    let (files, mut errors) = discover(paths, reporter);
+    let (files, mut errors) = discover(paths, excludes, reporter);
     let outcomes = parallel::map(files.iter().collect(), jobs, |path: &PathBuf| {
         process(path, settings)
     });
@@ -490,19 +526,26 @@ fn files(paths: &[PathBuf], settings: &Settings, jobs: usize, reporter: Reporter
 
 /// The files to format: each path that is a file, and the SQL files under
 /// each path that is a directory, sorted, each file once under the first of
-/// its spellings. Paths that
-/// cannot be read are reported, and counted in the second value.
-fn discover(paths: &[PathBuf], reporter: Reporter) -> (Vec<PathBuf>, usize) {
+/// its spellings, leaving out what `excludes` excludes from the directories.
+/// Paths that cannot be read are reported, and counted in the second value.
+fn discover(
+    paths: &[PathBuf],
+    excludes: Option<&Arc<Excludes>>,
+    reporter: Reporter,
+) -> (Vec<PathBuf>, usize) {
     let mut files = Vec::new();
     let mut errors = 0;
     for path in paths {
         match fs::metadata(path) {
             Ok(meta) if meta.is_dir() => {
                 let before = files.len();
-                let walk = ignore::WalkBuilder::new(path)
-                    .require_git(false)
-                    .add_custom_ignore_filename(IGNORE_FILE)
-                    .build();
+                let mut walk = ignore::WalkBuilder::new(path);
+                walk.require_git(false)
+                    .add_custom_ignore_filename(IGNORE_FILE);
+                if let Some(excludes) = excludes {
+                    walk.filter_entry(excludes.walk_filter(path));
+                }
+                let walk = walk.build();
                 for entry in walk {
                     match entry {
                         Ok(entry) => {

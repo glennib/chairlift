@@ -67,7 +67,7 @@ chl [OPTIONS] <PATHS>...
 
 Paths are files or directories, formatted in place.
 In a directory chairlift formats `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files,
-symbolic links and whatever `.gitignore`, `.ignore` and `.chlignore` files exclude.
+symbolic links and whatever `.gitignore`, `.ignore` and `.chlignore` files and `--exclude` exclude.
 A file named on the command line is formatted whatever its name.
 `-` reads stdin and writes the result to stdout.
 
@@ -77,6 +77,18 @@ It works in a git repository or outside one, and a `.chlignore` in a directory a
 Its rules win over those of `.gitignore` and `.ignore`, so a `!` line in it brings back a file they exclude,
 though not one in a directory they exclude, as that directory is not searched.
 A file named on the command line is formatted whatever `.chlignore` says.
+
+`--exclude <GLOB>` skips files and directories for one run without a file to edit, as in CI or a Makefile:
+`chl --exclude 'models/vendor' --exclude '*.gen.sql' .`.
+The glob is in gitignore syntax and relative to the current directory,
+whether the directory searched is named by a relative path, an absolute one or `.`.
+An excluded directory is not searched.
+The flag may be given more than once, with the meaning the globs would have as the lines of a `.gitignore`:
+`!GLOB` brings back what an earlier `--exclude` skipped, and `\!` starts a glob for a name that begins with `!`.
+No `--exclude` brings back a file that `.gitignore`, `.ignore` or `.chlignore` excludes.
+A glob that cannot be parsed, such as `[` without `]`, is an error.
+A path named on the command line is not matched itself: a file is formatted whatever `--exclude` says,
+and a directory is searched, though what is in it is matched.
 
 ```console
 $ chl .
@@ -112,6 +124,7 @@ The options:
 | `--line-width <WIDTH>` | The width lines are laid out to fit; 100 by default |
 | `--jinja <auto\|on\|off>` | Whether files are Jinja templates (see [Jinja templates](#jinja-templates)); `auto` by default |
 | `--stdin-filename <PATH>` | The name of the text read from stdin, for `--jinja auto` and for messages; the file is not read |
+| `--exclude <GLOB>` | Skip what the glob matches in searched directories, in gitignore syntax relative to the current directory; repeatable |
 | `-j`, `--jobs <N>` | Files formatted at once; the number of CPUs by default |
 | `-q`, `--quiet` | Print only errors: no summary or warnings |
 | `-v`, `--verbose` | Also print what happened to each file, and how long it took |
