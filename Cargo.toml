@@ -105,7 +105,7 @@ miette = { version = "7.6", default-features = false, features = ["fancy-no-sysc
 rayon = { version = "1.12", optional = true }
 # `chl.toml`.
 serde = { version = "1.0.229", features = ["derive"], optional = true }
-similar = { version = "2.7", optional = true }
+similar = { version = "3.0", optional = true }
 toml = { version = "1.2", default-features = false, features = ["std", "parse", "serde"], optional = true }
 # The renderer behind the `template` feature, at the version chum pins.
 minijinja = { version = "~3.1.0", default-features = false, features = ["builtins", "macros", "loop_controls", "fuel"], optional = true }
