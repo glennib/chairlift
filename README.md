@@ -153,8 +153,13 @@ exclude = ["models/vendor/", "*.gen.sql"]
 ```
 
 Every key may be left out.
-chairlift reads the `chl.toml` in the current directory, or else the one in the nearest directory above it that has one.
-Only that file is read: one further up is not merged with it.
+chairlift reads the nearest `chl.toml` in or above the deepest directory that holds all the paths it is given,
+in which a file counts as its directory, wherever it runs.
+For stdin it looks from the directory of the `--stdin-filename` name, which need not exist,
+or from the current directory without one.
+Symbolic links in the paths are resolved first, as for `.chlignore`.
+Only that file is read: one further up is not merged with it, and one in a subdirectory of where the search starts is not
+read at all, so `chl a/x.sql b/y.sql` takes the settings of the directory that holds `a` and `b`.
 `--verbose` names the file read.
 A flag given on the command line wins over the file, even when it gives the default, and the file wins over the default.
 
@@ -485,8 +490,8 @@ so an editor that keeps the buffer when a formatter fails loses nothing.
 Pass the file's name with `--stdin-filename`, so that `--jinja auto` can decide by it, messages name the file,
 and a file that `.chlignore` or `chl.toml` excludes comes back unchanged.
 For dbt models, add `--jinja on`.
-chairlift finds `chl.toml` from the directory it runs in, not from the name `--stdin-filename` gives,
-so the editor has to run it in the project.
+chairlift finds `chl.toml` from the directory of the name `--stdin-filename` gives,
+so the editor can run it in any directory.
 
 Any editor that can pipe a buffer through a command can use it that way.
 

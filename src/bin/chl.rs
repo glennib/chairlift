@@ -60,9 +60,11 @@ use exclude::IgnoreFiles;
 /// command line is formatted whatever its name, unless `.chlignore`,
 /// `chl.toml` or --exclude excludes it.
 ///
-/// The nearest `chl.toml`, in the current directory or one above it, can
-/// set `line-width`, `jinja` and `exclude`; a flag given on the command line
-/// overrides its value.
+/// A `chl.toml` can set `line-width`, `jinja` and `exclude`; a flag given
+/// on the command line overrides its value. The one read is the nearest one
+/// in or above the deepest directory that holds all the paths; for stdin,
+/// in or above the directory of the --stdin-filename name, or the current
+/// directory without one.
 #[derive(Debug, Parser)]
 #[allow(clippy::struct_excessive_bools, reason = "each is a flag")]
 #[command(
@@ -342,14 +344,15 @@ fn main() -> ExitCode {
         },
         color: cli.color.for_stderr(),
     };
-    let config = match std::env::current_dir().map(|cwd| config::discover(&cwd)) {
-        Ok(Ok(config)) => config,
-        Ok(Err(diagnostic)) => {
+    let config = match config::search_from(&cli.paths, cli.stdin_filename.as_deref())
+        .map(|dir| config::discover(&dir))
+    {
+        Some(Ok(config)) => config,
+        Some(Err(diagnostic)) => {
             report(reporter, &diagnostic);
             return ExitCode::from(2);
         }
-        // Without a current directory there is nowhere to look.
-        Err(_) => None,
+        None => None,
     };
     if let Some(config) = &config
         && reporter.verbosity == Verbosity::Verbose

@@ -211,7 +211,7 @@ fn top_down(path: &Path, is_dir: bool) -> Vec<(&Path, bool)> {
 
 /// `path`, absolute, with symbolic links resolved in as much of it as
 /// exists.
-fn resolve(path: &Path) -> PathBuf {
+pub fn resolve(path: &Path) -> PathBuf {
     if let Ok(canonical) = path.canonicalize() {
         return canonical;
     }

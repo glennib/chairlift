@@ -48,8 +48,8 @@ fn stderr(output: &Output) -> String {
 }
 
 /// The `chl` binary, to run in `dir`, which is a [`temp_dir`] or in one:
-/// `chl` reads the `chl.toml` of the directory it runs in or of the nearest
-/// one above it.
+/// `chl` reads the nearest `chl.toml` above its paths, or above the
+/// directory it runs in for stdin without --stdin-filename.
 fn chl(dir: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_chl"));
     command.current_dir(dir);
@@ -129,7 +129,7 @@ fn help() {
 
     Files are formatted in place. Directories are searched for `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files, symbolic links and whatever `.gitignore`, `.ignore` and `.chlignore` files exclude; `.chlignore` excludes files from formatting only. A file named on the command line is formatted whatever its name, unless `.chlignore`, `chl.toml` or --exclude excludes it.
 
-    The nearest `chl.toml`, in the current directory or one above it, can set `line-width`, `jinja` and `exclude`; a flag given on the command line overrides its value.
+    A `chl.toml` can set `line-width`, `jinja` and `exclude`; a flag given on the command line overrides its value. The one read is the nearest one in or above the deepest directory that holds all the paths; for stdin, in or above the directory of the --stdin-filename name, or the current directory without one.
 
     Usage: chl [OPTIONS] <PATHS>...
 
@@ -958,8 +958,9 @@ fn config_file(dir: &Path) -> String {
         .to_string()
 }
 
-/// The nearest `chl.toml`, in the current directory or one above it, gives
-/// the settings; one further up is not read.
+/// For stdin without --stdin-filename, the nearest `chl.toml`, in the
+/// current directory or one above it, gives the settings; one further up
+/// is not read.
 #[test]
 fn chl_toml_is_found_in_the_current_directory_or_above() {
     let dir = temp_dir("config-discovery");
@@ -980,6 +981,110 @@ fn chl_toml_is_found_in_the_current_directory_or_above() {
     );
     let output = run(&["-"], Some(TEMPLATE), Some(&deep));
     assert_eq!(output.status.code(), Some(2));
+}
+
+/// For files, `chl.toml` is looked for from the deepest directory that
+/// holds all the paths, wherever `chl` runs; one in a directory below that
+/// is not read.
+#[test]
+fn chl_toml_is_found_from_the_paths() {
+    let project = temp_dir("config-paths");
+    let elsewhere = temp_dir("config-paths-elsewhere");
+    write(&project, "chl.toml", "line-width = 20\n");
+    write(&project, "x/chl.toml", "# Nothing set.\n");
+    write(&project, "y/chl.toml", "# Nothing set.\n");
+    let x = write(&project, "x/a.sql", WIDE);
+    let y = write(&project, "y/b.sql", WIDE);
+    let x = x.to_str().unwrap();
+    let y = y.to_str().unwrap();
+    let relative = format!(
+        "../{}/x/a.sql",
+        project.file_name().unwrap().to_str().unwrap()
+    );
+    for args in [&["-v", "--check", x][..], &["-v", "--check", &relative]] {
+        let output = run(args, None, Some(&elsewhere));
+        assert_eq!(output.status.code(), Some(0), "{args:?}");
+        assert!(
+            stderr(&output).starts_with(&format!(
+                "settings from {}\n",
+                config_file(&project.join("x"))
+            )),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+    }
+    let output = run(&["-v", "--check", x, y], None, Some(&elsewhere));
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).starts_with(&format!("settings from {}\n", config_file(&project))),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(
+        stdout(&output),
+        format!("Would reformat: {x}\nWould reformat: {y}\n")
+    );
+}
+
+/// pre-commit and CI run `chl` at the root of the repository, with paths
+/// relative to it: the `chl.toml` at the root gives the settings, as it
+/// does for a run on the whole tree.
+#[test]
+fn chl_toml_at_the_root_serves_paths_relative_to_it() {
+    let dir = temp_dir("config-root-relative");
+    write(&dir, "chl.toml", "line-width = 20\n");
+    for name in ["c.sql", "models/a.sql", "models/sub/b.sql"] {
+        write(&dir, name, WIDE);
+    }
+    let runs: [&[&str]; 4] = [
+        &["models/a.sql"],
+        &["models/a.sql", "models/sub/b.sql"],
+        &["models/sub/b.sql", "c.sql"],
+        &["."],
+    ];
+    for paths in runs {
+        let args = [&["-v", "--check"][..], paths].concat();
+        let output = run(&args, None, Some(&dir));
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert!(
+            stderr(&output).starts_with(&format!("settings from {}\n", config_file(&dir))),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+    }
+}
+
+/// An editor runs `chl -` wherever it likes and names the buffer's file
+/// with --stdin-filename: `chl.toml` is looked for from that file's
+/// directory, or from the nearest one above it that exists.
+#[test]
+fn chl_toml_is_found_from_the_stdin_filename() {
+    let project = temp_dir("config-stdin-filename");
+    let elsewhere = temp_dir("config-stdin-filename-elsewhere");
+    write(&project, "chl.toml", "line-width = 20\n");
+    write(&project, "models/a.sql", "");
+    let relative = format!(
+        "../{}/models/q.sql",
+        project.file_name().unwrap().to_str().unwrap()
+    );
+    for filename in [
+        project.join("models/q.sql").display().to_string(),
+        relative,
+        project.join("no/such/dir/q.sql").display().to_string(),
+        project.join("models/a.sql/q.sql").display().to_string(),
+    ] {
+        let output = run(
+            &["-v", "--stdin-filename", &filename, "-"],
+            Some(QUERY),
+            Some(&elsewhere),
+        );
+        assert_eq!(stdout(&output), NARROW, "{filename}: {}", stderr(&output));
+        assert_eq!(
+            stderr(&output),
+            format!("settings from {}\n", config_file(&project)),
+            "{filename}"
+        );
+    }
 }
 
 /// A flag given on the command line wins over `chl.toml`, even when it
