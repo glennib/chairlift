@@ -106,6 +106,10 @@ proptest = "1.12"
 [package.metadata.docs.rs]
 all-features = true
 
+[package.metadata.dist]
+# Without this, dist would also package the `corpus` development tool.
+binaries = { "*" = ["chairlift"] }
+
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 too_many_lines = "allow"
