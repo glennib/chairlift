@@ -22,6 +22,16 @@
 //! kept statement still starts on a line of its own, with the blank lines
 //! between statements that the style keeps.
 //!
+//! # Lines kept by `fmt: off`
+//!
+//! The lines from a `-- fmt: off` comment to a `-- fmt: on` comment (see
+//! `fmt_off`) are kept byte for byte, whatever the decision for the
+//! statements they are in: their tokens are frozen and keep their case,
+//! the first line starts a line with the input's indentation, and the last
+//! one ends a line (see [`Builder::keep_lines`](crate::doc::Builder::keep_lines)).
+//! The rules lay out the tokens as everywhere else, and the frozen
+//! whitespace takes the place of what they put between them.
+//!
 //! # How the parts fit
 //!
 //! | Module | What it lays out |
@@ -41,6 +51,7 @@
 //! | `comment_end` | the template line comments the rendering can make run on, which leave the text as it is |
 //! | `joins` | the template words a render can join to a token beyond a block tag, which keep their case |
 //! | `inner` | block tags inside a string or comment whose blocks stay inside it |
+//! | `fmt_off` | the lines between `fmt: off` and `fmt: on` markers, which are kept as written |
 //!
 //! `node` dispatches a node to its rule by kind. A kind without a rule
 //! of its own is laid out by the generic rule
@@ -142,6 +153,7 @@ mod create;
 mod create_other;
 mod expr;
 mod file;
+mod fmt_off;
 mod inner;
 mod insert;
 mod joins;
@@ -317,6 +329,9 @@ pub(crate) fn layout<'s>(
     };
     let plan = file::plan(&w, &parts, keep_all);
     freeze(&mut w, &plan, &rendered, parse, keep, &free);
+    for (first, last) in fmt_off::regions(source, tokens, mode) {
+        w.keep_lines(first, last);
+    }
     file::root(&mut w, &root, &plan);
     let ending = ending(source, split, rendered.open_data);
     w.b.set_ending(ending);

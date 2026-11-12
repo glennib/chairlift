@@ -62,6 +62,26 @@ fn statement_inputs() -> impl Strategy<Value = String> {
     prop::collection::vec(piece, 0..40).prop_map(|v| v.concat())
 }
 
+/// `fmt: off` and `fmt: on` markers, on lines of their own, trailing code
+/// and in the middle of a line.
+#[rustfmt::skip]
+const FMT_MARKERS: &[&str] = &[
+    "\n-- fmt: off\n", "\n-- fmt: on\n", " -- fmt: off\n", " --FMT:ON\n", "{# fmt: off #}",
+    "\n{# fmt: on #}\n", " # fmt: off\n",
+];
+
+/// Statements and expressions with `fmt: off` and `fmt: on` markers between
+/// their pieces.
+fn fmt_marker_inputs() -> impl Strategy<Value = String> {
+    let piece = prop_oneof![
+        3 => prop::sample::select(STATEMENT_FRAGMENTS),
+        3 => prop::sample::select(EXPRESSION_FRAGMENTS),
+        1 => prop::sample::select(FRAGMENTS),
+        1 => prop::sample::select(FMT_MARKERS),
+    ];
+    prop::collection::vec(piece, 0..40).prop_map(|v| v.concat())
+}
+
 /// Pieces of statements that parse in part: heads with a list, items the
 /// parser falls back on, words that start data, and whitespace before line
 /// breaks, which text kept as written loses when printed.
@@ -308,6 +328,41 @@ proptest! {
             }
             Err(chairlift::Error::Lex(_) | chairlift::Error::Template(_)) => {}
             Err(e) => prop_assert!(false, "{:?}: {}", source, e),
+        }
+    }
+
+    /// Formatting text with `fmt: off` and `fmt: on` markers never fails
+    /// verification and is idempotent.
+    #[test]
+    fn format_with_fmt_markers_verifies_and_is_idempotent(
+        source in fmt_marker_inputs(),
+        jinja in any::<bool>(),
+        width in prop_oneof![Just(100u16), 10u16..=40],
+    ) {
+        let options = chairlift::Options::default().with_jinja(jinja).with_line_width(width);
+        match chairlift::format(&source, &options) {
+            Ok(once) => {
+                let twice = chairlift::format(&once, &options);
+                prop_assert_eq!(twice.as_ref(), Ok(&once), "formatted to {:?}", once);
+            }
+            Err(chairlift::Error::Lex(_) | chairlift::Error::Template(_)) => {}
+            Err(e) => prop_assert!(false, "{:?}: {}", source, e),
+        }
+    }
+
+    /// A `-- fmt: off` that starts a text keeps all of it as written, up to
+    /// the whitespace at its end.
+    #[test]
+    fn a_text_after_fmt_off_is_kept_as_written(
+        source in prop_oneof![statement_inputs(), expression_inputs()],
+        jinja in any::<bool>(),
+    ) {
+        prop_assume!(!source.to_ascii_lowercase().contains("fmt"));
+        let source = format!("-- fmt: off\n{source}");
+        let options = chairlift::Options::default().with_jinja(jinja);
+        if let Ok(output) = chairlift::format(&source, &options) {
+            let end = |c: char| c.is_whitespace() || c == '\u{feff}';
+            prop_assert_eq!(output.trim_end_matches(end), source.trim_end_matches(end));
         }
     }
 

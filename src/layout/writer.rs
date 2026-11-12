@@ -62,7 +62,8 @@ pub(crate) struct Writer<'s> {
     /// How many data types the node being laid out is inside.
     pub(crate) type_depth: u32,
     /// The words that keep their case, even in a keyword slot: those a render
-    /// can join to a token beyond a block tag (see `super::joins`).
+    /// can join to a token beyond a block tag (see `super::joins`), and those
+    /// between `fmt: off` and `fmt: on` (see `super::fmt_off`).
     keep_case: Vec<bool>,
 }
 
@@ -256,12 +257,25 @@ impl<'s> Writer<'s> {
         self.b.freeze(index);
     }
 
+    /// Keeps tokens `first` to `last`, whole lines of the input, as written,
+    /// their case included (see [`Builder::keep_lines`]).
+    pub(crate) fn keep_lines(&mut self, first: usize, last: usize) {
+        for marks in [&mut self.frozen, &mut self.keep_case] {
+            if marks.len() <= last {
+                marks.resize(last + 1, false);
+            }
+            marks[first..=last].fill(true);
+        }
+        self.b.keep_lines(first, last);
+    }
+
     /// Prints the whitespace before token `index` as in the input, here, if
-    /// it is frozen: so that a group opened after this does not start with
-    /// the line break, which would count as one inside it.
+    /// it is frozen or comes before lines kept as written: so that a group
+    /// opened after this does not start with the line break, which would
+    /// count as one inside it.
     pub(crate) fn frozen_before(&mut self, index: usize) {
         let ws = index.wrapping_sub(1);
-        if self.frozen.get(ws).copied().unwrap_or(false)
+        if (self.frozen.get(ws).copied().unwrap_or(false) || self.b.starts_kept_lines(ws))
             && self.tokens[ws].kind() == TokenKind::Whitespace
         {
             self.b.frozen();

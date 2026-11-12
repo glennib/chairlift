@@ -63,6 +63,8 @@ Known loose ends:
 - The weekly fuzz job runs `format` for 15 minutes, about 135,000 runs;
   the last two defects of the hour-long runs showed after 892,000 and 1.7 million.
   The cached corpus carries coverage from one week to the next, but not that depth.
+- No corpus holds a `fmt: off` marker, so `corpus:oracle` does not exercise them;
+  see "After M8: `fmt: off` markers" for the one-off run on a copy with markers added.
 
 ### Setup
 
@@ -988,3 +990,32 @@ For the project owner:
 
 Not checked: the musl build itself, the hook and the editor configurations in their tools,
 `cargo binstall` finding the release archives, and the first publish to crates.io.
+
+### After M8: `fmt: off` markers
+
+The lines from `-- fmt: off` to `-- fmt: on` are kept byte for byte, with sqlfmt's spelling and semantics,
+and `{# fmt: off #}` and `{# fmt: on #}` are markers in templates; the README has the contract.
+A region is frozen in the document rather than parsed apart:
+the rules lay out its tokens as usual, the frozen whitespace replaces what they put between them,
+its words keep their case, and the document gets one new node, `Indentation`,
+so that the region's first line starts a line at the input's indentation while the blank lines before it keep the style's limits.
+
+Where chairlift differs from sqlfmt, deliberately:
+the Jinja comment markers, any trailing whitespace after a marker,
+and `#fmt: off`, which ClickHouse does not read as a comment.
+
+Checked on the tip: `mise run ci`, `mise run test:templates`, `corpus:oracle` and `test:keyword-positions`
+on the fetched corpus, unchanged from M8.
+No corpus has a marker, so the corpus tool and the oracle also ran on a copy of the stateless tests and dbt models
+with markers added at random lines (own-line and trailing, `--`, `#` and Jinja comment markers, mixed case):
+no verify or idempotence failure, no template render that differs, and no statement the oracle reads differently,
+apart from the allowlisted `00306_insert_values_and_expressions.sql`.
+The copy is not vendored and not in CI.
+A 5-minute run of the `format` fuzz target, its dictionary holding the markers: 73,181 runs, clean.
+
+Not handled:
+
+- A region at the very start of the text loses the indentation of its first line,
+  as any text there does.
+- A region whose last line ends in code rather than a marker, possible only with a Jinja comment marker in mid-line,
+  ends its line, so a comma after it goes on a line of its own, apart from the item after it.

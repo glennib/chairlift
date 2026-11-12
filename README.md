@@ -211,6 +211,8 @@ In short:
   and always one around a statement that spans lines.
 - Comments are never reflowed.
   A comment on its own line takes the indentation of what follows it, and a trailing comment stays on its line.
+- The lines from `-- fmt: off` to `-- fmt: on` are kept as written
+  (see [Turning formatting off](#turning-formatting-off)).
 
 The full style sheet, with the alternatives that were considered,
 is [`docs/spikes/2026-11-10-layout-proposal.md`](docs/spikes/2026-11-10-layout-proposal.md).
@@ -393,6 +395,61 @@ chairlift::template
   help: the `-` marker of the tag after it strips the line break after it, and the comment can run on into text that follows a tag on its line; remove the marker, or end the lines of the tags there
 0 files reformatted, 0 files already formatted, 1 template refused
 ```
+
+## Turning formatting off
+
+The lines from a `-- fmt: off` comment to a `-- fmt: on` comment are kept as written,
+so that a hand-aligned table, `CASE` or call keeps its alignment.
+The markers are sqlfmt's, so a dbt project formatted with sqlfmt keeps them:
+
+```sql
+select id, name,
+-- fmt: off
+    multiIf(code = 1,  'one',
+            code = 22, 'twenty-two',
+                       'other') as label,
+-- fmt: on
+    created_at from t where id > 0
+```
+
+```sql
+SELECT
+    id,
+    name,
+-- fmt: off
+    multiIf(code = 1,  'one',
+            code = 22, 'twenty-two',
+                       'other') as label,
+-- fmt: on
+    created_at
+FROM t
+WHERE id > 0
+```
+
+- A marker is a line comment of `--` or `# `, an optional space, `fmt:`, an optional space, and `off` or `on`,
+  in any case, with nothing after it.
+  `--fmt:off` and `-- FMT: OFF` are markers; `-- fmt: off for now` and `--  fmt: off` are comments.
+- In a Jinja template, `{# fmt: off #}` and `{# fmt: on #}` are markers too, with any whitespace inside the tag.
+  Block tags inside a region stay where they are written,
+  and a closer after the region lines up with its opener as written.
+- What is kept are whole lines: from the start of the line the `fmt: off` is on to the end of the line the `fmt: on` is on.
+  A marker at the end of a line of code keeps that line too.
+- Without a `fmt: on`, the rest of the file is kept.
+  A `fmt: on` outside a kept region is an ordinary comment.
+- Markers nest: a `fmt: off` inside a kept region needs a `fmt: on` of its own before the region ends.
+- Inside the region every byte stays: indentation, keyword case, blank lines, and whitespace at the ends of lines.
+  Its first line keeps its indentation, except at the very start of the file.
+- The region starts and ends lines of its own.
+  The rest of the statement around it is laid out as usual,
+  and the blank lines next to it are kept within the usual limits.
+- Marker text inside a string, a `/* */` comment or the data of an `INSERT` is part of that text, not a marker.
+- The output is verified as everywhere else,
+  and a template whose line comments a render can run on is refused even inside a region.
+
+Where chairlift differs from sqlfmt:
+the Jinja comment markers are chairlift's own;
+a marker may end in any whitespace, where sqlfmt allows one space;
+and `#fmt: off` is no marker, as ClickHouse reads `#` as a comment only before a space or `!`.
 
 ## Safety
 

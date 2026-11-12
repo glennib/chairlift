@@ -73,6 +73,11 @@
 //! it cannot parse. In a statement kept as written, trailing whitespace goes
 //! and runs of blank lines are shortened, and nothing else changes.
 //!
+//! The lines from a `-- fmt: off` comment to a `-- fmt: on` comment, or to
+//! the end of the text, are kept byte for byte, as sqlfmt keeps them; in a
+//! template, `{# fmt: off #}` and `{# fmt: on #}` are markers too. The
+//! README describes the markers.
+//!
 //! # Jinja templates
 //!
 //! With [`Options::jinja`] set, the lexer reads `{{ … }}`, `{% … %}` and

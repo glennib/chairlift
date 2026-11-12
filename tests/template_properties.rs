@@ -77,11 +77,24 @@ const GAPS: &[&str] = &[
 /// leave most templates as they are: rarer than [`GAPS`].
 const MARKED_GAPS: &[&str] = &[" -- c {{ v -}}\n", "\n-- e {{- v -}}\n"];
 
+/// `fmt: off` and `fmt: on` markers, which keep the lines from one to the
+/// next as written: rarer than [`GAPS`], so that most of a template is laid
+/// out.
+const FMT_GAPS: &[&str] = &[
+    "\n-- fmt: off\n  ",
+    " -- fmt: on\n",
+    "\n{# fmt: off #} ",
+    " {# fmt: on #}\n",
+];
+
 /// Whitespace or a comment, now and then one whose line break a `-` marker
-/// strips.
+/// strips, or a `fmt: off` or `fmt: on` marker.
 fn gap(r: &mut Rng) -> &'static str {
-    if r.below(100) == 0 {
+    let roll = r.below(100);
+    if roll == 0 {
         r.pick(MARKED_GAPS)
+    } else if roll <= 3 {
+        r.pick(FMT_GAPS)
     } else {
         r.pick(GAPS)
     }
