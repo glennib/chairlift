@@ -173,6 +173,11 @@ pub use verify::VerifyError;
 
 use crate::split::split;
 
+/// The README's Rust examples, run as doctests.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
+
 /// Formats `source`.
 ///
 /// Every statement is parsed and either laid out by the style's rules
