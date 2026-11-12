@@ -74,11 +74,11 @@ harness = false
 default = ["cli"]
 # The `chl` binary. The library needs none of these; a consumer that only
 # uses the library can disable default features.
-cli = ["oracle", "dep:clap", "dep:ignore", "dep:miette", "dep:rayon", "dep:similar"]
-# `chairlift::oracle`, which runs `clickhouse-format` to check formatting kept
-# a text's meaning, for the binary's `--verify`. On Unix it needs `libc` to kill
-# the process groups it starts.
-oracle = ["dep:libc"]
+cli = ["dep:clap", "dep:ignore", "dep:miette", "dep:rayon", "dep:similar"]
+# `chairlift::oracle`, which runs `clickhouse-format` to check that formatting
+# kept a text's meaning. A development and test harness, so unstable too. On
+# Unix it needs `libc` to kill the process groups it starts.
+oracle = ["dep:libc", "unstable"]
 # `chairlift::template`, which renders templates once per combination of
 # their branches, as chum does, to check that formatting kept every render.
 # A development and test harness, so unstable too; it adds minijinja.
@@ -123,8 +123,8 @@ minijinja = { version = "~3.1.0", default-features = false, features = ["unstabl
 proptest = "1.12"
 
 [package.metadata.docs.rs]
-# The default features, which include `oracle`: the documented API leaves out
-# `unstable` and the `template` harness that enables it.
+# The default features: the documented API leaves out `unstable` and the
+# `oracle` and `template` harnesses that enable it.
 no-default-features = false
 
 [package.metadata.dist]

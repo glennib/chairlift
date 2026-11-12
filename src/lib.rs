@@ -88,12 +88,12 @@
 //!
 //! # Features
 //!
-//! - `cli`, on by default: the `chl` binary. It enables `oracle` and
-//!   the binary's own dependencies; the library needs none of them, so a
-//!   crate that uses only the library can turn default features off.
-//! - `oracle`: the `chairlift::oracle` module, which runs ClickHouse's
-//!   `clickhouse-format` on a text and its formatted output to check that
-//!   ClickHouse reads both the same, for the binary's `--verify`.
+//! - `cli`, on by default: the `chl` binary. It enables the binary's own
+//!   dependencies; the library needs none of them, so a crate that uses only
+//!   the library can turn default features off.
+//! - `oracle`: the `chairlift::oracle` module, a test harness that runs
+//!   ClickHouse's `clickhouse-format` on a text and its formatted output to
+//!   check that ClickHouse reads both the same. It enables `unstable`.
 //! - `unstable`: the modules behind [`format()`] (the lexer, statement
 //!   splitter, parser, layout, document printer and verifier) and
 //!   `format_with_statements`, which says what became of each statement.

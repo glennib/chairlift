@@ -81,8 +81,6 @@ use crate::split::split;
 mod process;
 mod statements;
 
-pub use process::kill_running;
-pub use process::stop_running_on_signals;
 pub use statements::Counts;
 pub use statements::Mismatch;
 pub use statements::Pair;
