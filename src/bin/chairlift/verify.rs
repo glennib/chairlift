@@ -15,7 +15,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use chairlift::lexer::Mode;
+use chairlift::Mode;
 use chairlift::oracle;
 use chairlift::oracle::Counts;
 use chairlift::oracle::Judgement;

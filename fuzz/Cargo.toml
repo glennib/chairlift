@@ -13,6 +13,7 @@ libfuzzer-sys = "0.4"
 [dependencies.chairlift]
 path = ".."
 default-features = false
+features = ["unstable"]
 
 # Its own workspace, so the main crate's builds never compile the fuzzers.
 # Targets are added with `cargo fuzz add <name>`, which appends a `[[bin]]`.

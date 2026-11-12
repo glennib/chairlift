@@ -71,11 +71,16 @@ cli = ["oracle", "dep:clap", "dep:ignore", "dep:miette", "dep:rayon", "dep:simil
 oracle = ["dep:libc"]
 # `chairlift::template`, which renders templates once per combination of
 # their branches, as chum does, to check that formatting kept every render.
-# A development and test harness; it adds minijinja.
-template = ["dep:minijinja"]
+# A development and test harness, so unstable too; it adds minijinja.
+template = ["dep:minijinja", "unstable"]
 # The `corpus` binary, a development tool that formats, verifies and checks
 # whole directory trees. Not part of the published binary.
-corpus-tool = ["cli", "oracle", "template"]
+corpus-tool = ["cli", "oracle", "template", "unstable"]
+# The modules behind `format` (lexer, splitter, parser, layout, document
+# printer, verifier) and `format_with_statements`, for chairlift's own tests,
+# benchmarks, fuzz targets and corpus tool. No semver guarantee: any release
+# may change or remove them.
+unstable = []
 
 [dependencies]
 # The concrete syntax tree.
@@ -96,6 +101,10 @@ minijinja = { version = "~3.1.0", default-features = false, features = ["builtin
 libc = { version = "0.2.191", optional = true }
 
 [dev-dependencies]
+# The tests and benchmarks use the unstable modules. A dev-dependency's
+# features apply only to the targets built with it, so the library and the
+# binary still build without `unstable`.
+chairlift = { path = ".", features = ["unstable"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 insta = "1.49"
 # The oracle for Jinja tag spans. Its tokenizer is behind an unstable feature
@@ -104,7 +113,9 @@ minijinja = { version = "~3.1.0", default-features = false, features = ["unstabl
 proptest = "1.12"
 
 [package.metadata.docs.rs]
-all-features = true
+# The default features, which include `oracle`: the documented API leaves out
+# `unstable` and the `template` harness that enables it.
+no-default-features = false
 
 [package.metadata.dist]
 # Without this, dist would also package the `corpus` development tool.

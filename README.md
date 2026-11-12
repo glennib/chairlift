@@ -496,6 +496,8 @@ fn main() -> Result<(), chairlift::Error> {
 `format` returns an error, and no text, for input with a lexer error, a template it refuses,
 or a result that failed verification.
 The API documentation is on [docs.rs](https://docs.rs/chairlift).
+The lexer, parser, layout and the other modules behind `format` are behind the `unstable` feature,
+for chairlift's own tests and tools; they have no semver guarantee and any release may change them.
 
 ## Limitations
 

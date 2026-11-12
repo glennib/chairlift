@@ -8,10 +8,10 @@ use crate::verify::Facts;
 use crate::verify::verify;
 
 mod api {
-    pub use crate::doc;
-    pub use crate::lexer;
-    pub use crate::split;
-    pub use crate::verify;
+    pub(crate) use crate::doc;
+    pub(crate) use crate::lexer;
+    pub(crate) use crate::split;
+    pub(crate) use crate::verify;
 }
 
 #[path = "../../tests/support/doc_gen.rs"]

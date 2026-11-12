@@ -13,8 +13,8 @@ pub enum Error {
     /// cannot be relied on.
     #[error(transparent)]
     Lex(#[from] LexError),
-    /// The formatted text failed [verification](crate::verify): a bug in
-    /// chairlift, which kept the text from being changed.
+    /// The formatted text failed verification: a bug in chairlift, which
+    /// kept the text from being changed.
     #[error("the formatted text failed verification, a bug in chairlift: {0}")]
     Verify(#[from] VerifyError),
     /// The layout did not print every token of the text exactly once: a
@@ -82,12 +82,35 @@ pub enum CommentEnd {
     MacroBody,
 }
 
-/// A lexer error: the first [error token](TokenKind::is_error) of a text.
+/// A lexer error: the first error token of a text, such as an unclosed
+/// string or comment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("{position}: {}", kind.error_description().unwrap_or("lexer error"))]
+#[error("{position}: {}", self.description())]
 pub struct LexError {
     /// Where the error token starts.
     pub position: Position,
+    pub(crate) kind: TokenKind,
+}
+
+impl LexError {
+    /// The error at `position`, of an error token of `kind`.
+    #[cfg(feature = "unstable")]
+    #[must_use]
+    pub fn new(position: Position, kind: TokenKind) -> LexError {
+        LexError { position, kind }
+    }
+
+    /// What is wrong, as ClickHouse's lexer words it: `Single quoted string
+    /// is not closed`.
+    #[must_use]
+    pub fn description(&self) -> &'static str {
+        self.kind.error_description().unwrap_or("lexer error")
+    }
+
     /// The error token's kind.
-    pub kind: TokenKind,
+    #[cfg(feature = "unstable")]
+    #[must_use]
+    pub fn kind(&self) -> TokenKind {
+        self.kind
+    }
 }

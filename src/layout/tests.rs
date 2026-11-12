@@ -1,7 +1,7 @@
 use super::Decision;
 use super::Kept;
 use crate::Options;
-use crate::format_with_statements;
+use crate::format_statements;
 
 /// Formats `source`, checking that formatting again changes nothing.
 fn fmt_in(source: &str, jinja: bool, width: u16) -> String {
@@ -24,7 +24,7 @@ fn jinja(source: &str) -> String {
 fn decisions(source: &str, jinja: bool) -> Vec<Decision> {
     let options = Options::default().with_jinja(jinja);
     let (_, statements) =
-        format_with_statements(source, &options).unwrap_or_else(|e| panic!("{source:?}: {e}"));
+        format_statements(source, &options).unwrap_or_else(|e| panic!("{source:?}: {e}"));
     statements.iter().map(|s| s.decision).collect()
 }
 

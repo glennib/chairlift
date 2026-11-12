@@ -190,6 +190,7 @@ dependencies = [
 name = "chairlift"
 version = "0.1.0"
 dependencies = [
+ "chairlift",
  "clap",
  "criterion",
  "ignore",

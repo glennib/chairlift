@@ -33,8 +33,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
+use chairlift::Mode;
 use chairlift::Options;
-use chairlift::lexer::Mode;
 use chairlift::oracle::Counts;
 use chairlift::oracle::RejectionClass;
 use clap::Parser;

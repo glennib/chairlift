@@ -39,7 +39,7 @@
 //! function, type, engine and setting names) keep their case.
 //!
 //! [`format()`] checks this on every call. The result must hold every token
-//! of the input once and in order, and the [verifier](verify) lexes it again
+//! of the input once and in order, and the verifier lexes it again
 //! and compares its tokens with those of the input, so that a line comment
 //! that would swallow the next line, or two tokens that would run together,
 //! are caught. A result that fails is a bug, and [`format()`] returns an
@@ -49,9 +49,8 @@
 //!
 //! # Statements
 //!
-//! The [parser](syntax) turns each statement into a lossless syntax tree.
-//! A statement of these kinds is then [laid out](layout) by the rule for its
-//! kind:
+//! The parser turns each statement into a lossless syntax tree. A statement
+//! of these kinds is then laid out by the rule for its kind:
 //!
 //! - `SELECT` queries, with `WITH` and set operations such as `UNION`;
 //! - `INSERT`;
@@ -73,15 +72,10 @@
 //! `CHECK` and `BACKUP`, statements joined by `PARALLEL WITH`, and anything
 //! it cannot parse. In a statement kept as written, trailing whitespace goes
 //! and runs of blank lines are shortened, and nothing else changes.
-//! [`format_with_statements`] says what became of each statement, and why
-//! one was kept.
-//!
-//! The [layout] turns the tree into a [document](doc), whose printer chooses
-//! the line breaks.
 //!
 //! # Jinja templates
 //!
-//! With [`Options::jinja`] set, the [lexer] reads `{{ … }}`, `{% … %}` and
+//! With [`Options::jinja`] set, the lexer reads `{{ … }}`, `{% … %}` and
 //! `{# … #}` as template tags, and the text inside a tag is never changed.
 //! The parser steps over block tags, so it sees the SQL of every branch at
 //! once, and the layout puts each block tag on a line of its own. Where the
@@ -100,10 +94,16 @@
 //! - `oracle`: the `chairlift::oracle` module, which runs ClickHouse's
 //!   `clickhouse-format` on a text and its formatted output to check that
 //!   ClickHouse reads both the same, for the binary's `--verify`.
+//! - `unstable`: the modules behind [`format()`] (the lexer, statement
+//!   splitter, parser, layout, document printer and verifier) and
+//!   `format_with_statements`, which says what became of each statement.
+//!   They are for chairlift's own tests, benchmarks, fuzz targets and
+//!   corpus tool, and come with no semver guarantee: any release may change
+//!   or remove them.
 //! - `template`: the `chairlift::template` module, a test harness that
 //!   renders a template once per combination of its branches and loop
 //!   counts, and checks that formatting kept the SQL of every render. It
-//!   adds minijinja.
+//!   adds minijinja, and enables `unstable`.
 //! - `corpus-tool`: the `corpus` binary, a development tool that formats,
 //!   verifies and checks whole directory trees.
 //!
@@ -114,35 +114,69 @@
 //! keyword list was generated from, and so the release whose keywords are
 //! re-cased.
 
+// Without `unstable` the internal modules are private. Their items are `pub`
+// for the unstable build, so outside it the ones only tests and tools use are
+// unused; dead-code warnings there would say nothing about the library.
 mod cleanup;
+#[cfg(feature = "unstable")]
 pub mod doc;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+mod doc;
 mod error;
+#[cfg(feature = "unstable")]
 pub mod keyword;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+mod keyword;
+#[cfg(feature = "unstable")]
 pub mod layout;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+mod layout;
+#[cfg(feature = "unstable")]
 pub mod lexer;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+mod lexer;
 mod options;
 #[cfg(feature = "oracle")]
 pub mod oracle;
+#[cfg(feature = "unstable")]
 pub mod split;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+mod split;
+#[cfg(feature = "unstable")]
 pub mod syntax;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+mod syntax;
 #[cfg(feature = "template")]
 pub mod template;
+#[cfg(feature = "unstable")]
 pub mod verify;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+mod verify;
 
 use std::fmt;
 
+pub use doc::TokenCheckError;
 pub use error::CommentEnd;
 pub use error::Error;
 pub use error::LexError;
 pub use error::TemplateError;
+pub use lexer::Mode;
 pub use options::Options;
+pub use verify::VerifyError;
 
 use crate::split::split;
 
 /// Formats `source`.
 ///
-/// Every statement is [parsed](syntax) and either [laid out](layout) by the
-/// style's rules (keywords upper case, clauses one per line, lists that fit
+/// Every statement is parsed and either laid out by the style's rules
+/// (keywords upper case, clauses one per line, lists that fit
 /// on a line or go one item per line, at [`Options::line_width`]), or kept
 /// as written: a statement the parser does not know or could not parse, or
 /// one holding a Jinja shape the rules do not cover. A statement kept as
@@ -164,7 +198,7 @@ use crate::split::split;
 /// or comment around whitespace between its tokens is returned unchanged.
 ///
 /// The result is checked to hold every token of `source` once, in order,
-/// and [verified](verify) against `source` before it is returned.
+/// and verified against `source` before it is returned.
 ///
 /// # Errors
 ///
@@ -178,7 +212,7 @@ use crate::split::split;
 ///   such a text is left as it is.
 /// - [`Error::TooLarge`] if `source` is 4 GiB or longer.
 pub fn format(source: &str, options: &Options) -> Result<String, Error> {
-    format_with_statements(source, options).map(|(output, _)| output)
+    format_statements(source, options).map(|(output, _)| output)
 }
 
 /// [`format()`], and what the layout did with each statement of `source`:
@@ -187,7 +221,15 @@ pub fn format(source: &str, options: &Options) -> Result<String, Error> {
 /// # Errors
 ///
 /// As [`format()`].
+#[cfg(feature = "unstable")]
 pub fn format_with_statements(
+    source: &str,
+    options: &Options,
+) -> Result<(String, Vec<layout::Statement>), Error> {
+    format_statements(source, options)
+}
+
+fn format_statements(
     source: &str,
     options: &Options,
 ) -> Result<(String, Vec<layout::Statement>), Error> {
@@ -293,8 +335,8 @@ impl fmt::Display for Position {
 pub const CLICKHOUSE_VERSION: &str = "26.10.2.103-stable";
 
 /// The ClickHouse release whose parser keywords chairlift knows: the release
-/// [`keyword::Keyword`] was generated from. A word re-cased in a keyword slot
-/// is a keyword of this release.
+/// its keyword list was generated from. A word re-cased in a keyword slot is
+/// a keyword of this release.
 ///
 /// `scripts/generate-keywords.sh` writes it with the list and refuses a
 /// ClickHouse checkout of another release than [`CLICKHOUSE_VERSION`].

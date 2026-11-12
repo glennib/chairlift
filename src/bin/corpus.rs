@@ -892,10 +892,10 @@ fn recase(source: &str, mode: Mode, entry: Entry) -> Result<String, Error> {
     }
     let split = split(source, mode);
     if let Some(token) = split.first_error() {
-        return Err(chairlift::LexError {
-            position: chairlift::Position::new(source, token.start()),
-            kind: token.kind(),
-        }
+        return Err(chairlift::LexError::new(
+            chairlift::Position::new(source, token.start()),
+            token.kind(),
+        )
         .into());
     }
     let parse = syntax::parse_split(source, &split, entry);
