@@ -15,20 +15,23 @@ M9 (chum integration) is not part of this run.
 | M5. Jinja templates | done | reviewed; findings fixed, except laying out the loop-comma idioms |
 | M6. CLI polish and performance | done | reviewed; every finding fixed |
 | M7. Remaining statement kinds | done | reviewed; every finding fixed |
-| M8. Hardening and first release | in progress | docs corpus, `--version`, weekly fuzz job, README, changelog |
+| M8. Hardening and first release | done, except the release | everything but tagging and publishing, which the project owner does |
 
 ## Resuming the work
 
-M0–M7 are on `main`.
-M5, M6 and M7 each had an independent review on 2026-11-12, and the fixes for all three are on `main`.
+M0–M8 are on `main`, and nothing is in progress.
+M5, M6 and M7 each had an independent review on 2026-11-12; M8 has not had one.
 Only the tip of each landed stack was checked with `mise run ci`, not every commit.
 
-What remains, in order:
+What remains is for the project owner:
 
-1. **M8**: fuzz targets run for an hour, the docs-examples corpus in the oracle sweep, the README
-   (installation, usage, style summary, editor setup, pre-commit),
-   `CHANGELOG.md` through release-plz, and `--version` printing the keyword-list version.
-2. **For the project owner**: the style questions and the snapshots listed below, and the release itself.
+1. **The release.** The version is 0.1.0.
+   `dist generate --mode=ci` writes the cargo-dist workflow, which is not checked in,
+   and `release-plz.yml` runs on manual dispatch only.
+   The first publish to crates.io probably needs a token or a manual `cargo publish`,
+   as trusted publishing is set up on a crate that exists; this was not checked.
+   The first changelog lists about 150 commits and may want trimming in the release pull request.
+2. **The style questions and the snapshots** listed below.
 
 Known loose ends:
 
@@ -36,34 +39,35 @@ Known loose ends:
   Laying them out needs a document form for inline block tags.
 - Brackets next to `{{ … }}` keep their space as written;
   a `GRANT` with a block tag before a list continuation indents the continuation one level too deep.
+- A trailing `{# … #}` or `/* … */` after `;` counts toward the line's width,
+  so it can put a blank line after a statement that fits without it.
 - The render harness gives every loop of one render the same count,
   and takes only the truthy side of an inline `{{ a if x else b }}` over a stub.
-- `EXISTS`, `KILL`, `CHECK TABLE`, `SHOW USERS` and its kin, `SHOW TABLE t`,
-  `DESCRIBE SELECT …` and the named-collection statements stay verbatim.
+- `EXISTS`, `KILL`, `CHECK TABLE`, `SHOW USERS` and its kin, `SHOW TABLE t`, `DESCRIBE SELECT …`,
+  the named-collection statements, `SYSTEM`, `EXPLAIN` and KQL `PRINT` stay verbatim.
+- Not parsed, so kept as written: JSON sub-column paths
+  (`json.a.b[].c.:Int64`, `json.a.^k`),
+  `SHOW CREATE TEMPORARY VIEW`, `GRANT READ ON S3('…')`, and a map literal as a `SET` value.
 - `SHOW DICTIONARIES FROM settings settings 'x'`, which ClickHouse rejects, re-cases the database name.
 - The benchmark check catches a build made twice as slow, but on a loaded machine a regression of 15–20% can pass.
 - An in-place write does not keep a file's owner, extended attributes, ACLs or hard links,
   and a killed run can leave a `.chairlift-PID-N.tmp` file behind.
 - The default `cli` features do not include `template`,
   so a default build's `--verify` does not judge a template through its renders; it says so in the summary.
-- `SYSTEM`, `EXPLAIN` and KQL `PRINT` statements stay verbatim, as planned.
-- In plain SQL, `{map} AS m` does not upper-case `as`.
+- The editor configurations in the README and the pre-commit hook were written but not run in those tools.
 
 ### Setup
 
 - `mise install`, then `mise run corpus:fetch`; set `CHAIRLIFT_CORPUS_DIR` to share one copy between checkouts.
+  The fetch also extracts the docs examples, which needs `clickhouse-format` and builds the corpus tool.
 - `CHAIRLIFT_LOCAL_CORPORA` takes the local-only corpora, `:`-separated.
   They are never vendored.
 - `CHAIRLIFT_REQUIRE_CORPUS=1` makes a missing corpus fail instead of skip.
 - The comparison with ClickHouse's own lexer needs `clang`.
-- Tasks: `mise run ci`, `test:corpus`, `test:keyword-positions`, `test:templates`, `corpus`, `corpus:oracle`,
-  `corpus:recase`, `corpus:expressions`, `tree -- FILE`, `fuzz:lexer`, `fuzz:parser`, `fuzz:format`, `fuzz:doc`.
-
-### Notes for M8
-
-No release has been made and no release workflow runs.
-`dist generate --mode=ci` creates the cargo-dist workflow, and `release-plz.yml` runs on manual dispatch only.
-The grammar and layout guides are the rustdoc at the top of `src/syntax/grammar/mod.rs` and `src/layout/mod.rs`.
+- Tasks: `mise run ci`, `docs`, `test:corpus`, `test:keyword-positions`, `test:templates`, `corpus`, `corpus:oracle`,
+  `corpus:recase`, `corpus:expressions`, `corpus:templates`, `bench:compare`, `tree -- FILE`, `fuzz:lexer`,
+  `fuzz:parser`, `fuzz:format`, `fuzz:doc`.
+- The grammar and layout guides are the rustdoc at the top of `src/syntax/grammar/mod.rs` and `src/layout/mod.rs`.
 
 ### How the work was checked
 
@@ -109,6 +113,7 @@ Those assumptions are used unless the project owner decides otherwise:
 - Work is pushed to `main` on `origin` after each milestone's review, without pull requests.
   CI results are recorded per milestone below.
 - No release automation runs yet: only CI triggers on a push.
+  The fuzz and oracle workflows run weekly.
   Release configuration is kept in the repository,
   but publishing to crates.io and tagging `0.1.0` in M8 are left to the project owner.
 - The ClickHouse corpus is fetched at `v26.10.2.103-stable`.
@@ -842,3 +847,66 @@ All are fixed and on `main`.
   so the note under M7 part 2 overstates it.
 - Statements verbatim at statement level on the stateless corpus: 10,145 of 275,515 (3.68%).
   The oracle judges 270,251 statements, none differing.
+
+### M8
+
+On `main`.
+Not independently reviewed.
+Only the tip of each stack was checked with `mise run ci`.
+
+- **Fuzz runs of an hour.**
+  The lexer, parser and doc printer ran on the tip with the review fixes; the format target ran last,
+  on the tip with its own fixes.
+
+| Target | Runs | Result |
+| --- | --- | --- |
+| lexer | 6,604,345 | clean |
+| parser | 505,535 | clean |
+| doc printer | 581,461 | clean |
+| format | 2,189,096 | clean, after five fixes |
+
+- **The format target found five defects**, one per run, each deeper than the last: after four minutes,
+  then after about 8,000, 103,000, 892,000 and 1.7 million runs.
+  None changed a statement's meaning.
+  All are fixed:
+  - in a text kept for a tag glued into a word, a comment tag after `;` was spaced from it,
+    so a second pass added a blank line;
+  - `alter user v drop;` failed a debug assertion on an empty node;
+  - a `-}}` without `{{` counted as a tag until the layout broke the line inside it;
+  - the first line of verbatim text was measured with trailing whitespace that the printer drops,
+    so a list before it broke on one pass and not on the next;
+  - a `{{ … }}` header before a statement of one token started the statement at its whitespace.
+- Three of the five share a cause: a value computed from the source that the printed text changes.
+  The idempotence property test now covers widths 10 to 40 and statements that parse only in part.
+- **Weekly fuzz workflow** (`fuzz.yml`): each target for 15 minutes, on a schedule and on manual dispatch.
+  A crash fails the job and uploads its input.
+- **Docs-examples corpus**: the fenced SQL blocks of the ClickHouse reference at the pinned release,
+  kept where `clickhouse-format` accepts them.
+  `corpus:fetch` extracts them; `docs/stamp.txt` pins the result.
+
+| Docs corpus | Count |
+| --- | --- |
+| Pages / with SQL blocks | 1,378 / 787 |
+| SQL blocks / kept as files | 6,975 / 4,575 |
+| Statements / accepted by the oracle | 9,192 / 6,563 |
+| Judged / differing | 6,563 / 0 |
+| Parsed / opaque / partial / verbatim | 6,292 / 73 / 5 / 193 |
+
+No verify or idempotence failure and no formatter defect.
+The allowlist has no entry for this corpus.
+Verbatim by leading keyword: `SYSTEM` 46, `EXPLAIN` 45, `CREATE` 35, `FROM` (pipe syntax) 18, `SHOW` 11, `CHECK` 10.
+
+- **`--version`**: `-V` prints `chairlift 0.1.0 (ClickHouse keywords 26.10.2.103-stable)`;
+  `--version` adds the features built in.
+  The library has `KEYWORDS_VERSION`.
+- **README**: installation, usage, exit statuses, the style in before-and-after examples, templates, safety,
+  editor setup, pre-commit, library use and limits.
+  Every SQL example is output of the binary.
+- **Changelog**: release-plz writes `CHANGELOG.md` whole on its first run, so none is checked in.
+  Its configuration leaves out commit types a user never sees.
+- **Packaging**: the crate holds 103 files through an `include` list. cargo-dist ships only `chairlift`,
+  not the `corpus` tool, with shell and PowerShell installers.
+  `.pre-commit-hooks.yaml` makes the repository a hook repository.
+  The minimum Rust version, 1.94.0, was checked.
+- `mise run ci` checks rustdoc with warnings as errors, and lints the library with each feature on its own.
+- Oracle sweep at the end: fixtures 125, stateless 270,251, dbt 3, docs 6,563 statements judged; none differing.
