@@ -14,7 +14,8 @@ Projects built with dbt-clickhouse (Jinja plus ClickHouse SQL) have the same nee
 
 Desired properties:
 
-- **Opinionated**: one output style, no configuration beyond perhaps line width.
+- **Opinionated**: one output style, whose only settings are the line width and the Jinja mode,
+  given as flags or in a `chl.toml` that holds nothing the flags do not.
 - **Fast**: a single static binary, quick enough for format-on-save and for pre-commit over a whole repository.
 - **Safe**: never changes what the SQL means, and checks that on every file it writes.
 - **Lossless**: every comment stays, in place.
@@ -228,7 +229,7 @@ GRANT SELECT ON analytics.page_views_1h TO {{ this.reader_role | sql_ident }};
 - `chl [PATH…]` formats in place; `--check` lists unformatted files and exits non-zero; `--diff` prints a diff;
   `-` reads stdin and writes stdout, for editors.
 - File discovery: `*.sql`, `*.sql.j2` and `*.j2.sql`, respecting `.gitignore`, `.ignore` and `.chlignore`,
-  the last for chairlift alone, and skipping what `--exclude` globs match.
+  the last for chairlift alone, and skipping what the `exclude` globs of `chl.toml` and `--exclude` globs match.
 - Library: something like `format(source, options) -> Result<String, Error>`,
   so chum could offer `chum fmt` or check formatting when it loads migrations.
 

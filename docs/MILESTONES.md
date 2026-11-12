@@ -55,6 +55,10 @@ All decided on 2026-11-10 by the project owner unless marked *(derived)*, which 
   Function, type, engine, setting, codec and layout names, identifiers and aliases keep their case.
 - **Literals**: `true`, `false`, `inf`, `nan` are written lowercase and `NULL` uppercase, matching `clickhouse-format`.
 - **Line width 100**, configurable with `--line-width`.
+- **`chl.toml`** (decided 2026-11-12, after M8): the nearest one, in the current directory or above it,
+  holds the settings the flags give and nothing else: `line-width`, `jinja` and `exclude`.
+  A flag given on the command line wins over it; its excludes are relative to its directory and add to `--exclude`.
+  The style stays one style: the file adds no setting the flags do not have.
 - **Lists**: a list stays on one line if it fits, otherwise one item per line.
   No filling of literal lists (`IN (…)`, arrays): they go one per line too.
   A SELECT list with more than one item always splits, even if it would fit.

@@ -74,7 +74,7 @@ harness = false
 default = ["cli"]
 # The `chl` binary. The library needs none of these; a consumer that only
 # uses the library can disable default features.
-cli = ["dep:clap", "dep:ignore", "dep:miette", "dep:rayon", "dep:similar"]
+cli = ["dep:clap", "dep:ignore", "dep:miette", "dep:rayon", "dep:serde", "dep:similar", "dep:toml"]
 # `chairlift::oracle`, which runs `clickhouse-format` to check that formatting
 # kept a text's meaning. A development and test harness, so unstable too. On
 # Unix it needs `libc` to kill the process groups it starts.
@@ -103,7 +103,10 @@ ignore = { version = "0.4.34", optional = true }
 # miette's own terminal detection: the CLI decides about colour itself.
 miette = { version = "7.6", default-features = false, features = ["fancy-no-syscall"], optional = true }
 rayon = { version = "1.12", optional = true }
+# `chl.toml`.
+serde = { version = "1.0.229", features = ["derive"], optional = true }
 similar = { version = "2.7", optional = true }
+toml = { version = "1.2", default-features = false, features = ["std", "parse", "serde"], optional = true }
 # The renderer behind the `template` feature, at the version chum pins.
 minijinja = { version = "~3.1.0", default-features = false, features = ["builtins", "macros", "loop_controls", "fuel"], optional = true }
 

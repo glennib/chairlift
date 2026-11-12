@@ -7,21 +7,29 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::Output;
 use std::process::Stdio;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 fn chairlift(args: &[&str]) -> Output {
     run(args, None, None)
 }
 
+/// Runs `chl` in `dir`, or in a fresh directory of its own.
 fn run(args: &[&str], stdin: Option<&[u8]>, dir: Option<&Path>) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_chl"));
+    static RUNS: AtomicUsize = AtomicUsize::new(0);
+    let own;
+    let dir = if let Some(dir) = dir {
+        dir
+    } else {
+        own = temp_dir(&format!("run-{}", RUNS.fetch_add(1, Ordering::Relaxed)));
+        &*own
+    };
+    let mut command = chl(dir);
     command
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if let Some(dir) = dir {
-        command.current_dir(dir);
-    }
     let mut child = command.spawn().expect("chairlift binary runs");
     let mut pipe = child.stdin.take().unwrap();
     if let Some(input) = stdin {
@@ -39,12 +47,23 @@ fn stderr(output: &Output) -> String {
     String::from_utf8(output.stderr.clone()).unwrap()
 }
 
+/// The `chl` binary, to run in `dir`, which is a [`temp_dir`] or in one:
+/// `chl` reads the `chl.toml` of the directory it runs in or of the nearest
+/// one above it.
+fn chl(dir: &Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_chl"));
+    command.current_dir(dir);
+    command
+}
+
 /// A fresh directory for a test, outside any repository so that no
-/// `.gitignore` above it applies; removed when dropped.
+/// `.gitignore` above it applies, with an empty `chl.toml` so that none
+/// above it does; removed when dropped.
 fn temp_dir(test: &str) -> TempDir {
     let dir = std::env::temp_dir().join(format!("chairlift-cli-{}-{test}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("chl.toml"), "").unwrap();
     TempDir(dir)
 }
 
@@ -77,6 +96,13 @@ fn read(path: &Path) -> String {
 
 const MESSY: &str = "SELECT 1;  \r\n\n\n\n\nSELECT 2;";
 const CLEAN: &str = "SELECT 1;\n\n\nSELECT 2;\n";
+/// [`WIDE`] at the default width, [`NARROW`] at 20.
+const QUERY: &[u8] = b"select f(aaaa, bbbb, cccc), x from tbl where a = 1 and b = 2;";
+const WIDE: &str = "SELECT\n    f(aaaa, bbbb, cccc),\n    x\nFROM tbl\nWHERE a = 1 AND b = 2;\n";
+const NARROW: &str = "SELECT\n    f(\n        aaaa,\n        bbbb,\n        cccc\n    ),\n    x\nFROM \
+                      tbl\nWHERE a = 1\n    AND b = 2;\n";
+/// Lexes only as a template.
+const TEMPLATE: &[u8] = b"SELECT '{{ \"'\" }}';\n";
 
 #[test]
 fn version_names_the_keyword_list_release() {
@@ -101,7 +127,9 @@ fn help() {
     insta::assert_snapshot!(help.join("\n"), @"
     Format ClickHouse SQL and Jinja-templated SQL files.
 
-    Files are formatted in place. Directories are searched for `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files, symbolic links and whatever `.gitignore`, `.ignore` and `.chlignore` files exclude; `.chlignore` excludes files from formatting only. A file named on the command line is formatted whatever its name, unless `.chlignore` or --exclude excludes it.
+    Files are formatted in place. Directories are searched for `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files, symbolic links and whatever `.gitignore`, `.ignore` and `.chlignore` files exclude; `.chlignore` excludes files from formatting only. A file named on the command line is formatted whatever its name, unless `.chlignore`, `chl.toml` or --exclude excludes it.
+
+    The nearest `chl.toml`, in the current directory or one above it, can set `line-width`, `jinja` and `exclude`; a flag given on the command line overrides its value.
 
     Usage: chl [OPTIONS] <PATHS>...
 
@@ -128,10 +156,10 @@ fn help() {
               [possible values: auto, on, off]
 
           --stdin-filename <PATH>
-              The name of the file whose text `-` reads from stdin, as an editor passes it: `--jinja auto` decides by it, and messages and diffs show it. The file itself is not read. When `.chlignore` or --exclude excludes it, the text is not formatted: it is written back as it is, and --check and --diff find nothing to change
+              The name of the file whose text `-` reads from stdin, as an editor passes it: `--jinja auto` decides by it, and messages and diffs show it. The file itself is not read. When `.chlignore`, `chl.toml` or --exclude excludes it, the text is not formatted: it is written back as it is, and --check and --diff find nothing to change
 
           --exclude <GLOB>
-              Skip the files and directories that GLOB matches, named or in searched directories, in gitignore syntax relative to the current directory; may be given more than once, and `!GLOB` brings back what an earlier --exclude skipped
+              Skip the files and directories that GLOB matches, named or in searched directories, in gitignore syntax relative to the current directory, besides those `chl.toml` excludes; may be given more than once, and `!GLOB` brings back what an earlier --exclude skipped
 
       -j, --jobs <N>
               Files formatted at once [default: the number of CPUs]. Results are reported in path order whatever the number
@@ -158,7 +186,7 @@ fn help() {
       -V, --version
               Print version
 
-    Exit status: 0 when done, 1 when --check or --diff found files that would change, 2 when a file could not be formatted (unreadable, not UTF-8, a lexer error, a failed verification, or a template refused because its rendering decides where a line comment ends) or the arguments are wrong.
+    Exit status: 0 when done, 1 when --check or --diff found files that would change, 2 when a file could not be formatted (unreadable, not UTF-8, a lexer error, a failed verification, or a template refused because its rendering decides where a line comment ends) or the arguments or `chl.toml` are wrong.
     ");
 }
 
@@ -293,11 +321,12 @@ fn files_are_formatted_in_place() {
         "1 file reformatted, 1 file already formatted\n"
     );
     // No temporary file is left behind.
-    let names: Vec<_> = fs::read_dir(&*dir)
+    let mut names: Vec<_> = fs::read_dir(&*dir)
         .unwrap()
         .map(|e| e.unwrap().file_name())
         .collect();
-    assert_eq!(names.len(), 2, "{names:?}");
+    names.sort();
+    assert_eq!(names, ["chl.toml", "clean.sql", "messy.sql"]);
 }
 
 #[cfg(unix)]
@@ -843,12 +872,12 @@ fn excluded_named_files_are_skipped_quietly() {
     let errors = stderr(&output).replace('\\', "/");
     let lines: Vec<&str> = errors.lines().collect();
     assert!(
-        lines[0].starts_with("vendor/b.sql: skipped, excluded by `vendor/` in /")
-            && lines[0].ends_with("/.chlignore"),
+        lines[1].starts_with("vendor/b.sql: skipped, excluded by `vendor/` in /")
+            && lines[1].ends_with("/.chlignore"),
         "{errors}"
     );
     assert_eq!(
-        lines[1],
+        lines[2],
         "c.gen.sql: skipped, excluded by --exclude `*.gen.sql`"
     );
     assert_eq!(read(&dir.join("vendor/b.sql")), MESSY);
@@ -903,9 +932,10 @@ fn stdin_for_an_excluded_file_comes_back_unchanged() {
     );
     assert_eq!(output.stdout, text);
     let errors = stderr(&output).replace('\\', "/");
+    let skipped = errors.lines().nth(1).unwrap();
     assert!(
-        errors.starts_with("vendor/x.sql: skipped, excluded by `vendor/` in /")
-            && errors.ends_with("/.chlignore\n"),
+        skipped.starts_with("vendor/x.sql: skipped, excluded by `vendor/` in /")
+            && skipped.ends_with("/.chlignore"),
         "{errors}"
     );
     // `/q.sql` is relative to the current directory.
@@ -916,6 +946,256 @@ fn stdin_for_an_excluded_file_comes_back_unchanged() {
     );
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     assert_eq!(stdout(&output), CLEAN);
+}
+
+/// The `chl.toml` of `dir`, as `chl` names it when run in `dir` or below:
+/// with symbolic links resolved, as the current directory is.
+fn config_file(dir: &Path) -> String {
+    fs::canonicalize(dir)
+        .unwrap()
+        .join("chl.toml")
+        .display()
+        .to_string()
+}
+
+/// The nearest `chl.toml`, in the current directory or one above it, gives
+/// the settings; one further up is not read.
+#[test]
+fn chl_toml_is_found_in_the_current_directory_or_above() {
+    let dir = temp_dir("config-discovery");
+    write(&dir, "chl.toml", "line-width = 20\njinja = \"on\"\n");
+    let deep = dir.join("a/b");
+    fs::create_dir_all(&deep).unwrap();
+    let output = run(&["-"], Some(QUERY), Some(&deep));
+    assert_eq!(stdout(&output), NARROW, "{}", stderr(&output));
+    let output = run(&["-"], Some(TEMPLATE), Some(&deep));
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+
+    write(&dir, "a/chl.toml", "# Nothing set.\n");
+    let output = run(&["-v", "-"], Some(QUERY), Some(&deep));
+    assert_eq!(stdout(&output), WIDE);
+    assert_eq!(
+        stderr(&output),
+        format!("settings from {}\n", config_file(&dir.join("a")))
+    );
+    let output = run(&["-"], Some(TEMPLATE), Some(&deep));
+    assert_eq!(output.status.code(), Some(2));
+}
+
+/// A flag given on the command line wins over `chl.toml`, even when it
+/// gives the default.
+#[test]
+fn a_flag_overrides_chl_toml() {
+    let dir = temp_dir("config-precedence");
+    write(&dir, "chl.toml", "line-width = 20\njinja = \"on\"\n");
+    let output = run(&["-"], Some(QUERY), Some(&dir));
+    assert_eq!(stdout(&output), NARROW);
+    let output = run(&["--line-width", "100", "-"], Some(QUERY), Some(&dir));
+    assert_eq!(stdout(&output), WIDE);
+    let output = run(&["--line-width=30", "-"], Some(QUERY), Some(&dir));
+    assert_eq!(stdout(&output), WIDE);
+    let output = run(&["--jinja", "auto", "-"], Some(TEMPLATE), Some(&dir));
+    assert_eq!(output.status.code(), Some(2));
+    write(&dir, "chl.toml", "jinja = \"off\"\n");
+    write(&dir, "t.sql.j2", std::str::from_utf8(TEMPLATE).unwrap());
+    let output = run(&["--check", "t.sql.j2"], None, Some(&dir));
+    assert_eq!(output.status.code(), Some(2));
+    let output = run(
+        &["--check", "--jinja", "auto", "t.sql.j2"],
+        None,
+        Some(&dir),
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+}
+
+/// `exclude` globs are relative to the directory of `chl.toml`, wherever
+/// `chl` runs; `--exclude` adds to them, and cannot bring back what they
+/// exclude.
+#[test]
+fn chl_toml_excludes_are_relative_to_its_directory() {
+    let dir = temp_dir("config-exclude");
+    write(
+        &dir,
+        "chl.toml",
+        "exclude = [\"/models/vendor/\", \"*.gen.sql\", \"/top.sql\"]\n",
+    );
+    for name in [
+        "top.sql",
+        "models/top.sql",
+        "models/a.sql",
+        "models/b.gen.sql",
+        "models/vendor/v.sql",
+        "models/sub/c.sql",
+    ] {
+        write(&dir, name, "SELECT 1; ");
+    }
+    let models = dir.join("models");
+    assert_eq!(
+        listed(&models, &["."]),
+        ["./a.sql", "./sub/c.sql", "./top.sql"]
+    );
+    assert_eq!(
+        listed(&dir, &["."]),
+        ["./models/a.sql", "./models/sub/c.sql", "./models/top.sql"]
+    );
+    assert_eq!(
+        listed(
+            &models,
+            &[
+                "a.sql",
+                "b.gen.sql",
+                "vendor/v.sql",
+                "top.sql",
+                "../top.sql"
+            ]
+        ),
+        ["a.sql", "top.sql"]
+    );
+    assert_eq!(
+        listed(
+            &models,
+            &["--exclude", "/sub", "--exclude", "!*.gen.sql", "."]
+        ),
+        ["./a.sql", "./top.sql"]
+    );
+    let output = run(&["--check", "vendor"], None, Some(&models));
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        stderr(&output).contains(&format!(
+            "⚠ vendor: not searched, excluded by `/models/vendor/` in {}\n",
+            config_file(&dir)
+        )),
+        "{}",
+        stderr(&output)
+    );
+}
+
+/// A path that several excludes match is reported as excluded by
+/// `.chlignore` first, then by `chl.toml`, then by `--exclude`.
+#[test]
+fn chl_toml_excludes_named_files_and_stdin() {
+    let dir = temp_dir("config-exclude-named");
+    write(&dir, "chl.toml", "exclude = [\"vendor/\", \"*.gen.sql\"]\n");
+    write(&dir, ".chlignore", "vendor/\n");
+    for name in ["vendor/a.sql", "b.gen.sql", "c.sql"] {
+        write(&dir, name, MESSY);
+    }
+    let output = run(
+        &[
+            "-v",
+            "--exclude",
+            "*.sql",
+            "vendor/a.sql",
+            "b.gen.sql",
+            "c.sql",
+        ],
+        None,
+        Some(&dir),
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let errors = stderr(&output);
+    let lines: Vec<&str> = errors.lines().collect();
+    assert!(
+        lines[1].starts_with("vendor/a.sql: skipped, excluded by `vendor/` in /")
+            && lines[1].ends_with("/.chlignore"),
+        "{errors}"
+    );
+    assert_eq!(
+        lines[2],
+        format!(
+            "b.gen.sql: skipped, excluded by `*.gen.sql` in {}",
+            config_file(&dir)
+        )
+    );
+    assert_eq!(lines[3], "c.sql: skipped, excluded by --exclude `*.sql`");
+    for name in ["vendor/a.sql", "b.gen.sql", "c.sql"] {
+        assert_eq!(read(&dir.join(name)), MESSY, "{name}");
+    }
+
+    fs::create_dir(dir.join("sub")).unwrap();
+    let text = b"select 'unclosed \xff  \n";
+    for (filename, cwd) in [("sub/x.gen.sql", &*dir), ("x.gen.sql", &dir.join("sub"))] {
+        for action in [None, Some("--check"), Some("--diff")] {
+            let args = [
+                &["--stdin-filename", filename][..],
+                action.as_slice(),
+                &["-"],
+            ]
+            .concat();
+            let output = run(&args, Some(text), Some(cwd));
+            assert_eq!(output.status.code(), Some(0), "{args:?}");
+            let expected: &[u8] = if action.is_none() { text } else { b"" };
+            assert_eq!(output.stdout, expected, "{args:?}");
+            assert_eq!(stderr(&output), "", "{args:?}");
+        }
+    }
+}
+
+/// A `chl.toml` that cannot be used is an error before anything is
+/// formatted, from stdin as from files, and a flag does not make up for it.
+#[test]
+fn an_invalid_chl_toml_exits_with_2() {
+    let dir = temp_dir("config-errors");
+    write(&dir, "sub/q.sql", CLEAN);
+    let cases = [
+        (
+            "line-width = 0\n",
+            ":1:14: invalid value: integer `0`, expected a nonzero u16",
+        ),
+        (
+            "line-width = 65536\n",
+            ":1:14: invalid value: integer `65536`, expected a nonzero u16",
+        ),
+        (
+            "line-width = \"wide\"\n",
+            ":1:14: invalid type: string \"wide\", expected a nonzero u16",
+        ),
+        (
+            "jinja = \"maybe\"\n",
+            ":1:9: unknown variant `maybe`, expected one of `auto`, `on`, `off`",
+        ),
+        (
+            "exclude = \"vendor/\"\n",
+            ":1:11: invalid type: string \"vendor/\", expected a sequence",
+        ),
+        (
+            "line_width = 80\n",
+            ":1:1: unknown field `line_width`, expected one of `line-width`, `jinja`, `exclude`",
+        ),
+        ("line-width = 80\nline-width = 90\n", ":2:1: duplicate key"),
+        ("[jinja\n", ":1:7: unclosed table, expected `]`"),
+        (
+            "exclude = [\"a[b\"]\n",
+            ": invalid exclude: error parsing glob 'a[b'",
+        ),
+    ];
+    let config = config_file(&dir);
+    let sub = dir.join("sub");
+    for (toml, message) in cases {
+        write(&dir, "chl.toml", toml);
+        let runs: [(&[&str], Option<&[u8]>); 3] = [
+            (&["--check", "q.sql"], None),
+            (
+                &["--line-width", "80", "--jinja", "off", "-"],
+                Some(b"SELECT 1;\n"),
+            ),
+            (
+                &["-q", "--stdin-filename", "q.sql", "-"],
+                Some(b"SELECT 1;\n"),
+            ),
+        ];
+        for (args, stdin) in runs {
+            let output = run(args, stdin, Some(&sub));
+            assert_eq!(output.status.code(), Some(2), "{toml:?} {args:?}");
+            assert_eq!(stdout(&output), "", "{toml:?} {args:?}");
+            assert!(
+                stderr(&output).contains(&format!("{config}{message}")),
+                "{toml:?} {args:?}: {}",
+                stderr(&output)
+            );
+        }
+    }
+    assert_eq!(read(&sub.join("q.sql")), CLEAN);
 }
 
 /// A directory with no SQL file in it is worth a warning, which does not
@@ -984,7 +1264,7 @@ fn a_closed_pipe_stops_the_output_quietly() {
         write(&dir, &format!("f{n}.sql"), "select 1");
     }
     for (args, closed) in [(&["--check"][..], "stdout"), (&["--check", "-v"], "stderr")] {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_chl"));
+        let mut command = chl(&dir);
         command.args(args).arg(&*dir).stdin(Stdio::null());
         if closed == "stdout" {
             command.stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -1173,20 +1453,14 @@ fn select_1_from_stdin() {
 
 #[test]
 fn line_width_is_applied() {
-    let query = "select f(aaaa, bbbb, cccc), x from tbl where a = 1 and b = 2;";
-    let wide = "SELECT\n    f(aaaa, bbbb, cccc),\n    x\nFROM tbl\nWHERE a = 1 AND b = 2;\n";
-    let output = run(&["-"], Some(query.as_bytes()), None);
-    assert_eq!(stdout(&output), wide);
-    let output = run(&["--line-width", "30", "-"], Some(query.as_bytes()), None);
-    assert_eq!(stdout(&output), wide);
-    let output = run(&["--line-width", "20", "-"], Some(query.as_bytes()), None);
-    assert_eq!(
-        stdout(&output),
-        "SELECT\n    f(\n        aaaa,\n        bbbb,\n        cccc\n    ),\n    x\nFROM tbl\n\
-         WHERE a = 1\n    AND b = 2;\n"
-    );
+    let output = run(&["-"], Some(QUERY), None);
+    assert_eq!(stdout(&output), WIDE);
+    let output = run(&["--line-width", "30", "-"], Some(QUERY), None);
+    assert_eq!(stdout(&output), WIDE);
+    let output = run(&["--line-width", "20", "-"], Some(QUERY), None);
+    assert_eq!(stdout(&output), NARROW);
     let dir = temp_dir("line-width");
-    write(&dir, "q.sql", wide);
+    write(&dir, "q.sql", WIDE);
     let output = run(
         &["--check", "--line-width", "20", "q.sql"],
         None,
@@ -1312,18 +1586,24 @@ fn verbose_says_what_happened_to_each_file() {
     assert_eq!(output.status.code(), Some(1));
     let errors = stderr(&output).replace('\\', "/");
     let lines: Vec<&str> = errors.lines().collect();
+    let config = dir
+        .join("chl.toml")
+        .display()
+        .to_string()
+        .replace('\\', "/");
     assert_eq!(
-        lines[..2],
+        lines[..3],
         [
+            &format!("settings from {config}"),
             "./clean.sql: already formatted",
             "./messy.sql: would be reformatted"
         ]
     );
     assert!(
-        lines[2].starts_with("1 file would be reformatted, 1 file already formatted in "),
+        lines[3].starts_with("1 file would be reformatted, 1 file already formatted in "),
         "{errors}"
     );
-    assert!(lines[2].ends_with(" s"), "{errors}");
+    assert!(lines[3].ends_with(" s"), "{errors}");
     let output = run(&["-v", "."], None, Some(&*dir));
     assert_eq!(output.status.code(), Some(0));
     assert!(
@@ -1339,15 +1619,16 @@ fn verbose_says_what_happened_to_each_file() {
 /// `--color always` turns it on.
 #[test]
 fn colour() {
+    let dir = temp_dir("colour");
     let has_escape = |output: &Output| stderr(output).contains('\u{1b}');
-    let output = Command::new(env!("CARGO_BIN_EXE_chl"))
+    let output = chl(&dir)
         .args(["--color", "always", "nope.sql"])
         .env("NO_COLOR", "1")
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(has_escape(&output), "{}", stderr(&output));
-    let output = Command::new(env!("CARGO_BIN_EXE_chl"))
+    let output = chl(&dir)
         .args(["--color", "auto", "nope.sql"])
         .env_remove("NO_COLOR")
         .output()
@@ -1357,7 +1638,7 @@ fn colour() {
         "stderr is a pipe: {}",
         stderr(&output)
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_chl"))
+    let output = chl(&dir)
         .args(["--color", "never", "nope.sql"])
         .output()
         .unwrap();

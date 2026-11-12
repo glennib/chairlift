@@ -58,6 +58,8 @@ Known loose ends:
 - The editor configurations in the README and the pre-commit hook were written but not run in those tools.
 - A `.chlignore` line that cannot be parsed is an error for a named path, stdin and an ignore file above a searched
   directory, but the walk drops the error for one in or below a searched directory and goes on without the line.
+- `chl.toml` is found from the current directory, not from the paths or the `--stdin-filename` name,
+  so an editor that runs `chl -` outside the project does not read it.
 - The weekly fuzz job runs `format` for 15 minutes, about 135,000 runs;
   the last two defects of the hour-long runs showed after 892,000 and 1.7 million.
   The cached corpus carries coverage from one week to the next, but not that depth.

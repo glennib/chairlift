@@ -14,6 +14,8 @@ macro_rules! say {
     }};
 }
 
+#[path = "chl/config.rs"]
+mod config;
 #[path = "chl/diagnostic.rs"]
 mod diagnostic;
 #[path = "chl/exclude.rs"]
@@ -36,8 +38,11 @@ use std::time::Instant;
 
 use chairlift::Mode;
 use chairlift::Options;
+use clap::CommandFactory as _;
+use clap::FromArgMatches as _;
 use clap::Parser;
 use clap::ValueEnum;
+use clap::parser::ValueSource;
 use diagnostic::Color;
 use diagnostic::Diagnostic;
 use diagnostic::Reporter;
@@ -52,8 +57,12 @@ use exclude::IgnoreFiles;
 /// `*.sql.j2` and `*.j2.sql` files, skipping hidden files, symbolic links
 /// and whatever `.gitignore`, `.ignore` and `.chlignore` files exclude;
 /// `.chlignore` excludes files from formatting only. A file named on the
-/// command line is formatted whatever its name, unless `.chlignore` or
-/// --exclude excludes it.
+/// command line is formatted whatever its name, unless `.chlignore`,
+/// `chl.toml` or --exclude excludes it.
+///
+/// The nearest `chl.toml`, in the current directory or one above it, can
+/// set `line-width`, `jinja` and `exclude`; a flag given on the command line
+/// overrides its value.
 #[derive(Debug, Parser)]
 #[allow(clippy::struct_excessive_bools, reason = "each is a flag")]
 #[command(
@@ -61,7 +70,7 @@ use exclude::IgnoreFiles;
     after_help = "Exit status: 0 when done, 1 when --check or --diff found files that would \
                   change, 2 when a file could not be formatted (unreadable, not UTF-8, a lexer \
                   error, a failed verification, or a template refused because its rendering \
-                  decides where a line comment ends) or the arguments are wrong."
+                  decides where a line comment ends) or the arguments or `chl.toml` are wrong."
 )]
 struct Cli {
     /// Files or directories to format; `-` reads stdin and writes stdout.
@@ -92,16 +101,16 @@ struct Cli {
 
     /// The name of the file whose text `-` reads from stdin, as an editor
     /// passes it: `--jinja auto` decides by it, and messages and diffs show
-    /// it. The file itself is not read. When `.chlignore` or --exclude
-    /// excludes it, the text is not formatted: it is written back as it is,
-    /// and --check and --diff find nothing to change.
+    /// it. The file itself is not read. When `.chlignore`, `chl.toml` or
+    /// --exclude excludes it, the text is not formatted: it is written back
+    /// as it is, and --check and --diff find nothing to change.
     #[arg(long, value_name = "PATH")]
     stdin_filename: Option<PathBuf>,
 
     /// Skip the files and directories that GLOB matches, named or in
     /// searched directories, in gitignore syntax relative to the current
-    /// directory; may be given more than once, and `!GLOB` brings back what
-    /// an earlier --exclude skipped.
+    /// directory, besides those `chl.toml` excludes; may be given more than
+    /// once, and `!GLOB` brings back what an earlier --exclude skipped.
     #[arg(long, value_name = "GLOB")]
     exclude: Vec<String>,
 
@@ -125,7 +134,8 @@ struct Cli {
     color: Color,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 enum Jinja {
     Auto,
     On,
@@ -318,7 +328,10 @@ impl FileError {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let matches = Cli::command().get_matches();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+    // A flag left at its default gives way to `chl.toml`.
+    let given = |id: &str| matches.value_source(id) == Some(ValueSource::CommandLine);
     let reporter = Reporter {
         verbosity: if cli.quiet {
             Verbosity::Quiet
@@ -329,6 +342,22 @@ fn main() -> ExitCode {
         },
         color: cli.color.for_stderr(),
     };
+    let config = match std::env::current_dir().map(|cwd| config::discover(&cwd)) {
+        Ok(Ok(config)) => config,
+        Ok(Err(diagnostic)) => {
+            report(reporter, &diagnostic);
+            return ExitCode::from(2);
+        }
+        // Without a current directory there is nowhere to look.
+        Err(_) => None,
+    };
+    if let Some(config) = &config
+        && reporter.verbosity == Verbosity::Verbose
+    {
+        say!("settings from {}", config.path.display());
+    }
+    let (config_line_width, config_jinja, config_excludes) =
+        config.map_or((None, None, None), |c| (c.line_width, c.jinja, c.excludes));
     let settings = Settings {
         action: if cli.diff {
             Action::Diff
@@ -337,10 +366,14 @@ fn main() -> ExitCode {
         } else {
             Action::Write
         },
-        line_width: cli.line_width,
-        jinja: cli.jinja,
+        line_width: config_line_width
+            .filter(|_| !given("line_width"))
+            .unwrap_or(cli.line_width),
+        jinja: config_jinja
+            .filter(|_| !given("jinja"))
+            .unwrap_or(cli.jinja),
     };
-    let mut excludes = Vec::new();
+    let mut excludes: Vec<_> = config_excludes.map(Arc::new).into_iter().collect();
     if !cli.exclude.is_empty() {
         let built = std::env::current_dir()
             .map_err(|e| {

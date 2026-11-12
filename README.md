@@ -67,8 +67,10 @@ chl [OPTIONS] <PATHS>...
 
 Paths are files or directories, formatted in place.
 In a directory chairlift formats `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files,
-symbolic links and whatever `.gitignore`, `.ignore` and `.chlignore` files and `--exclude` exclude.
-A file named on the command line is formatted whatever its name, unless `.chlignore` or `--exclude` excludes it.
+symbolic links and whatever `.gitignore`, `.ignore` and `.chlignore` files, [`chl.toml`](#chltoml) and `--exclude`
+exclude.
+A file named on the command line is formatted whatever its name, unless `.chlignore`, `chl.toml` or `--exclude`
+excludes it.
 `-` reads stdin and writes the result to stdout.
 
 A `.chlignore` file, in gitignore syntax, excludes files from formatting only,
@@ -84,10 +86,10 @@ whether the directory searched is named by a relative path, an absolute one or `
 An excluded directory is not searched.
 The flag may be given more than once, with the meaning the globs would have as the lines of a `.gitignore`:
 `!GLOB` brings back what an earlier `--exclude` skipped, and `\!` starts a glob for a name that begins with `!`.
-No `--exclude` brings back a file that `.gitignore`, `.ignore` or `.chlignore` excludes.
+No `--exclude` brings back a file that `.gitignore`, `.ignore`, `.chlignore` or `chl.toml` excludes.
 A glob that cannot be parsed, such as `[` without `]`, is an error.
 
-`.chlignore` and `--exclude` apply to the paths named on the command line too,
+`.chlignore`, `chl.toml` and `--exclude` apply to the paths named on the command line too,
 as pre-commit and lint-staged name each file:
 a named file or directory is skipped when a search of a directory above it would leave it out,
 by its own name or because it is in an excluded directory.
@@ -129,16 +131,44 @@ The options:
 | --- | --- |
 | `--check` | Write nothing; list the files that would change, exit 1 if any would |
 | `--diff` | Write nothing; print a unified diff, exit 1 if any file would change |
-| `--line-width <WIDTH>` | The width lines are laid out to fit; 100 by default |
-| `--jinja <auto\|on\|off>` | Whether files are Jinja templates (see [Jinja templates](#jinja-templates)); `auto` by default |
+| `--line-width <WIDTH>` | The width lines are laid out to fit; 100 by default, or `line-width` in `chl.toml` |
+| `--jinja <auto\|on\|off>` | Whether files are Jinja templates (see [Jinja templates](#jinja-templates)); `auto` by default, or `jinja` in `chl.toml` |
 | `--stdin-filename <PATH>` | The name of the text read from stdin, for `--jinja auto`, for messages and for the excludes; the file is not read |
-| `--exclude <GLOB>` | Skip what the glob matches, named or in searched directories, in gitignore syntax relative to the current directory; repeatable |
+| `--exclude <GLOB>` | Skip what the glob matches, named or in searched directories, in gitignore syntax relative to the current directory, besides what `chl.toml` excludes; repeatable |
 | `-j`, `--jobs <N>` | Files formatted at once; the number of CPUs by default |
 | `-q`, `--quiet` | Print only errors: no summary or warnings |
 | `-v`, `--verbose` | Also print what happened to each file, and how long it took |
 | `--color <auto\|always\|never>` | When to colour diagnostics; `auto` colours them on a terminal unless `NO_COLOR` is set |
 
-The line width and the Jinja mode are the only settings of the style, and there is no configuration file.
+The line width and the Jinja mode are the only settings of the style.
+
+### `chl.toml`
+
+A `chl.toml` keeps the settings a project would otherwise pass as flags on every run, and holds nothing else:
+
+```toml
+line-width = 100
+jinja = "auto"                            # "auto", "on" or "off", as --jinja
+exclude = ["models/vendor/", "*.gen.sql"]
+```
+
+Every key may be left out.
+chairlift reads the `chl.toml` in the current directory, or else the one in the nearest directory above it that has one.
+Only that file is read: one further up is not merged with it.
+`--verbose` names the file read.
+A flag given on the command line wins over the file, even when it gives the default, and the file wins over the default.
+
+`exclude` takes globs in gitignore syntax, relative to the directory of `chl.toml`, not to the current directory,
+so they mean the same wherever in the project chairlift runs.
+They apply wherever `--exclude` does: in searched directories, to named paths and to the name `--stdin-filename` gives.
+`--exclude` adds to them, and `--verbose` gives `.chlignore` as the reason a path is skipped before `chl.toml`,
+and `chl.toml` before `--exclude`.
+A `!GLOB` in `exclude` brings back what an earlier glob in it excluded,
+but the two lists are matched apart: an `--exclude '!GLOB'` does not bring back what `chl.toml` excludes.
+
+An unknown key, a value of the wrong type, a `line-width` outside 1 to 65535, a glob that cannot be parsed
+and a file that is not valid TOML are errors: chairlift names the file and the place, formats nothing, and exits with 2,
+for stdin too.
 
 ### Exit status
 
@@ -146,7 +176,7 @@ The line width and the Jinja mode are the only settings of the style, and there 
 | --- | --- |
 | 0 | Done: files formatted, or nothing to change |
 | 1 | `--check` or `--diff` found files that would change |
-| 2 | A file could not be formatted (unreadable, not UTF-8, a lexer error, a failed verification, or a refused template), or the arguments are wrong |
+| 2 | A file could not be formatted (unreadable, not UTF-8, a lexer error, a failed verification, or a refused template), or the arguments or `chl.toml` are wrong |
 
 A file that cannot be formatted is left as it is, and a diagnostic on stderr says why:
 
@@ -396,8 +426,10 @@ On success it prints nothing else.
 When the text cannot be formatted it exits with 2, prints nothing on stdout and the reason on stderr,
 so an editor that keeps the buffer when a formatter fails loses nothing.
 Pass the file's name with `--stdin-filename`, so that `--jinja auto` can decide by it, messages name the file,
-and a file that `.chlignore` excludes comes back unchanged.
+and a file that `.chlignore` or `chl.toml` excludes comes back unchanged.
 For dbt models, add `--jinja on`.
+chairlift finds `chl.toml` from the directory it runs in, not from the name `--stdin-filename` gives,
+so the editor has to run it in the project.
 
 Any editor that can pipe a buffer through a command can use it that way.
 
@@ -471,7 +503,8 @@ repos:
 ```
 
 The hook formats the staged files in place, and pre-commit fails the commit when a file changed, so it can be reviewed.
-Staged files that `.chlignore` excludes are left alone, so the hook needs no `exclude` of its own for them.
+Staged files that `.chlignore` or `chl.toml` excludes are left alone,
+so the hook needs no `exclude` of its own for them.
 To fail without changing files, set `args: [--check]`; for dbt models, `args: [--jinja, "on"]`
 (quoted, because YAML reads a bare `on` as `true`).
 
