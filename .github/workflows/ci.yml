@@ -14,6 +14,10 @@ concurrency:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    # The property tests try the same inputs on every run, so a pull request
+    # fails only on what it changed. oracle.yml runs them with new seeds.
+    env:
+      PROPTEST_RNG_SEED: "1"
 
     steps:
       - name: Checkout code

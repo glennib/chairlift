@@ -1,7 +1,8 @@
 name: Oracle
 
-# Checks against the pinned `clickhouse-format`. Too slow for every push, so it
-# runs weekly and on demand.
+# Checks against the pinned `clickhouse-format`, and the property tests with a
+# new seed. Too slow or too unsteady for every push, so it runs weekly and on
+# demand.
 on:
   schedule:
     - cron: "17 3 * * 1"
@@ -56,6 +57,11 @@ jobs:
       # builds the corpus tool the later steps use.
       - name: Fetch corpus
         run: mise run corpus:fetch
+
+      # CI fixes the proptest seed; this run tries new inputs. The log
+      # prints the seed that reproduces a failure.
+      - name: Run the tests with a random proptest seed
+        run: mise run test:random
 
       - name: Check that clickhouse-format runs
         run: mise run oracle:smoke

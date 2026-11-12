@@ -41,6 +41,8 @@ Run `mise tasks` for the list instead of trusting a copy of it here.
 - A change to the lexer, grammar or layout also needs `mise run corpus:oracle` and `mise run test:keyword-positions`,
   which CI runs only weekly.
 - `mise run tree -- FILE` prints a file's syntax tree.
+- CI runs the proptest suites with a fixed `PROPTEST_RNG_SEED`; `mise run test` and the weekly `test:random` pick new seeds,
+  so a proptest failure there that your change cannot explain is probably an older bug the new inputs found.
 - The fuzz tasks need the nightly toolchain.
 
 ## Rules that are easy to break

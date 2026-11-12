@@ -45,6 +45,14 @@ run = "shellcheck scripts/*.sh"
 description = "Run tests"
 run = "cargo nextest run --all-targets --all-features --no-tests=pass"
 
+[tasks."test:random"]
+description = "Run tests with a random proptest seed, printed so that PROPTEST_RNG_SEED=<seed> mise run test repeats them; a set PROPTEST_RNG_SEED is used instead"
+run = '''
+seed=${PROPTEST_RNG_SEED:-$(od -An -N8 -tu8 /dev/urandom | tr -d ' ')}
+echo "PROPTEST_RNG_SEED=$seed"
+PROPTEST_RNG_SEED=$seed mise run test
+'''
+
 [tasks."test:corpus"]
 description = "Run the tests that read the fetched corpus or run clickhouse-format, failing instead of skipping if either is missing"
 env = { CHAIRLIFT_REQUIRE_CORPUS = "1" }
