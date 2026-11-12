@@ -138,7 +138,7 @@ pub(crate) fn root(w: &mut Writer<'_>, root: &Node, plan: &[Planned]) {
             freeze_trailing(w, trivia.clone(), previous_kept);
             w.gap(trivia.clone(), Sep::Space, 0);
             w.token(SyntaxKind::JinjaExpr, from);
-            let next = (from + 1..w.range(&planned.node).1)
+            let next = (from + 1..=w.range(&planned.node).1)
                 .find(|&i| w.token_kind(i).is_significant())
                 .unwrap_or(from + 1);
             trivia = from + 1..next;
