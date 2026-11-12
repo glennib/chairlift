@@ -69,6 +69,19 @@ fn fixtures_format_as_their_snapshots_show() {
     }
 }
 
+/// Text kept as written keeps the indentation of its later lines whether or
+/// not the file starts with a byte-order mark and whether or not it starts
+/// on the first line.
+#[test]
+fn a_byte_order_mark_does_not_shift_text_kept_as_written() {
+    let options = Options::default();
+    for source in ["\u{feff}FROM t[-- c\n *", "\u{feff}FROM\nt[-- c\n *"] {
+        let once = chairlift::format(source, &options).unwrap();
+        assert_eq!(once, "\u{feff}FROM t[-- c\n *\n", "{source:?}");
+        assert_eq!(chairlift::format(&once, &options).unwrap(), once);
+    }
+}
+
 #[test]
 fn check_reports_whether_a_text_is_formatted() {
     let options = Options::default();

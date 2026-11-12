@@ -581,6 +581,19 @@ fn verbatim_text_keeps_the_bytes_of_tokens_that_span_lines() {
 }
 
 #[test]
+fn verbatim_text_on_the_first_line_does_not_count_a_byte_order_mark_as_indentation() {
+    let out = print("\u{feff}x (a\n b)", |b, n| {
+        b.token(n.t("x"));
+        b.space();
+        let first = n.t("(");
+        n.t("a");
+        n.t("b");
+        b.verbatim(first, n.t(")"));
+    });
+    assert_eq!(out, "\u{feff}x (a\n b)\n");
+}
+
+#[test]
 fn verbatim_blank_lines_never_follow_open_or_precede_close() {
     let source = "f(\n\n  a,  \n\n\n  b\n\n)";
     let out = print(source, |b, n| {

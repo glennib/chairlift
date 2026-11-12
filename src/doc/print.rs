@@ -639,7 +639,11 @@ impl<'d, 's> Printer<'d, 's> {
             0 => 0,
             n => line_starts[n - 1],
         };
-        let mut common = indent_columns(&doc.source[line_start..], self.indent_width);
+        // A byte-order mark is printed ahead of the first line, not as part
+        // of its indentation.
+        let line = &doc.source[line_start..];
+        let line = line.strip_prefix('\u{feff}').unwrap_or(line);
+        let mut common = indent_columns(line, self.indent_width);
         for (i, token) in doc.tokens.iter().enumerate().take(last + 1).skip(first) {
             let text = token.text(doc.source);
             if token.kind() == TokenKind::Whitespace
