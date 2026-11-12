@@ -25,8 +25,12 @@ description = "Run clippy lints (all features)"
 run = "cargo clippy --all-targets --all-features -- -D warnings"
 
 [tasks."clippy:lib"]
-description = "Run clippy on the library with no features (consumer contract)"
-run = "cargo clippy --lib --no-default-features -- -D warnings"
+description = "Run clippy on the library with no features (consumer contract), and with each optional feature alone"
+run = [
+  "cargo clippy --lib --no-default-features -- -D warnings",
+  "cargo clippy --lib --no-default-features --features oracle -- -D warnings",
+  "cargo clippy --lib --no-default-features --features template -- -D warnings",
+]
 
 [tasks."lint:actions"]
 description = "Lint GitHub workflows"
