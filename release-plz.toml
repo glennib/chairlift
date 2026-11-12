@@ -3,3 +3,19 @@
 release_always = false
 # cargo-dist (release.yml) will publish it
 git_release_draft = true
+
+[changelog]
+# release-plz's default groups, plus `perf`. Commits that change nothing a
+# user of the crate or the binary sees are left out of the changelog.
+commit_parsers = [
+  { message = "^feat", group = "added" },
+  { message = "^changed", group = "changed" },
+  { message = "^deprecated", group = "deprecated" },
+  { message = "^fix", group = "fixed" },
+  { message = "^perf", group = "performance" },
+  { message = "^security", group = "security" },
+  { message = "^(test|bench|build|chore|ci|refactor|style)", skip = true },
+  { message = "^.*", group = "other" },
+]
+# A breaking change is listed whatever its type.
+protect_breaking_commits = true
