@@ -11,8 +11,8 @@
 //! opening fence. The corpus is then an ordinary directory of SQL files.
 //!
 //! The extraction is pinned by the checkout's revision and the oracle's
-//! version, recorded in [`STAMP`]; it is redone only when either, or
-//! [`EXTRACTOR_VERSION`], changes.
+//! version, recorded in [`STAMP`] with a fingerprint of this file,
+//! [`EXTRACTOR`]; it is redone only when one of them changes.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -32,9 +32,21 @@ use chairlift::split::split;
 /// from. Not a `.sql` file, so the corpus walkers skip it.
 pub const STAMP: &str = "stamp.txt";
 
-/// Changes whenever the extraction would write something else from the same
-/// documentation, so that an extracted corpus is redone.
-pub const EXTRACTOR_VERSION: u32 = 2;
+/// A fingerprint of this file's source (64-bit FNV-1a), so that any change
+/// to the extraction redoes an extracted corpus. Changes in the library
+/// that alter what is extracted, such as in the splitter, do not.
+pub const EXTRACTOR: u64 = fnv1a(include_str!("docs.rs").as_bytes());
+
+const fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut i = 0;
+    while i < bytes.len() {
+        hash ^= bytes[i] as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        i += 1;
+    }
+    hash
+}
 
 /// A fenced code block of SQL.
 #[derive(Debug, PartialEq, Eq)]
@@ -224,7 +236,7 @@ pub fn stamp(pages: &Path, clickhouse_format: &Path) -> Result<String, String> {
          # this file would change.\n\
          docs: ClickHouse {revision}, docs/reference\n\
          oracle: clickhouse-format {version}\n\
-         extractor: {EXTRACTOR_VERSION}\n"
+         extractor: {EXTRACTOR:016x}\n"
     ))
 }
 
