@@ -606,6 +606,9 @@ fn clause(p: &mut Parser<'_>, entity: Entity, alter: bool) -> Option<CompletedMa
         // …`) holds clause keywords of its own, so it runs to the next
         // `ADD`, `DROP` or `MODIFY`.
         p.bump_keyword();
+        if p.at_end() {
+            return p.expected("what to add, drop or modify");
+        }
         let rest = p.start();
         p.bump();
         fallback::skip(p, &|p| {

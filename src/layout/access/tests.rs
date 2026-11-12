@@ -235,3 +235,17 @@ SHOW CREATE ROW POLICY p ON db.t
 ",
     );
 }
+
+/// An `ADD`, `DROP` or `MODIFY` with nothing after it is a clause that did
+/// not parse, which is kept as written.
+#[test]
+fn alter_with_nothing_to_add_or_drop() {
+    check(
+        "alter user v drop;\nalter role r modify;\nalter quota q add",
+        "
+ALTER USER v drop;
+ALTER ROLE r modify;
+ALTER QUOTA q add
+",
+    );
+}
