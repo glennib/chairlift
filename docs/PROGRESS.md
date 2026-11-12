@@ -25,14 +25,14 @@ Only the tip of each landed stack was checked with `mise run ci`, not every comm
 
 What remains is for the project owner:
 
-1. **The release.** The version is 0.1.0.
-   Release automation is set up as in chum.
+1. **The release.** The first release is 0.2.0.
+   A 0.1.0 was published by hand so that trusted publishing could be set up on an existing crate, and was yanked;
+   a yanked version cannot be published again.
+   Release automation is set up as in chum, and `RELEASE_PLZ_TOKEN` is a repository secret.
    On every push to `main`, `release-plz.yml` opens or updates a release pull request.
    Merging it publishes the crate to crates.io by trusted publishing, pushes the tag and makes a draft release,
    and the tag starts `release.yml`, which builds the archives with cargo-dist and publishes the release.
-   A placeholder 0.0.1 was published by hand so that trusted publishing could be set up on an existing crate,
-   and `RELEASE_PLZ_TOKEN` is a repository secret.
-   The first changelog has 168 entries and may want trimming in the release pull request (see "M8, reviewed").
+   The first changelog has 182 entries and may want trimming in the release pull request (see "M8, reviewed").
 2. **The style questions and the snapshots** listed below.
 
 Known loose ends:

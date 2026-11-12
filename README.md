@@ -567,7 +567,7 @@ Its hook uses `language: rust`, so pre-commit builds chairlift from source with 
 ```yaml
 repos:
   - repo: https://github.com/glennib/chairlift
-    rev: v0.1.0
+    rev: v0.2.0
     hooks:
       - id: chairlift
 ```
