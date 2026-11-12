@@ -200,6 +200,18 @@ impl fmt::Display for Position {
 /// ```
 pub const CLICKHOUSE_VERSION: &str = "26.10.2.103-stable";
 
+/// The ClickHouse release whose parser keywords chairlift knows: the release
+/// [`keyword::Keyword`] was generated from. A word re-cased in a keyword slot
+/// is a keyword of this release.
+///
+/// `scripts/generate-keywords.sh` writes it with the list and refuses a
+/// ClickHouse checkout of another release than [`CLICKHOUSE_VERSION`].
+///
+/// ```
+/// assert_eq!(chairlift::KEYWORDS_VERSION, chairlift::CLICKHOUSE_VERSION);
+/// ```
+pub const KEYWORDS_VERSION: &str = keyword::Keyword::SOURCE_VERSION;
+
 #[cfg(test)]
 mod tests {
     use super::*;

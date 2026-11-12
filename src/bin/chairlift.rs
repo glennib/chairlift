@@ -55,6 +55,7 @@ use verify::Verifier;
 #[allow(clippy::struct_excessive_bools, reason = "each is a flag")]
 #[command(
     version = VERSION.as_str(),
+    long_version = LONG_VERSION.as_str(),
     after_help = "Exit status: 0 when done, 1 when --check or --diff found files that would \
                   change, 2 when a file could not be formatted (unreadable, not UTF-8, a lexer \
                   error, a failed verification, or a template refused because its rendering \
@@ -143,13 +144,31 @@ enum Jinja {
     Off,
 }
 
-/// `<version> (ClickHouse <version>)`, so a bug report names both.
+/// `<version> (ClickHouse keywords <version>)`, so a bug report names both.
 static VERSION: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "{} (ClickHouse {})",
+        "{} (ClickHouse keywords {})",
         env!("CARGO_PKG_VERSION"),
-        chairlift::CLICKHOUSE_VERSION
+        chairlift::KEYWORDS_VERSION
     )
+});
+
+/// [`VERSION`], then the optional features the binary was built with, for
+/// `--version`.
+static LONG_VERSION: LazyLock<String> = LazyLock::new(|| {
+    let features: Vec<&str> = [
+        ("oracle", cfg!(feature = "oracle")),
+        ("template", cfg!(feature = "template")),
+    ]
+    .into_iter()
+    .filter_map(|(name, on)| on.then_some(name))
+    .collect();
+    let features = if features.is_empty() {
+        "none".to_owned()
+    } else {
+        features.join(", ")
+    };
+    format!("{}\nfeatures: {features}", *VERSION)
 });
 
 /// What to do with a formatted file.

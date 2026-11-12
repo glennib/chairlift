@@ -79,16 +79,27 @@ const MESSY: &str = "SELECT 1;  \r\n\n\n\n\nSELECT 2;";
 const CLEAN: &str = "SELECT 1;\n\n\nSELECT 2;\n";
 
 #[test]
-fn version_names_the_targeted_clickhouse_release() {
+fn version_names_the_keyword_list_release() {
+    let first = format!(
+        "chairlift {} (ClickHouse keywords {})\n",
+        env!("CARGO_PKG_VERSION"),
+        chairlift::KEYWORDS_VERSION
+    );
+    let output = chairlift(&["-V"]);
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), first);
+
+    // The long form adds the optional features, which change what
+    // `--verify` can judge.
+    let mut features = vec!["oracle"];
+    if cfg!(feature = "template") {
+        features.push("template");
+    }
     let output = chairlift(&["--version"]);
     assert!(output.status.success());
     assert_eq!(
         stdout(&output),
-        format!(
-            "chairlift {} (ClickHouse {})\n",
-            env!("CARGO_PKG_VERSION"),
-            chairlift::CLICKHOUSE_VERSION
-        )
+        format!("{first}features: {}\n", features.join(", "))
     );
 }
 
