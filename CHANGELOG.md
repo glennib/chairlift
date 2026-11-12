@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/glennib/chairlift/compare/v0.2.0...v0.2.1) - 2026-11-12
+
+### Fixed
+
+- *(deps)* update rust crate similar to v3
+- *(layout)* do not count a byte-order mark as indentation of text kept as written
+
 ## [0.2.0](https://github.com/glennib/chairlift/releases/tag/v0.2.0) - 2026-11-12
 
 The first release of chairlift, a formatter for ClickHouse SQL, including SQL files that contain Jinja templates,
