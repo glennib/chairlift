@@ -769,6 +769,17 @@ fn a_text_with_a_tag_hidden_in_a_token_is_kept_byte_for_byte() {
     assert_renders_agree(source, &jinja(source));
 }
 
+/// In a text kept for a tag hidden in a word, the line break after a comment
+/// tag glued to `;` follows the `;` once rendered and stays as it is; so
+/// does the `;` against the tag, or a second run would find a space there and
+/// add a blank line for the line that is too wide.
+#[test]
+fn a_comment_tag_glued_to_a_semicolon_stays_glued_in_a_kept_text() {
+    let source = "select 1;{# h #}\nselect a{% if x %}b{% endif %}\n";
+    assert_eq!(fmt_in(source, true, 10), source);
+    assert_eq!(fmt_in("=1;{# h #}\ns{%%}", true, 8), "=1;{# h #}\ns{%%}\n");
+}
+
 /// The loop-comma idioms the layout has no rule for stay as written rather
 /// than spreading a block of one comma over lines of their own.
 #[test]

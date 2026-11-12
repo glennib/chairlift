@@ -186,6 +186,13 @@ fn inside_rendered_tokens(
                 && jinja::tags(&source[before + 1..start]).all(|t| t.kind == TagKind::Comment));
         if !same_neighbour {
             neighbour[i] = true;
+            // Whitespace put before the comment tags (`;{# c #}` printed as
+            // `; {# c #}`) would make it the run's neighbour, and the run
+            // free to change on the next run: they stay against `before`.
+            if jinja::tags(&source[before + 1..start]).all(|t| t.kind == TagKind::Comment) {
+                let first = tokens.partition_point(|t| t.end() <= before);
+                neighbour[first..i].fill(true);
+            }
         }
     }
     let inside = kept;
