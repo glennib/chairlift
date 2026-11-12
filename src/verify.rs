@@ -389,10 +389,20 @@ fn check_opaque_spacing(before: &Side<'_>, after: &Side<'_>) -> Result<(), Verif
 /// Whether rendering the template can join its text differently from how
 /// its tokens lie: it has a block or comment tag, which renders nothing, or
 /// a `-` marker, which strips whitespace.
+///
+/// It looks at the tags, not for their markers in the text: a `-}}` with no
+/// `{{` before it is text that the renderer copies, and the layout can put
+/// a line break inside it, after which the text would no longer hold it.
 pub(crate) fn render_joins_text(text: &str) -> bool {
     ["{%", "{#", "{{-", "-}}"]
         .iter()
         .any(|marker| text.contains(marker))
+        && jinja::tags(text).any(|tag| {
+            let (before, after) = tag.whitespace_control(text);
+            tag.kind != TagKind::Expr
+                || before == WhitespaceControl::Strip
+                || after == WhitespaceControl::Strip
+        })
 }
 
 /// The text as the renderer joins it: block and comment tags removed, the

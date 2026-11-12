@@ -780,6 +780,16 @@ fn a_comment_tag_glued_to_a_semicolon_stays_glued_in_a_kept_text() {
     assert_eq!(fmt_in("=1;{# h #}\ns{%%}", true, 8), "=1;{# h #}\ns{%%}\n");
 }
 
+/// A `-}}` without a `{{` is no tag: the text joins nothing once rendered,
+/// before and after the layout breaks the line inside it.
+#[test]
+fn a_closer_without_an_opener_is_text() {
+    assert_eq!(
+        fmt_in("create view t -}}'';\nt format \n;", true, 46),
+        "CREATE VIEW t\n-\n}\n}'';\n\nt format\n;\n"
+    );
+}
+
 /// The loop-comma idioms the layout has no rule for stay as written rather
 /// than spreading a block of one comma over lines of their own.
 #[test]
