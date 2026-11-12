@@ -1,0 +1,29 @@
+---
+source: tests/format.rs
+expression: once
+---
+-- A region that starts in one statement and ends in the next.
+SELECT
+    site,
+    count() AS views
+FROM raw.page_views
+-- fmt: off
+GROUP BY   site
+ORDER BY   views DESC;
+
+SELECT   site,   uniq(visitor_id)   AS visitors
+-- fmt: on
+FROM raw.page_views
+GROUP BY site;
+
+-- Markers at the end of lines of code keep those lines.
+select event_date,  site, -- fmt: off
+    sumIf(views, device = 'mobile')   AS mobile,
+    sumIf(views, device = 'desktop')  AS desktop, -- fmt: on
+    sum(views) AS total
+FROM analytics.daily_views
+GROUP BY event_date, site;
+
+select 1 as one, 2 as two ; -- fmt: off
+SELECT    3 AS three; -- fmt: on
+SELECT 4 AS four;

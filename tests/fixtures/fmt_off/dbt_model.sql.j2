@@ -1,0 +1,24 @@
+{{ config(materialized='incremental', engine='MergeTree()', order_by='(site, event_date)') }}
+{# fmt: off #}
+with   daily as (
+    select   toDate(event_time)   as event_date,
+             site,
+             count()              as views
+    from     {{ ref('stg_page_views') }}
+    group by event_date, site
+)
+{# fmt: on #}
+select event_date , site,
+{% if var('with_change', true) %}
+{# fmt: off #}
+    views  -  lagInFrame(views) over (partition by site order by event_date)   as change,
+{# fmt: on #}
+{% endif %}
+    views
+from daily
+{#fmt:off#}
+{% if is_incremental() %}
+where   event_date   >   (select max(event_date) from {{ this }})
+{% endif %}
+{#   FMT: ON   #}
+order by site,event_date

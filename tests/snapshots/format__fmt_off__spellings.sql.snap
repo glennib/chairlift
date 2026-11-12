@@ -1,0 +1,64 @@
+---
+source: tests/format.rs
+expression: once
+---
+-- A `#` comment is a marker too, and case does not matter.
+SELECT
+    site,
+# fmt: off
+    views   +   clicks   AS actions,
+# FMT: ON
+    visitors
+FROM analytics.daily_views;
+
+SELECT
+    site,
+--FMT:OFF
+    views   *   2   AS doubled,
+-- Fmt: On
+    visitors
+FROM analytics.daily_views;
+
+-- Comments that only look like markers.
+SELECT
+    site,
+    -- fmt: off for now
+    views + clicks AS actions,
+    --  fmt: off
+    visitors
+FROM analytics.daily_views;
+
+-- Marker text in strings and in block comments.
+SELECT
+    '-- fmt: off' AS s,
+    'a
+-- fmt: off
+b' AS multiline, /* -- fmt: off */
+    views + clicks AS actions
+FROM analytics.daily_views;
+
+/*
+-- fmt: off
+*/
+SELECT site
+FROM analytics.sites;
+
+-- A lone fmt: on is a comment.
+SELECT
+    site,
+    -- fmt: on
+    views
+FROM analytics.daily_views;
+
+-- A fmt: off inside a region needs a fmt: on of its own.
+SELECT
+    site,
+-- fmt: off
+    views     AS v,
+-- fmt: off
+    clicks    AS c,
+-- fmt: on
+    visitors  AS u,
+-- fmt: on
+    sessions AS s
+FROM analytics.daily_views;

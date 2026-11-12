@@ -1,0 +1,31 @@
+---
+source: tests/format.rs
+expression: once
+---
+-- Line comment markers in a template, around a block.
+CREATE TABLE {{ env.db | sql_ident }}.sites
+(
+-- fmt: off
+    site_id   UInt32,
+    name      String,
+{% if env.tier == "prod" %}
+    replica   String   DEFAULT getMacro('replica'),
+{% endif %}
+    timezone  String
+-- fmt: on
+)
+ENGINE = MergeTree
+ORDER BY site_id;
+
+{# fmt: off #}
+INSERT INTO {{ env.db | sql_ident }}.sites (site_id, name, timezone) VALUES
+    ( 1, 'Nordlys',     'Europe/Oslo'),
+    (22, 'Fjordposten', 'Europe/Oslo');
+{# fmt: on #}
+
+-- Jinja comment markers at the end of lines of code.
+select  count()  from {{ env.db | sql_ident }}.sites ; {# fmt: off #}
+SELECT   max(site_id)   FROM {{ env.db | sql_ident }}.sites; {# fmt: on #}
+
+SELECT min(site_id)
+FROM {{ env.db | sql_ident }}.sites;

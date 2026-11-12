@@ -1,0 +1,18 @@
+---
+source: tests/format.rs
+expression: once
+---
+SELECT
+    site,
+    count() AS views
+FROM raw.page_views
+GROUP BY site;
+
+-- Without a fmt: on, the rest of the file is kept.
+-- fmt: off
+SELECT   site,
+         uniq(visitor_id)   AS visitors
+FROM     raw.page_views
+GROUP BY site;
+
+select   1  as one;

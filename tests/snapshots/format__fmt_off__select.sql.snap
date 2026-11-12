@@ -1,0 +1,62 @@
+---
+source: tests/format.rs
+expression: once
+---
+-- A hand-written query kept between two statements that are formatted.
+SELECT
+    site_id,
+    name
+FROM analytics.sites
+WHERE active = 1;
+
+-- fmt: off
+SELECT   'nordlys'     AS site,   1 AS id
+UNION ALL
+SELECT   'fjordposten' AS site,  22 AS id;
+-- fmt: on
+
+SELECT
+    site,
+    count() AS views
+FROM raw.page_views
+GROUP BY site
+ORDER BY views DESC
+LIMIT 10;
+
+-- Part of a SELECT list.
+SELECT
+    event_date,
+    site,
+-- fmt: off
+    sumIf(views,   device = 'mobile')  AS mobile_views,
+    sumIf(views,   device = 'desktop') AS desktop_views,
+    sumIf(views,   device = 'tablet')  AS tablet_views,
+-- fmt: on
+    sum(views) AS total_views
+FROM analytics.daily_views
+WHERE event_date >= today() - 7
+GROUP BY event_date, site;
+
+-- The branches of a CASE.
+SELECT
+    visitor_id,
+    CASE
+-- fmt: off
+        when sessions >= 100 then 'loyal'
+        when sessions >=  10 then 'regular'
+        when sessions >=   1 then 'casual'
+-- fmt: on
+        ELSE 'unknown'
+    END AS segment
+FROM analytics.visitors;
+
+-- An IN list laid out as a grid.
+SELECT *
+FROM raw.events
+WHERE event_type IN (
+-- fmt: off
+    'page_view',  'scroll_25',  'scroll_50',
+    'scroll_75',  'scroll_100', 'click'
+-- fmt: on
+)
+    AND site = 'nordlys';

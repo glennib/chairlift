@@ -59,8 +59,6 @@ Known loose ends:
 - The weekly fuzz job runs `format` for 15 minutes, about 135,000 runs;
   the last two defects of the hour-long runs showed after 892,000 and 1.7 million.
   The cached corpus carries coverage from one week to the next, but not that depth.
-- No corpus holds a `fmt: off` marker, so `corpus:oracle` does not exercise them;
-  see "After M8: `fmt: off` markers" for the one-off run on a copy with markers added.
 
 ### Setup
 
@@ -1002,11 +1000,15 @@ and `#fmt: off`, which ClickHouse does not read as a comment.
 
 Checked on the tip: `mise run ci`, `mise run test:templates`, `corpus:oracle` and `test:keyword-positions`
 on the fetched corpus, unchanged from M8.
-No corpus has a marker, so the corpus tool and the oracle also ran on a copy of the stateless tests and dbt models
-with markers added at random lines (own-line and trailing, `--`, `#` and Jinja comment markers, mixed case):
+The fetched corpora hold no marker, so the corpus tool and the oracle also ran once on a copy of the stateless tests
+and dbt models with markers added at random lines (own-line and trailing, `--`, `#` and Jinja comment markers, mixed case):
 no verify or idempotence failure, no template render that differs, and no statement the oracle reads differently,
 apart from the allowlisted `00306_insert_values_and_expressions.sql`.
-The copy is not vendored and not in CI.
+That copy is not vendored and not in CI.
+The fixtures in `tests/fixtures/fmt_off/` are, so `corpus:oracle`, `tests/corpus_tool.rs` and the snapshots of
+`tests/format.rs` cover markers in a `SELECT` list, a `CASE`, an `IN` list, `VALUES` rows, a `CREATE TABLE` column list,
+across statements, at the end of lines of code, unmatched and nested, and in templates;
+`tests/fixtures/README.md` lists what each file holds.
 A 5-minute run of the `format` fuzz target, its dictionary holding the markers: 73,181 runs, clean.
 
 Not handled:
