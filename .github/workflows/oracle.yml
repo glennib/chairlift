@@ -60,6 +60,9 @@ jobs:
       - name: Check that clickhouse-format runs
         run: mise run oracle:smoke
 
+      - name: Check the re-cased keyword slots of tests/keyword_positions.rs
+        run: mise run test:keyword-positions
+
       # Every input and output of every corpus through clickhouse-format,
       # and every render of every template per combination of its branches;
       # fails on any difference that tests/oracle-allowlist.txt does not list.

@@ -8,7 +8,8 @@
 //!
 //! The oracle is `CHAIRLIFT_CLICKHOUSE_FORMAT`, by default `clickhouse-format`
 //! on `PATH`; without it the test skips, unless `CHAIRLIFT_REQUIRE_CORPUS` is
-//! set. `mise run test:keyword-positions` runs it alone.
+//! set. It starts thousands of `clickhouse-format` processes and takes minutes,
+//! so it is ignored by default; `mise run test:keyword-positions` runs it.
 //!
 //! To cover a new position, add a template. In [`POSITIONS`] it is an
 //! expression in which `{w}` stands for the word, parsed as an expression and
@@ -905,6 +906,7 @@ fn check(case: &Case) -> (Option<String>, Option<String>) {
 }
 
 #[test]
+#[ignore = "minutes of clickhouse-format runs; mise run test:keyword-positions runs it"]
 fn keyword_slots_keep_what_clickhouse_reads() {
     let program = std::env::var_os("CHAIRLIFT_CLICKHOUSE_FORMAT")
         .unwrap_or_else(|| "clickhouse-format".into());

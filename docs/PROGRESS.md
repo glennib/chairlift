@@ -462,6 +462,7 @@ The numbers are for the whole of M3, with the part 1 review fixes in.
   The dbt models start with `{{ config() }}` and stay verbatim until M5.
 - Keyword slots: `tests/keyword_positions.rs` puts every keyword and literal word into every position the grammars know
   (197,493 cases, 7,546 judged by the oracle, none failing); `mise run test:keyword-positions` runs it.
+  It takes minutes of `clickhouse-format` runs, so it is ignored by default and runs in the weekly oracle workflow.
   Over the corpora, re-casing changes 29,183 statements; the oracle judges 28,995 and none differs.
 - The oracle sweep judges 270,259 stateless statements the same and none differing;
   verify and idempotence hold on every file.

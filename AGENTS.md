@@ -38,7 +38,8 @@ Run `mise tasks` for the list instead of trusting a copy of it here.
 - `mise run corpus:fetch` fetches the ClickHouse and dbt corpora into `$CHAIRLIFT_CORPUS_DIR`, by default `corpus/`.
   Tests that need a fetched corpus or `clickhouse-format` skip silently without them,
   so a green `mise run test` does not cover them; `mise run test:corpus` fails instead of skipping.
-- A change to the lexer, grammar or layout also needs `mise run corpus:oracle`, which CI runs only weekly.
+- A change to the lexer, grammar or layout also needs `mise run corpus:oracle` and `mise run test:keyword-positions`,
+  which CI runs only weekly.
 - `mise run tree -- FILE` prints a file's syntax tree.
 - The fuzz tasks need the nightly toolchain.
 
