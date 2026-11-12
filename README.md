@@ -467,6 +467,11 @@ repos:
       - id: chairlift
 ```
 
+pre-commit runs `cargo install` without `--locked`,
+so that build takes the newest compatible version of each dependency,
+not the versions in chairlift's `Cargo.lock` that the release was tested with.
+The local hook with a released binary does not have that problem.
+
 ## Use as a library
 
 The crate's default `cli` feature pulls in the command line's dependencies; a library user can leave it out:
