@@ -241,7 +241,7 @@ pub struct Variant<'a> {
 /// [`UnrenderedJinja`](RejectionClass::UnrenderedJinja) and judges the
 /// others. With the `template` feature, a template also gives a variant per
 /// distinct pair of renders of input and output, one per combination of its
-/// branches and loop count (see [`crate::template`]), in [`Mode::Sql`]: so
+/// branches and loop count (see `chairlift::template`), in [`Mode::Sql`]: so
 /// every statement is judged. Without it, templates are judged unrendered.
 #[must_use]
 pub fn variants<'a>(input: &'a str, output: &'a str, mode: Mode) -> Vec<Variant<'a>> {

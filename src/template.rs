@@ -670,7 +670,7 @@ fn splitmix(state: u64) -> u64 {
 /// `infinity` and `nan` lower case), a line comment only in the whitespace
 /// at its end, and the literal left of `::`, whose text ClickHouse reads,
 /// not at all, whitespace included. `INSERT` data is one token (see
-/// [`split`](crate::split)).
+/// [`split`](mod@crate::split)).
 ///
 /// # Errors
 ///

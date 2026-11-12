@@ -2,7 +2,7 @@
 //! contain Jinja templates.
 //!
 //! chairlift changes only whitespace and the case of keywords; it never adds,
-//! removes, reorders or rewrites tokens, and [`format`] checks every result
+//! removes, reorders or rewrites tokens, and [`format()`] checks every result
 //! against its input with the [verifier](verify) before returning it.
 //!
 //! The crate is pre-release: [`format`](fn@format) lays out `SELECT` and
@@ -136,7 +136,7 @@ pub fn format_with_statements(
     Ok((output, layout.statements))
 }
 
-/// Whether `source` is formatted already: whether [`format`] would return it
+/// Whether `source` is formatted already: whether [`format()`] would return it
 /// unchanged.
 ///
 /// # Errors

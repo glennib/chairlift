@@ -1,9 +1,10 @@
 //! Checking that formatted output is the input with only layout changed.
 //!
-//! [`verify`] splits both texts into statements (see [`crate::split`]),
-//! which re-lexes the output, and compares their tokens with the whitespace
-//! tokens left out. Every other token must have the same kind and the same
-//! text, with these exceptions only:
+//! [`verify`] splits both texts into statements (see
+//! [`crate::split`](mod@crate::split)), which re-lexes the output, and
+//! compares their tokens with the whitespace tokens left out. Every other
+//! token must have the same kind and the same text, with these exceptions
+//! only:
 //!
 //! - a bare word the formatter recorded as re-cased (see [`Facts::recase`])
 //!   may be printed in its canonical case, if it has one;

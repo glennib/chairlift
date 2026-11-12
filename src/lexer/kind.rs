@@ -15,7 +15,7 @@
 /// The `Jinja*` kinds, [`Verbatim`](Self::Verbatim) and the `ErrorJinja*`
 /// kinds only occur in [Jinja mode](super::Mode::Jinja), and
 /// [`InsertData`](Self::InsertData) only in the
-/// [statement splitter](crate::split)'s tokens.
+/// [statement splitter](mod@crate::split)'s tokens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum TokenKind {
@@ -157,8 +157,9 @@ pub enum TokenKind {
     /// than lexing it: the rows after `VALUES`, or everything after
     /// `FORMAT name` up to the first blank line.
     ///
-    /// The lexer never produces it; the [statement splitter](crate::split)
-    /// does, in place of whatever the lexer would make of the data.
+    /// The lexer never produces it; the
+    /// [statement splitter](mod@crate::split) does, in place of whatever the
+    /// lexer would make of the data.
     InsertData,
 
     /// An unrecognised character, with its UTF-8 continuation bytes: `#` not

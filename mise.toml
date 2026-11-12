@@ -63,6 +63,15 @@ run = "cargo nextest run --all-features --test keyword_positions"
 description = "Run doctests (nextest does not run them)"
 run = "cargo test --doc --all-features"
 
+[tasks.docs]
+description = "Build the API docs with the default features, all features and none, failing on any rustdoc warning"
+env = { RUSTDOCFLAGS = "-D warnings" }
+run = [
+  "cargo doc --no-deps",
+  "cargo doc --no-deps --all-features",
+  "cargo doc --no-deps --no-default-features",
+]
+
 [tasks.corpus]
 description = "Format every corpus, checking verification and idempotence (release build); pass more options after --, e.g. --csv FILE"
 run = "cargo run --release --features corpus-tool --bin corpus -- --default"
@@ -167,6 +176,7 @@ depends = [
   "lint:scripts",
   "test",
   "test:doc",
+  "docs",
   "build:debug",
   "build:lib",
   "fuzz:check",
