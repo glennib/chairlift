@@ -54,6 +54,7 @@ Run `mise tasks` for the list instead of trusting a copy of it here.
   A unit test that reads a new file needs the file listed there; `mise run package:test` checks it.
 - Snapshot tests use insta.
   A changed snapshot is a change of style or of the tree: show the diff and say why, do not accept it in passing.
+  A failed inline snapshot leaves a `tests/.*.pending-snap` file that nothing ignores: delete it before committing.
 - Private corpora (`CHAIRLIFT_LOCAL_CORPORA`) are never vendored, copied into fixtures or quoted in tests.
 - A user-visible change of style or of the CLI goes into `README.md` in the same commit.
 - Commit titles follow Conventional Commits

@@ -602,6 +602,59 @@ fn chlignore_in_a_parent_directory_applies() {
     );
 }
 
+/// A `.chlignore` line that cannot be parsed is an error wherever the file
+/// lies: in or below a searched directory, above one, or above a named
+/// path. Each file is reported once, the rest of it still applies, and the
+/// other files are still formatted.
+#[test]
+fn an_unparsable_chlignore_line_is_reported_once() {
+    let dir = temp_dir("chlignore-unparsable");
+    write(&dir, "d/.chlignore", "{\nskipped.sql\n");
+    write(&dir, "d/e/.chlignore", "{\n");
+    for name in ["c.sql", "d/a.sql", "d/skipped.sql", "d/e/b.sql"] {
+        write(&dir, name, MESSY);
+    }
+    let runs: [(&[&str], &str); 7] = [
+        (&["d"], "d/a.sql d/e/b.sql"),
+        (&["."], "./c.sql ./d/a.sql ./d/e/b.sql"),
+        (&["d", "d/a.sql"], "d/a.sql d/e/b.sql"),
+        (&["d/a.sql", "d/skipped.sql", "d"], "d/a.sql d/e/b.sql"),
+        (&["d/e", "d"], "d/a.sql d/e/b.sql"),
+        (&["d/e/b.sql", "d/e"], "d/e/b.sql"),
+        (&["d", "d"], "d/a.sql d/e/b.sql"),
+    ];
+    for (paths, files) in runs {
+        let args = [&["--check"][..], paths].concat();
+        let output = run(&args, None, Some(&dir));
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        let errors = stderr(&output).replace('\\', "/");
+        assert_eq!(
+            errors.matches("chairlift::ignore_file").count(),
+            2,
+            "{args:?}: {errors}"
+        );
+        for file in ["/d/.chlignore: line 1: ", "/d/e/.chlignore: line 1: "] {
+            assert_eq!(errors.matches(file).count(), 1, "{args:?}: {errors}");
+        }
+        assert!(!errors.contains("chairlift::walk"), "{args:?}: {errors}");
+        let listed: Vec<String> = stdout(&output)
+            .lines()
+            .map(|l| {
+                l.strip_prefix("Would reformat: ")
+                    .unwrap()
+                    .replace('\\', "/")
+            })
+            .collect();
+        assert_eq!(listed.join(" "), files, "{args:?}");
+    }
+
+    let output = run(&["d"], None, Some(&dir));
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(read(&dir.join("d/a.sql")), CLEAN);
+    assert_eq!(read(&dir.join("d/e/b.sql")), CLEAN);
+    assert_eq!(read(&dir.join("d/skipped.sql")), MESSY);
+}
+
 /// `--exclude` globs are relative to the current directory whichever way
 /// the searched directory is spelled, and an excluded directory is not
 /// searched.

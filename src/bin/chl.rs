@@ -673,6 +673,16 @@ fn discover(
                 for entry in walk {
                     match entry {
                         Ok(entry) => {
+                            // The walk keeps the errors of a directory's
+                            // ignore files with its entry, and goes on
+                            // without the lines it cannot parse. Those of
+                            // `.chlignore` go through `ignore_files`, which
+                            // reports each file once; the other ignore files
+                            // are not chairlift's, and are not reported.
+                            if entry.error().is_some() {
+                                ignore_files.check(entry.path());
+                                errors += report_ignore_file_errors(&mut ignore_files, reporter);
+                            }
                             if entry.file_type().is_some_and(|t| t.is_file())
                                 && is_sql_file(entry.path())
                             {
@@ -680,11 +690,15 @@ fn discover(
                             }
                         }
                         Err(e) => {
-                            report(
-                                reporter,
-                                &Diagnostic::error("chairlift::walk", e.to_string()),
-                            );
-                            errors += 1;
+                            // The `.chlignore` files above `path` were
+                            // reported with its exclusion.
+                            if let Some(e) = exclude::without_errors_of(e, IGNORE_FILE) {
+                                report(
+                                    reporter,
+                                    &Diagnostic::error("chairlift::walk", e.to_string()),
+                                );
+                                errors += 1;
+                            }
                         }
                     }
                 }
@@ -738,6 +752,12 @@ fn exclusion(
             .iter()
             .find_map(|excludes| excludes.excludes(path, is_dir))
     });
+    (exclusion, report_ignore_file_errors(ignore_files, reporter))
+}
+
+/// Reports the errors of the ignore files `ignore_files` read since it was
+/// last asked, and counts them.
+fn report_ignore_file_errors(ignore_files: &mut IgnoreFiles, reporter: Reporter) -> usize {
     let errors = ignore_files.take_errors();
     for error in &errors {
         report(
@@ -745,7 +765,7 @@ fn exclusion(
             &Diagnostic::error("chairlift::ignore_file", error.to_string()),
         );
     }
-    (exclusion, errors.len())
+    errors.len()
 }
 
 /// The name of the files, in gitignore syntax, that exclude files from

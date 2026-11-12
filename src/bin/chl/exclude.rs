@@ -148,6 +148,12 @@ impl IgnoreFiles {
         None
     }
 
+    /// Reads the ignore file in `dir`, unless it has been read, for the
+    /// errors [`Self::take_errors`] gives.
+    pub fn check(&mut self, dir: &Path) {
+        self.read(&resolve(dir));
+    }
+
     /// The errors from the ignore files read since the last call.
     pub fn take_errors(&mut self) -> Vec<ignore::Error> {
         std::mem::take(&mut self.errors)
@@ -188,6 +194,25 @@ impl fmt::Display for Exclusion {
             Some(file) => write!(f, "`{}` in {}", self.glob, file.display()),
             None => write!(f, "--exclude `{}`", self.glob),
         }
+    }
+}
+
+/// `error` without the errors of the ignore files called `name`; `None`
+/// when nothing else is left.
+pub fn without_errors_of(error: ignore::Error, name: &str) -> Option<ignore::Error> {
+    match error {
+        ignore::Error::Partial(errors) => {
+            let mut rest: Vec<_> = errors
+                .into_iter()
+                .filter_map(|error| without_errors_of(error, name))
+                .collect();
+            match rest.len() {
+                0 | 1 => rest.pop(),
+                _ => Some(ignore::Error::Partial(rest)),
+            }
+        }
+        ignore::Error::WithPath { ref path, .. } if path.file_name() == Some(name.as_ref()) => None,
+        error => Some(error),
     }
 }
 
