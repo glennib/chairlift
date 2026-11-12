@@ -101,7 +101,7 @@ fn help() {
     insta::assert_snapshot!(help.join("\n"), @"
     Format ClickHouse SQL and Jinja-templated SQL files.
 
-    Files are formatted in place. Directories are searched for `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files, symbolic links and whatever `.gitignore`, `.ignore` and `.chlignore` files exclude; `.chlignore` excludes files from formatting only. A file named on the command line is formatted whatever its name.
+    Files are formatted in place. Directories are searched for `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files, symbolic links and whatever `.gitignore`, `.ignore` and `.chlignore` files exclude; `.chlignore` excludes files from formatting only. A file named on the command line is formatted whatever its name, unless `.chlignore` or --exclude excludes it.
 
     Usage: chl [OPTIONS] <PATHS>...
 
@@ -128,10 +128,10 @@ fn help() {
               [possible values: auto, on, off]
 
           --stdin-filename <PATH>
-              The name of the file whose text `-` reads from stdin, as an editor passes it: `--jinja auto` decides by it, and messages and diffs show it. The file itself is not read
+              The name of the file whose text `-` reads from stdin, as an editor passes it: `--jinja auto` decides by it, and messages and diffs show it. The file itself is not read. When `.chlignore` or --exclude excludes it, the text is not formatted: it is written back as it is, and --check and --diff find nothing to change
 
           --exclude <GLOB>
-              Skip the files and directories in searched directories that GLOB matches, in gitignore syntax relative to the current directory; may be given more than once, and `!GLOB` brings back what an earlier --exclude skipped. A file named on the command line is formatted whatever GLOB says
+              Skip the files and directories that GLOB matches, named or in searched directories, in gitignore syntax relative to the current directory; may be given more than once, and `!GLOB` brings back what an earlier --exclude skipped
 
       -j, --jobs <N>
               Files formatted at once [default: the number of CPUs]. Results are reported in path order whatever the number
@@ -512,11 +512,9 @@ fn chlignore_excludes_files_from_formatting() {
         write(&dir, ".chlignore", "generated.sql\nvendor/\n");
         write(&dir, "sub/.chlignore", "nested.sql\n");
         assert_eq!(listed(&dir, &["."]), ["./a.sql", "./sub/c.sql"], "{in_git}");
-        // A file named on the command line is formatted whatever
-        // `.chlignore` says.
         assert_eq!(
-            listed(&dir, &["generated.sql", "vendor/b.sql"]),
-            ["generated.sql", "vendor/b.sql"],
+            listed(&dir, &["a.sql", "generated.sql", "vendor/b.sql", "vendor"]),
+            ["a.sql"],
             "{in_git}"
         );
     }
@@ -625,11 +623,9 @@ fn exclude_skips_files_and_directories() {
         listed(&models, &["--exclude", "/vendor", "."]),
         ["./c.sql", "./d.gen.sql"]
     );
-    // A file named on the command line is formatted whatever `--exclude`
-    // says.
     assert_eq!(
-        listed(&dir, &["--exclude", "*.gen.sql", "b.gen.sql"]),
-        ["b.gen.sql"]
+        listed(&dir, &["--exclude", "*.gen.sql", "a.sql", "b.gen.sql"]),
+        ["a.sql"]
     );
 }
 
@@ -669,6 +665,257 @@ fn an_invalid_exclude_glob_exits_with_2() {
         "{}",
         stderr(&output)
     );
+}
+
+/// A tree whose `.chlignore` files and `--exclude` globs exercise nesting,
+/// directory patterns and `!` negations, with the SQL files a walk of it
+/// formats.
+fn excluded_tree(test: &str) -> (TempDir, Vec<&'static str>, Vec<&'static str>) {
+    let dir = temp_dir(test);
+    let all = vec![
+        "a.sql",
+        "a.skip.sql",
+        "deep/a/b/c.sql",
+        "deep/a/bb/c.sql",
+        "docs/vendor.sql",
+        "gen/g.sql",
+        "gen/keep.sql",
+        "keep.gen.sql",
+        "local.sql",
+        "other/vendor/o.sql",
+        "out/keep.sql",
+        "out/o.sql",
+        "sub/a.skip.sql",
+        "sub/keep.gen.sql",
+        "sub/local.sql",
+        "sub/top.sql",
+        "sub/vendor/w.sql",
+        "sub/x.tmp.sql",
+        "sub/y.tmp.sql",
+        "top.sql",
+        "vendor/v.sql",
+        "x.tmp.sql",
+        "z.gen.sql",
+    ];
+    for name in &all {
+        write(&dir, name, "SELECT 1; ");
+    }
+    write(
+        &dir,
+        ".chlignore",
+        "gen/\n!gen/keep.sql\n*.tmp.sql\nvendor\n/top.sql\n*.gen.sql\n!keep.gen.sql\n",
+    );
+    write(&dir, "sub/.chlignore", "!y.tmp.sql\nlocal.sql\n");
+    write(&dir, "other/.chlignore", "!vendor/\n");
+    write(&dir, "deep/a/.chlignore", "b/\n");
+    let formatted = vec![
+        "a.sql",
+        "deep/a/bb/c.sql",
+        "docs/vendor.sql",
+        "keep.gen.sql",
+        "local.sql",
+        "other/vendor/o.sql",
+        "sub/a.skip.sql",
+        "sub/keep.gen.sql",
+        "sub/top.sql",
+        "sub/y.tmp.sql",
+    ];
+    (dir, all, formatted)
+}
+
+const EXCLUDES: [&str; 8] = [
+    "--exclude",
+    "out/",
+    "--exclude",
+    "!out/keep.sql",
+    "--exclude",
+    "*.skip.sql",
+    "--exclude",
+    "!sub/*.skip.sql",
+];
+
+/// A file named on the command line is excluded exactly when a walk of a
+/// directory above it would leave it out, by name or by its directory.
+#[test]
+fn a_named_file_is_excluded_as_the_walk_excludes_it() {
+    let (dir, all, formatted) = excluded_tree("named-as-walked");
+    let walked = listed(&dir, &[&EXCLUDES[..], &["."]].concat());
+    let walked: Vec<&str> = walked.iter().map(|f| &f[2..]).collect();
+    assert_eq!(walked, formatted);
+    assert_eq!(listed(&dir, &[&EXCLUDES[..], &all].concat()), formatted);
+    let absolute: Vec<String> = all
+        .iter()
+        .map(|f| dir.join(f).to_str().unwrap().to_owned())
+        .collect();
+    let absolute: Vec<&str> = absolute.iter().map(String::as_str).collect();
+    let prefix = format!("{}/", dir.to_str().unwrap().replace('\\', "/"));
+    let named = listed(&dir, &[&EXCLUDES[..], &absolute].concat());
+    let named: Vec<&str> = named
+        .iter()
+        .map(|f| f.strip_prefix(&prefix).unwrap())
+        .collect();
+    assert_eq!(named, formatted);
+}
+
+/// A named directory that is excluded, or is in an excluded directory, is
+/// not searched; it is warned about, as an empty one is.
+#[test]
+fn a_named_directory_is_excluded_as_the_walk_excludes_it() {
+    let (dir, _, _) = excluded_tree("named-directories");
+    let excluded = ["gen", "deep/a/b", "sub/vendor", "out", "vendor", "gen/."];
+    let output = run(
+        &[&["--check"][..], &EXCLUDES, &excluded].concat(),
+        None,
+        Some(&*dir),
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(stdout(&output), "");
+    let errors = stderr(&output).replace('\\', "/");
+    for name in excluded {
+        assert!(
+            errors.contains(&format!("⚠ {name}: not searched, excluded by ")),
+            "{name}: {errors}"
+        );
+    }
+    assert!(errors.contains("⚠ out: not searched, excluded by --exclude `out/`\n"));
+    assert!(!errors.contains("no SQL files found"), "{errors}");
+    let output = run(
+        &[&["--check", "-q"][..], &EXCLUDES, &excluded].concat(),
+        None,
+        Some(&*dir),
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(stderr(&output), "");
+
+    assert_eq!(listed(&dir, &["other/vendor"]), ["other/vendor/o.sql"]);
+    // The `.chlignore` files above the current directory apply to it.
+    assert_eq!(listed(&dir.join("vendor"), &["."]), Vec::<String>::new());
+    assert_eq!(
+        listed(&dir.join("gen"), &["keep.sql", "../a.sql"]),
+        ["../a.sql"]
+    );
+}
+
+/// pre-commit and lint-staged name each staged file: those that are
+/// excluded are left alone without a word, and if all are, the run
+/// succeeds.
+#[test]
+fn excluded_named_files_are_skipped_quietly() {
+    let dir = temp_dir("named-excluded");
+    for name in ["a.sql", "vendor/b.sql", "c.gen.sql"] {
+        write(&dir, name, MESSY);
+    }
+    write(&dir, ".chlignore", "vendor/\n");
+    let args = [
+        "--exclude",
+        "*.gen.sql",
+        "a.sql",
+        "vendor/b.sql",
+        "c.gen.sql",
+    ];
+    let output = run(&args, None, Some(&*dir));
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        stderr(&output),
+        "1 file reformatted, 0 files already formatted\n"
+    );
+    assert_eq!(read(&dir.join("a.sql")), CLEAN);
+    assert_eq!(read(&dir.join("vendor/b.sql")), MESSY);
+    assert_eq!(read(&dir.join("c.gen.sql")), MESSY);
+
+    let args = ["--exclude", "*.gen.sql", "vendor/b.sql", "c.gen.sql"];
+    for action in [None, Some("--check"), Some("--diff")] {
+        let output = run(&[action.as_slice(), &args].concat(), None, Some(&*dir));
+        assert_eq!(output.status.code(), Some(0), "{action:?}");
+        assert_eq!(stdout(&output), "", "{action:?}");
+        let summary = if action.is_some() {
+            "0 files would be reformatted, 0 files already formatted\n"
+        } else {
+            "0 files reformatted, 0 files already formatted\n"
+        };
+        assert_eq!(stderr(&output), summary, "{action:?}");
+    }
+    let output = run(&[&["-q"][..], &args].concat(), None, Some(&*dir));
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(stderr(&output), "");
+    let output = run(&[&["-v"][..], &args].concat(), None, Some(&*dir));
+    assert_eq!(output.status.code(), Some(0));
+    let errors = stderr(&output).replace('\\', "/");
+    let lines: Vec<&str> = errors.lines().collect();
+    assert!(
+        lines[0].starts_with("vendor/b.sql: skipped, excluded by `vendor/` in /")
+            && lines[0].ends_with("/.chlignore"),
+        "{errors}"
+    );
+    assert_eq!(
+        lines[1],
+        "c.gen.sql: skipped, excluded by --exclude `*.gen.sql`"
+    );
+    assert_eq!(read(&dir.join("vendor/b.sql")), MESSY);
+}
+
+/// When `--stdin-filename` names an excluded file, which need not exist,
+/// the text comes back as it is, even text that could not be formatted.
+#[test]
+fn stdin_for_an_excluded_file_comes_back_unchanged() {
+    let dir = temp_dir("stdin-excluded");
+    write(&dir, ".chlignore", "vendor/\n");
+    fs::create_dir(dir.join("sub")).unwrap();
+    let text = b"select 'unclosed \xff  \n\n\n";
+    let cases: [(&[&str], &Path); 4] = [
+        (&["--stdin-filename", "vendor/new/x.sql"], &dir),
+        (&["--stdin-filename", "../vendor/x.sql"], &dir.join("sub")),
+        (
+            &[
+                "--exclude",
+                "*.gen.sql",
+                "--stdin-filename",
+                "sub/q.gen.sql",
+            ],
+            &dir,
+        ),
+        (
+            &["--exclude", "/q.sql", "--stdin-filename", "q.sql"],
+            &dir.join("sub"),
+        ),
+    ];
+    for (args, cwd) in cases {
+        let output = run(&[args, &["-"]].concat(), Some(text), Some(cwd));
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+        assert_eq!(output.stdout, text, "{args:?}");
+        assert_eq!(stderr(&output), "", "{args:?}");
+        for action in ["--check", "--diff"] {
+            let output = run(&[args, &[action, "-"]].concat(), Some(text), Some(cwd));
+            assert_eq!(output.status.code(), Some(0), "{args:?} {action}");
+            assert_eq!(stdout(&output), "", "{args:?} {action}");
+            assert_eq!(stderr(&output), "", "{args:?} {action}");
+        }
+    }
+    let output = run(
+        &["-v", "--stdin-filename", "vendor/x.sql", "-"],
+        Some(text),
+        Some(&*dir),
+    );
+    assert_eq!(output.stdout, text);
+    let errors = stderr(&output).replace('\\', "/");
+    assert!(
+        errors.starts_with("vendor/x.sql: skipped, excluded by `vendor/` in /")
+            && errors.ends_with("/.chlignore\n"),
+        "{errors}"
+    );
+    // `/q.sql` is relative to the current directory.
+    let output = run(
+        &["--exclude", "/q.sql", "--stdin-filename", "sub/q.sql", "-"],
+        Some(MESSY.as_bytes()),
+        Some(&*dir),
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(stdout(&output), CLEAN);
 }
 
 /// A directory with no SQL file in it is worth a warning, which does not

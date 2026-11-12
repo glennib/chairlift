@@ -68,7 +68,7 @@ chl [OPTIONS] <PATHS>...
 Paths are files or directories, formatted in place.
 In a directory chairlift formats `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files,
 symbolic links and whatever `.gitignore`, `.ignore` and `.chlignore` files and `--exclude` exclude.
-A file named on the command line is formatted whatever its name.
+A file named on the command line is formatted whatever its name, unless `.chlignore` or `--exclude` excludes it.
 `-` reads stdin and writes the result to stdout.
 
 A `.chlignore` file, in gitignore syntax, excludes files from formatting only,
@@ -76,7 +76,6 @@ where an `.ignore` file would also hide them from ripgrep and fd: vendored or ge
 It works in a git repository or outside one, and a `.chlignore` in a directory above the one searched applies too.
 Its rules win over those of `.gitignore` and `.ignore`, so a `!` line in it brings back a file they exclude,
 though not one in a directory they exclude, as that directory is not searched.
-A file named on the command line is formatted whatever `.chlignore` says.
 
 `--exclude <GLOB>` skips files and directories for one run without a file to edit, as in CI or a Makefile:
 `chl --exclude 'models/vendor' --exclude '*.gen.sql' .`.
@@ -87,8 +86,17 @@ The flag may be given more than once, with the meaning the globs would have as t
 `!GLOB` brings back what an earlier `--exclude` skipped, and `\!` starts a glob for a name that begins with `!`.
 No `--exclude` brings back a file that `.gitignore`, `.ignore` or `.chlignore` excludes.
 A glob that cannot be parsed, such as `[` without `]`, is an error.
-A path named on the command line is not matched itself: a file is formatted whatever `--exclude` says,
-and a directory is searched, though what is in it is matched.
+
+`.chlignore` and `--exclude` apply to the paths named on the command line too,
+as pre-commit and lint-staged name each file:
+a named file or directory is skipped when a search of a directory above it would leave it out,
+by its own name or because it is in an excluded directory.
+`.gitignore` and `.ignore` do not apply to named paths.
+Skipping a path is no error and does not change the exit status.
+`--verbose` says what excluded each skipped file, and a skipped directory is warned about, as an empty one is.
+With `-`, the path matched is the one `--stdin-filename` names, relative to the current directory,
+whether the file exists or not:
+the text of an excluded file is written back as it is, and `--check` and `--diff` find nothing to change.
 
 ```console
 $ chl .
@@ -123,8 +131,8 @@ The options:
 | `--diff` | Write nothing; print a unified diff, exit 1 if any file would change |
 | `--line-width <WIDTH>` | The width lines are laid out to fit; 100 by default |
 | `--jinja <auto\|on\|off>` | Whether files are Jinja templates (see [Jinja templates](#jinja-templates)); `auto` by default |
-| `--stdin-filename <PATH>` | The name of the text read from stdin, for `--jinja auto` and for messages; the file is not read |
-| `--exclude <GLOB>` | Skip what the glob matches in searched directories, in gitignore syntax relative to the current directory; repeatable |
+| `--stdin-filename <PATH>` | The name of the text read from stdin, for `--jinja auto`, for messages and for the excludes; the file is not read |
+| `--exclude <GLOB>` | Skip what the glob matches, named or in searched directories, in gitignore syntax relative to the current directory; repeatable |
 | `-j`, `--jobs <N>` | Files formatted at once; the number of CPUs by default |
 | `-q`, `--quiet` | Print only errors: no summary or warnings |
 | `-v`, `--verbose` | Also print what happened to each file, and how long it took |
@@ -387,7 +395,8 @@ and fails on any statement ClickHouse reads differently, apart from documented q
 On success it prints nothing else.
 When the text cannot be formatted it exits with 2, prints nothing on stdout and the reason on stderr,
 so an editor that keeps the buffer when a formatter fails loses nothing.
-Pass the file's name with `--stdin-filename`, so that `--jinja auto` can decide by it and messages name the file.
+Pass the file's name with `--stdin-filename`, so that `--jinja auto` can decide by it, messages name the file,
+and a file that `.chlignore` excludes comes back unchanged.
 For dbt models, add `--jinja on`.
 
 Any editor that can pipe a buffer through a command can use it that way.
@@ -462,6 +471,7 @@ repos:
 ```
 
 The hook formats the staged files in place, and pre-commit fails the commit when a file changed, so it can be reviewed.
+Staged files that `.chlignore` excludes are left alone, so the hook needs no `exclude` of its own for them.
 To fail without changing files, set `args: [--check]`; for dbt models, `args: [--jinja, "on"]`
 (quoted, because YAML reads a bare `on` as `true`).
 

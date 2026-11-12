@@ -43,6 +43,8 @@ use diagnostic::Diagnostic;
 use diagnostic::Reporter;
 use diagnostic::Verbosity;
 use exclude::Excludes;
+use exclude::Exclusion;
+use exclude::IgnoreFiles;
 
 /// Format ClickHouse SQL and Jinja-templated SQL files.
 ///
@@ -50,7 +52,8 @@ use exclude::Excludes;
 /// `*.sql.j2` and `*.j2.sql` files, skipping hidden files, symbolic links
 /// and whatever `.gitignore`, `.ignore` and `.chlignore` files exclude;
 /// `.chlignore` excludes files from formatting only. A file named on the
-/// command line is formatted whatever its name.
+/// command line is formatted whatever its name, unless `.chlignore` or
+/// --exclude excludes it.
 #[derive(Debug, Parser)]
 #[allow(clippy::struct_excessive_bools, reason = "each is a flag")]
 #[command(
@@ -89,15 +92,16 @@ struct Cli {
 
     /// The name of the file whose text `-` reads from stdin, as an editor
     /// passes it: `--jinja auto` decides by it, and messages and diffs show
-    /// it. The file itself is not read.
+    /// it. The file itself is not read. When `.chlignore` or --exclude
+    /// excludes it, the text is not formatted: it is written back as it is,
+    /// and --check and --diff find nothing to change.
     #[arg(long, value_name = "PATH")]
     stdin_filename: Option<PathBuf>,
 
-    /// Skip the files and directories in searched directories that GLOB
-    /// matches, in gitignore syntax relative to the current directory; may
-    /// be given more than once, and `!GLOB` brings back what an earlier
-    /// --exclude skipped. A file named on the command line is formatted
-    /// whatever GLOB says.
+    /// Skip the files and directories that GLOB matches, named or in
+    /// searched directories, in gitignore syntax relative to the current
+    /// directory; may be given more than once, and `!GLOB` brings back what
+    /// an earlier --exclude skipped.
     #[arg(long, value_name = "GLOB")]
     exclude: Vec<String>,
 
@@ -336,17 +340,6 @@ fn main() -> ExitCode {
         line_width: cli.line_width,
         jinja: cli.jinja,
     };
-    if cli.paths.iter().any(|p| p.as_os_str() == "-") {
-        if cli.paths.len() > 1 {
-            say!("error: `-` (stdin) cannot be combined with other paths");
-            return ExitCode::from(2);
-        }
-        return stdin(&settings, cli.stdin_filename.as_deref(), reporter);
-    }
-    if cli.stdin_filename.is_some() {
-        say!("error: --stdin-filename names the file on stdin, so it needs `-` as the path");
-        return ExitCode::from(2);
-    }
     let excludes = if cli.exclude.is_empty() {
         None
     } else {
@@ -365,13 +358,48 @@ fn main() -> ExitCode {
             }
         }
     };
+    if cli.paths.iter().any(|p| p.as_os_str() == "-") {
+        if cli.paths.len() > 1 {
+            say!("error: `-` (stdin) cannot be combined with other paths");
+            return ExitCode::from(2);
+        }
+        return stdin(
+            &settings,
+            cli.stdin_filename.as_deref(),
+            excludes.as_deref(),
+            reporter,
+        );
+    }
+    if cli.stdin_filename.is_some() {
+        say!("error: --stdin-filename names the file on stdin, so it needs `-` as the path");
+        return ExitCode::from(2);
+    }
     let jobs = cli.jobs.map_or_else(parallel::default_jobs, usize::from);
     files(&cli.paths, excludes.as_ref(), &settings, jobs, reporter)
 }
 
 /// Formats stdin to stdout, or checks or diffs it. `filename` is the name
-/// of the file the text comes from, if `--stdin-filename` gives one.
-fn stdin(settings: &Settings, filename: Option<&Path>, reporter: Reporter) -> ExitCode {
+/// of the file the text comes from, if `--stdin-filename` gives one; when
+/// that file is excluded, the text is written back as it is, or checks or
+/// diffs clean.
+fn stdin(
+    settings: &Settings,
+    filename: Option<&Path>,
+    excludes: Option<&Excludes>,
+    reporter: Reporter,
+) -> ExitCode {
+    if let Some(filename) = filename {
+        let is_dir = fs::metadata(filename).is_ok_and(|m| m.is_dir());
+        let mut ignore_files = IgnoreFiles::new(IGNORE_FILE);
+        let (exclusion, errors) =
+            exclusion(filename, is_dir, &mut ignore_files, excludes, reporter);
+        if errors > 0 {
+            return ExitCode::from(2);
+        }
+        if let Some(exclusion) = exclusion {
+            return unformatted_stdin(settings, filename, &exclusion, reporter);
+        }
+    }
     let shown = filename.map(|f| f.display().to_string());
     let options = settings.options(filename);
     let result = read_stdin()
@@ -390,8 +418,7 @@ fn stdin(settings: &Settings, filename: Option<&Path>, reporter: Reporter) -> Ex
             return ExitCode::from(2);
         }
     };
-    let mut stdout = io::stdout().lock();
-    let written = match (settings.action, outcome.diff) {
+    let written = to_stdout(|stdout| match (settings.action, outcome.diff) {
         (Action::Write, _) => stdout.write_all(formatted.after.as_bytes()),
         (Action::Check, _) if outcome.changed => writeln!(
             stdout,
@@ -400,29 +427,65 @@ fn stdin(settings: &Settings, filename: Option<&Path>, reporter: Reporter) -> Ex
         ),
         (_, Some(diff)) => stdout.write_all(diff.as_bytes()),
         (Action::Check | Action::Diff, None) => Ok(()),
-    };
-    match written.and_then(|()| stdout.flush()) {
-        // Whoever reads stdout stopped reading: as for `head`, that is
-        // theirs to decide.
-        Err(e) if e.kind() != io::ErrorKind::BrokenPipe => {
-            say!("error: cannot write to stdout: {e}");
-            return ExitCode::from(2);
-        }
-        _ => {}
-    }
-    if settings.action != Action::Write && outcome.changed {
+    });
+    if !written {
+        ExitCode::from(2)
+    } else if settings.action != Action::Write && outcome.changed {
         ExitCode::from(1)
     } else {
         ExitCode::SUCCESS
     }
 }
 
+/// Copies stdin to stdout as it is, if that is the action, for the text of
+/// `filename`, which `exclusion` excludes.
+fn unformatted_stdin(
+    settings: &Settings,
+    filename: &Path,
+    exclusion: &Exclusion,
+    reporter: Reporter,
+) -> ExitCode {
+    let shown = filename.display().to_string();
+    let bytes = match read_stdin_bytes() {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            report(reporter, &e.diagnostic(&shown));
+            return ExitCode::from(2);
+        }
+    };
+    if reporter.verbosity == Verbosity::Verbose {
+        say!("{shown}: skipped, excluded by {exclusion}");
+    }
+    if settings.action == Action::Write && !to_stdout(|stdout| stdout.write_all(&bytes)) {
+        return ExitCode::from(2);
+    }
+    ExitCode::SUCCESS
+}
+
+/// Writes to stdout with `write` and flushes it, saying so if that fails;
+/// false if it did. A closed pipe is no failure: whoever reads stdout
+/// stopped reading, which, as for `head`, is theirs to decide.
+fn to_stdout(write: impl FnOnce(&mut io::StdoutLock<'static>) -> io::Result<()>) -> bool {
+    let mut stdout = io::stdout().lock();
+    match write(&mut stdout).and_then(|()| stdout.flush()) {
+        Err(e) if e.kind() != io::ErrorKind::BrokenPipe => {
+            say!("error: cannot write to stdout: {e}");
+            false
+        }
+        _ => true,
+    }
+}
+
 fn read_stdin() -> Result<String, FileError> {
+    String::from_utf8(read_stdin_bytes()?).map_err(not_utf8)
+}
+
+fn read_stdin_bytes() -> Result<Vec<u8>, FileError> {
     let mut bytes = Vec::new();
     io::stdin()
         .read_to_end(&mut bytes)
         .map_err(FileError::Read)?;
-    String::from_utf8(bytes).map_err(not_utf8)
+    Ok(bytes)
 }
 
 fn not_utf8(e: std::string::FromUtf8Error) -> FileError {
@@ -526,8 +589,9 @@ fn files(
 
 /// The files to format: each path that is a file, and the SQL files under
 /// each path that is a directory, sorted, each file once under the first of
-/// its spellings, leaving out what `excludes` excludes from the directories.
-/// Paths that cannot be read are reported, and counted in the second value.
+/// its spellings, leaving out what `.chlignore` files and `excludes`
+/// exclude, among the paths as in the directories. Paths that cannot be
+/// read are reported, and counted in the second value.
 fn discover(
     paths: &[PathBuf],
     excludes: Option<&Arc<Excludes>>,
@@ -535,8 +599,35 @@ fn discover(
 ) -> (Vec<PathBuf>, usize) {
     let mut files = Vec::new();
     let mut errors = 0;
+    let mut ignore_files = IgnoreFiles::new(IGNORE_FILE);
     for path in paths {
-        match fs::metadata(path) {
+        let meta = fs::metadata(path);
+        if let Ok(meta) = &meta {
+            let (exclusion, ignore_errors) = exclusion(
+                path,
+                meta.is_dir(),
+                &mut ignore_files,
+                excludes.map(Arc::as_ref),
+                reporter,
+            );
+            errors += ignore_errors;
+            if let Some(exclusion) = exclusion {
+                let shown = path.display();
+                if meta.is_dir() {
+                    report(
+                        reporter,
+                        &Diagnostic::warning(
+                            "chairlift::walk::excluded",
+                            format!("{shown}: not searched, excluded by {exclusion}"),
+                        ),
+                    );
+                } else if reporter.verbosity == Verbosity::Verbose {
+                    say!("{shown}: skipped, excluded by {exclusion}");
+                }
+                continue;
+            }
+        }
+        match meta {
             Ok(meta) if meta.is_dir() => {
                 let before = files.len();
                 let mut walk = ignore::WalkBuilder::new(path);
@@ -599,9 +690,33 @@ fn discover(
     (files, errors)
 }
 
+/// What excludes `path`, if anything does: a `.chlignore` file or
+/// `excludes`. Ignore files that cannot be read are reported, and counted in
+/// the second value.
+fn exclusion(
+    path: &Path,
+    is_dir: bool,
+    ignore_files: &mut IgnoreFiles,
+    excludes: Option<&Excludes>,
+    reporter: Reporter,
+) -> (Option<Exclusion>, usize) {
+    let exclusion = ignore_files
+        .excludes(path, is_dir)
+        .or_else(|| excludes.and_then(|excludes| excludes.excludes(path, is_dir)));
+    let errors = ignore_files.take_errors();
+    for error in &errors {
+        report(
+            reporter,
+            &Diagnostic::error("chairlift::ignore_file", error.to_string()),
+        );
+    }
+    (exclusion, errors.len())
+}
+
 /// The name of the files, in gitignore syntax, that exclude files from
 /// formatting only. Their rules win over `.gitignore` and `.ignore`, and
-/// those in the parent directories of a searched directory apply too.
+/// those in the parent directories of a searched directory or a named path
+/// apply too.
 const IGNORE_FILE: &str = ".chlignore";
 
 /// `*.sql` (which includes `*.j2.sql`) or `*.sql.j2`, in any case.

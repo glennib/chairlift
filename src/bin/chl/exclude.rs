@@ -1,14 +1,19 @@
-//! Globs that exclude files and directories from formatting, as `--exclude`
-//! gives them.
+//! What excludes files and directories from formatting: globs, as
+//! `--exclude` gives them, and ignore files such as `.chlignore`, both in
+//! the walk of a directory and for a path matched on its own.
 
+use std::collections::HashMap;
+use std::fmt;
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use ignore::DirEntry;
+use ignore::Match;
 use ignore::gitignore::Gitignore;
 use ignore::gitignore::GitignoreBuilder;
+use ignore::gitignore::Glob;
 
 /// Globs in gitignore syntax, matched relative to a root directory, with
 /// the meaning they would have as the lines of a `.gitignore` there: a
@@ -65,6 +70,21 @@ impl Excludes {
         }
     }
 
+    /// The glob that excludes `path`, relative to the current directory or
+    /// absolute, if one does. The answer is the one a walk of a directory
+    /// above `path` would give: a directory a glob excludes excludes
+    /// everything beneath it, whatever a later `!glob` says of what is
+    /// beneath.
+    pub fn excludes(&self, path: &Path, is_dir: bool) -> Option<Exclusion> {
+        let located = self.locate(path);
+        top_down(&located, is_dir)
+            .into_iter()
+            .find_map(|(step, is_dir)| match self.globs.matched(step, is_dir) {
+                Match::Ignore(glob) => Some(glob.into()),
+                Match::None | Match::Whitelist(_) => None,
+            })
+    }
+
     /// `path`, relative to the current directory or absolute, as the globs
     /// see it: relative to the root, or absolute when it is outside.
     pub fn locate(&self, path: &Path) -> PathBuf {
@@ -79,6 +99,135 @@ impl Excludes {
         }
         absolute
     }
+}
+
+/// The ignore files of one name, such as `.chlignore`, in the directories
+/// above the paths matched, each read once.
+#[derive(Debug)]
+pub struct IgnoreFiles {
+    name: &'static str,
+    read: HashMap<PathBuf, Gitignore>,
+    errors: Vec<ignore::Error>,
+}
+
+impl IgnoreFiles {
+    pub fn new(name: &'static str) -> Self {
+        Self {
+            name,
+            read: HashMap::new(),
+            errors: Vec::new(),
+        }
+    }
+
+    /// The line of an ignore file that excludes `path`, relative to the
+    /// current directory or absolute, if one does; `path` need not exist.
+    ///
+    /// The answer is the one [`ignore::WalkBuilder`] gives, with
+    /// `parents(true)`, for `path` in a walk of a directory above it: the
+    /// ignore file in each directory from the file system root down applies
+    /// beneath that directory, with its globs relative to it; the deepest
+    /// one that matches decides, so its `!glob` brings back what a shallower
+    /// one excludes; and an excluded directory excludes everything beneath
+    /// it, as the walk does not go into it. Symbolic links are resolved
+    /// first, as the walk resolves them in its root.
+    ///
+    /// An ignore file that cannot be read in full is used as far as it can
+    /// be, and its error kept for [`Self::take_errors`].
+    pub fn excludes(&mut self, path: &Path, is_dir: bool) -> Option<Exclusion> {
+        let path = resolve(path);
+        for (step, is_dir) in top_down(&path, is_dir) {
+            for dir in step.ancestors().skip(1) {
+                match self.read(dir).matched(step, is_dir) {
+                    Match::None => {}
+                    Match::Whitelist(_) => break,
+                    Match::Ignore(glob) => return Some(glob.into()),
+                }
+            }
+        }
+        None
+    }
+
+    /// The errors from the ignore files read since the last call.
+    pub fn take_errors(&mut self) -> Vec<ignore::Error> {
+        std::mem::take(&mut self.errors)
+    }
+
+    fn read(&mut self, dir: &Path) -> &Gitignore {
+        let Self { name, read, errors } = self;
+        read.entry(dir.to_path_buf()).or_insert_with(|| {
+            // A file that does not exist is no error.
+            let (gitignore, error) = Gitignore::new(dir.join(name));
+            errors.extend(error);
+            gitignore
+        })
+    }
+}
+
+/// What excludes a path from formatting: a glob, and the ignore file it is
+/// a line of, if it is one.
+#[derive(Debug)]
+pub struct Exclusion {
+    pub glob: String,
+    /// `None` for an `--exclude` glob.
+    pub from: Option<PathBuf>,
+}
+
+impl From<&Glob> for Exclusion {
+    fn from(glob: &Glob) -> Self {
+        Self {
+            glob: glob.original().to_owned(),
+            from: glob.from().map(Path::to_path_buf),
+        }
+    }
+}
+
+impl fmt::Display for Exclusion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.from {
+            Some(file) => write!(f, "`{}` in {}", self.glob, file.display()),
+            None => write!(f, "--exclude `{}`", self.glob),
+        }
+    }
+}
+
+/// The ancestors of `path` that have a name, as directories, then `path`,
+/// in the order a walk from the top meets them; nothing for a path without
+/// a name, such as a root.
+fn top_down(path: &Path, is_dir: bool) -> Vec<(&Path, bool)> {
+    if path.file_name().is_none() {
+        return Vec::new();
+    }
+    let mut steps: Vec<(&Path, bool)> = path
+        .ancestors()
+        .skip(1)
+        .filter(|ancestor| ancestor.file_name().is_some())
+        .map(|ancestor| (ancestor, true))
+        .collect();
+    steps.reverse();
+    steps.push((path, is_dir));
+    steps
+}
+
+/// `path`, absolute, with symbolic links resolved in as much of it as
+/// exists.
+fn resolve(path: &Path) -> PathBuf {
+    if let Ok(canonical) = path.canonicalize() {
+        return canonical;
+    }
+    let absolute = normalize(&std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()));
+    let mut existing = absolute.as_path();
+    let mut rest = Vec::new();
+    while let (Some(parent), Some(name)) = (existing.parent(), existing.file_name()) {
+        rest.push(name);
+        existing = parent;
+        if let Ok(canonical) = existing.canonicalize() {
+            return rest
+                .iter()
+                .rev()
+                .fold(canonical, |path, name| path.join(name));
+        }
+    }
+    absolute
 }
 
 /// `path` without `.` components, and with each `..` taking away the
