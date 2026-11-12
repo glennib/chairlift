@@ -102,13 +102,11 @@ The options:
 | --- | --- |
 | `--check` | Write nothing; list the files that would change, exit 1 if any would |
 | `--diff` | Write nothing; print a unified diff, exit 1 if any file would change |
-| `--verify` | Also check with `clickhouse-format` that ClickHouse reads each changed file as before (see [Safety](#safety)) |
-| `--clickhouse-binary <PATH>` | The `clickhouse-format` or `clickhouse` binary for `--verify`; by default `clickhouse-format` on `PATH` |
 | `--line-width <WIDTH>` | The width lines are laid out to fit; 100 by default |
 | `--jinja <auto\|on\|off>` | Whether files are Jinja templates (see [Jinja templates](#jinja-templates)); `auto` by default |
 | `--stdin-filename <PATH>` | The name of the text read from stdin, for `--jinja auto` and for messages; the file is not read |
 | `-j`, `--jobs <N>` | Files formatted at once; the number of CPUs by default |
-| `-q`, `--quiet` | Print only errors: no summary, warnings or notes |
+| `-q`, `--quiet` | Print only errors: no summary or warnings |
 | `-v`, `--verbose` | Also print what happened to each file, and how long it took |
 | `--color <auto\|always\|never>` | When to colour diagnostics; `auto` colours them on a terminal unless `NO_COLOR` is set |
 
@@ -120,7 +118,7 @@ The line width and the Jinja mode are the only settings of the style, and there 
 | --- | --- |
 | 0 | Done: files formatted, or nothing to change |
 | 1 | `--check` or `--diff` found files that would change |
-| 2 | A file could not be formatted (unreadable, not UTF-8, a lexer error, a failed verification, or a refused template); `--verify` could not run `clickhouse-format`; or the arguments are wrong |
+| 2 | A file could not be formatted (unreadable, not UTF-8, a lexer error, a failed verification, or a refused template), or the arguments are wrong |
 
 A file that cannot be formatted is left as it is, and a diagnostic on stderr says why:
 
@@ -357,20 +355,11 @@ as is a file that is not UTF-8.
 A statement chairlift cannot parse, or has no layout for, is kept as written:
 its trailing whitespace goes and runs of blank lines are shortened, and nothing else changes.
 
-`--verify` adds a second, independent check with ClickHouse's own parser.
-It runs `clickhouse-format`, which comes with [ClickHouse](https://clickhouse.com/docs/install),
-on the input and the output of each changed file, and compares the two.
-A file that ClickHouse reads differently is an error and is not written.
-
-```console
-$ chl --verify migrations
-1 file reformatted, 1 file already formatted
-clickhouse-format reads 1 of 1 statements in changed files the same
-```
-
-`clickhouse-format` cannot judge a statement it cannot parse itself, nor a template statement that holds Jinja,
-so those are not judged.
-The tests use the `clickhouse-format` of ClickHouse 26.10.
+chairlift does not need ClickHouse to run.
+ClickHouse's own parser checks chairlift during development instead:
+a weekly CI job runs the `clickhouse-format` of ClickHouse 26.10 on the input and the output of every statement
+in the corpora, and of every rendering of every template,
+and fails on any statement ClickHouse reads differently, apart from documented quirks of `clickhouse-format`.
 
 ## Editor setup
 
@@ -514,7 +503,6 @@ for chairlift's own tests and tools; they have no semver guarantee and any relea
 - An in-place write replaces the file, so it does not keep the file's owner, extended attributes, ACLs or hard links.
 - chairlift does not model what Jinja `if` and `for` blocks do to the SQL around them:
   a statement in which a block tag splits a word or an expression, as in `a{% if x %}_b{% endif %}`, is kept as written.
-- The binary's `--verify` does not render templates, so it does not judge statements that hold Jinja.
 
 ## Documentation
 

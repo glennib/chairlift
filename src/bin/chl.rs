@@ -1,9 +1,9 @@
 //! `chl`, chairlift's command line: a formatter for ClickHouse SQL.
 //!
 //! Each file is handled on its own: read and formatted ([`format_file`]),
-//! judged by `clickhouse-format` with `--verify` ([`verify()`]), and written
-//! back or diffed ([`finish`]), giving an [`Outcome`] or a [`FileError`];
-//! files are handled in parallel, and reported in path order afterwards.
+//! and written back or diffed ([`finish`]), giving an [`Outcome`] or a
+//! [`FileError`]; files are handled in parallel, and reported in path order
+//! afterwards.
 
 /// `eprintln!` that does not panic when stderr is closed or a broken pipe,
 /// as when it is piped into `head`: what cannot be said is dropped, and the
@@ -18,8 +18,6 @@ macro_rules! say {
 mod diagnostic;
 #[path = "chl/parallel.rs"]
 mod parallel;
-#[path = "chl/verify.rs"]
-mod verify;
 
 use std::fs;
 use std::io;
@@ -35,15 +33,12 @@ use std::time::Instant;
 
 use chairlift::Mode;
 use chairlift::Options;
-use chairlift::oracle::Counts;
-use chairlift::oracle::RejectionClass;
 use clap::Parser;
 use clap::ValueEnum;
 use diagnostic::Color;
 use diagnostic::Diagnostic;
 use diagnostic::Reporter;
 use diagnostic::Verbosity;
-use verify::Verifier;
 
 /// Format ClickHouse SQL and Jinja-templated SQL files.
 ///
@@ -55,12 +50,10 @@ use verify::Verifier;
 #[allow(clippy::struct_excessive_bools, reason = "each is a flag")]
 #[command(
     version = VERSION.as_str(),
-    long_version = LONG_VERSION.as_str(),
     after_help = "Exit status: 0 when done, 1 when --check or --diff found files that would \
                   change, 2 when a file could not be formatted (unreadable, not UTF-8, a lexer \
                   error, a failed verification, or a template refused because its rendering \
-                  decides where a line comment ends), --verify cannot run clickhouse-format, \
-                  or the arguments are wrong."
+                  decides where a line comment ends) or the arguments are wrong."
 )]
 struct Cli {
     /// Files or directories to format; `-` reads stdin and writes stdout.
@@ -77,28 +70,6 @@ struct Cli {
     /// list.
     #[arg(long)]
     diff: bool,
-
-    /// Also check with ClickHouse's own formatter, `clickhouse-format`, that
-    /// ClickHouse reads each changed file as before. A file it reads
-    /// differently is an error and is not written, and so is a file of which
-    /// it judges nothing because it crashes, times out or prints too much on
-    /// it; where that happens to only some statements of a file, a warning
-    /// that --quiet does not hide says so. Files that formatting
-    /// leaves unchanged are not judged, as there is nothing to compare;
-    /// neither are statements it cannot parse, nor template statements that
-    /// hold Jinja.
-    #[arg(long)]
-    verify: bool,
-
-    /// The `clickhouse-format` program for --verify, or the `clickhouse`
-    /// binary [default: `clickhouse-format` on PATH].
-    #[arg(long, value_name = "PATH", requires = "verify")]
-    clickhouse_binary: Option<PathBuf>,
-
-    /// How long one run of `clickhouse-format` may take, in seconds; for
-    /// tests.
-    #[arg(long, value_name = "SECONDS", requires = "verify", hide = true)]
-    verify_timeout: Option<f64>,
 
     /// The width to lay lines out to.
     #[arg(long, value_name = "WIDTH", default_value_t = Options::DEFAULT_LINE_WIDTH,
@@ -123,7 +94,7 @@ struct Cli {
     jobs: Option<u16>,
 
     /// Print only errors, besides the formatted text, the list of files or
-    /// the diff that is asked for: no summary, warnings or notes.
+    /// the diff that is asked for: no summary or warnings.
     #[arg(short, long, conflicts_with = "verbose")]
     quiet: bool,
 
@@ -151,24 +122,6 @@ static VERSION: LazyLock<String> = LazyLock::new(|| {
         env!("CARGO_PKG_VERSION"),
         chairlift::KEYWORDS_VERSION
     )
-});
-
-/// [`VERSION`], then the optional features the binary was built with, for
-/// `--version`.
-static LONG_VERSION: LazyLock<String> = LazyLock::new(|| {
-    let features: Vec<&str> = [
-        ("oracle", cfg!(feature = "oracle")),
-        ("template", cfg!(feature = "template")),
-    ]
-    .into_iter()
-    .filter_map(|(name, on)| on.then_some(name))
-    .collect();
-    let features = if features.is_empty() {
-        "none".to_owned()
-    } else {
-        features.join(", ")
-    };
-    format!("{}\nfeatures: {features}", *VERSION)
 });
 
 /// What to do with a formatted file.
@@ -216,122 +169,6 @@ struct Outcome {
     diff: Option<String>,
 }
 
-/// A file read and formatted, for `--verify` to judge.
-struct Item {
-    /// The file's name in messages.
-    name: String,
-    mode: Mode,
-    result: Result<Formatted, FileError>,
-}
-
-/// What `--verify` found.
-struct Verification {
-    /// Statement counts over every changed file.
-    counts: Counts,
-    /// Templates judged without rendering.
-    unrendered: usize,
-    /// Notes and warnings per item.
-    notes: Vec<Vec<Diagnostic>>,
-    /// The error saying the oracle stopped running, if it did.
-    gave_up: Option<Diagnostic>,
-}
-
-/// Judges the changed files among `items` with the oracle, turning each one
-/// it reads differently into an error.
-fn verify(verifier: &Verifier, items: &mut [Item]) -> Verification {
-    let changed: Vec<usize> = (0..items.len())
-        .filter(|&i| matches!(&items[i].result, Ok(f) if f.before != f.after))
-        .collect();
-    let jobs: Vec<verify::Job<'_>> = changed
-        .iter()
-        .filter_map(|&i| {
-            let item = &items[i];
-            let formatted = item.result.as_ref().ok()?;
-            Some(verify::Job {
-                name: &item.name,
-                input: &formatted.before,
-                output: &formatted.after,
-                mode: item.mode,
-            })
-        })
-        .collect();
-    let verdicts = verifier.verify(&jobs);
-    drop(jobs);
-    let mut verification = Verification {
-        counts: Counts::default(),
-        unrendered: 0,
-        notes: items.iter().map(|_| Vec::new()).collect(),
-        gave_up: verifier.gave_up(),
-    };
-    for (i, verdict) in changed.into_iter().zip(verdicts) {
-        verification.counts.add(&verdict.counts);
-        let name = &items[i].name;
-        let notes = &mut verification.notes[i];
-        if verdict.unrendered {
-            verification.unrendered += 1;
-            let jinja = verdict.counts.rejected(RejectionClass::UnrenderedJinja);
-            notes.push(Diagnostic::note(
-                "chairlift::verify::template",
-                format!(
-                    "{name}: a template, judged without rendering it: {} with Jinja not judged",
-                    statements(jinja)
-                ),
-            ));
-        }
-        let failed = verdict.counts.rejected(RejectionClass::Failed);
-        // A file the oracle judged nothing of has not been verified at all,
-        // which `--verify` must not pass in silence; once the oracle gave
-        // up, what it failed on was not even tried.
-        let unjudged =
-            failed > 0 && (verdict.counts.judged() == 0 || verification.gave_up.is_some());
-        if failed > 0 && !unjudged {
-            notes.push(
-                Diagnostic::warning(
-                    "chairlift::verify::failed",
-                    format!(
-                        "{name}: clickhouse-format failed (crashed, timed out or printed too \
-                         much) on {}, not judged",
-                        statements(failed)
-                    ),
-                )
-                .even_when_quiet(),
-            );
-        }
-        notes.extend(verdict.whole_only);
-        if let Some(bug) = verdict.bug {
-            items[i].result = Err(FileError::Oracle(Box::new(bug)));
-        } else if unjudged {
-            let message = if verification.gave_up.is_some() {
-                format!(
-                    "{name}: {} not judged, as --verify stopped running clickhouse-format, so the \
-                     file is left unchanged",
-                    statements(failed)
-                )
-            } else {
-                format!(
-                    "{name}: clickhouse-format judged none of its statements, as it failed \
-                     (crashed, timed out or printed too much) on {failed}, so the file is left \
-                     unchanged"
-                )
-            };
-            items[i].result = Err(FileError::Oracle(Box::new(Diagnostic::error(
-                "chairlift::verify::failed",
-                message,
-            ))));
-        }
-    }
-    verification
-}
-
-/// `n` statements, in words.
-fn statements(n: usize) -> String {
-    if n == 1 {
-        "1 statement".to_owned()
-    } else {
-        format!("{n} statements")
-    }
-}
-
 /// Why a file was left as it was.
 #[derive(Debug)]
 enum FileError {
@@ -352,8 +189,6 @@ enum FileError {
     },
     /// The file changed, or went away, after it was read.
     Changed,
-    /// `--verify` found that ClickHouse reads the output differently.
-    Oracle(Box<Diagnostic>),
 }
 
 impl FileError {
@@ -373,7 +208,6 @@ impl FileError {
     /// The diagnostic for the file called `name`.
     fn diagnostic(self, name: &str) -> Diagnostic {
         match self {
-            FileError::Oracle(diagnostic) => *diagnostic,
             FileError::Read(e) => {
                 Diagnostic::error("chairlift::read", format!("{name}: cannot be read: {e}"))
             }
@@ -494,77 +328,34 @@ fn main() -> ExitCode {
             say!("error: `-` (stdin) cannot be combined with other paths");
             return ExitCode::from(2);
         }
-    } else if cli.stdin_filename.is_some() {
+        return stdin(&settings, cli.stdin_filename.as_deref(), reporter);
+    }
+    if cli.stdin_filename.is_some() {
         say!("error: --stdin-filename names the file on stdin, so it needs `-` as the path");
         return ExitCode::from(2);
     }
     let jobs = cli.jobs.map_or_else(parallel::default_jobs, usize::from);
-    let verifier = if cli.verify {
-        let timeout = cli
-            .verify_timeout
-            .and_then(|s| std::time::Duration::try_from_secs_f64(s).ok());
-        match Verifier::new(cli.clickhouse_binary, jobs, timeout) {
-            Ok(verifier) => Some(verifier),
-            Err(diagnostic) => {
-                report(reporter, &diagnostic);
-                return ExitCode::from(2);
-            }
-        }
-    } else {
-        None
-    };
-    if cli.paths.iter().any(|p| p.as_os_str() == "-") {
-        return stdin(
-            &settings,
-            cli.stdin_filename.as_deref(),
-            verifier.as_ref(),
-            reporter,
-        );
-    }
-    files(&cli.paths, &settings, jobs, verifier.as_ref(), reporter)
+    files(&cli.paths, &settings, jobs, reporter)
 }
 
 /// Formats stdin to stdout, or checks or diffs it. `filename` is the name
 /// of the file the text comes from, if `--stdin-filename` gives one.
-fn stdin(
-    settings: &Settings,
-    filename: Option<&Path>,
-    verifier: Option<&Verifier>,
-    reporter: Reporter,
-) -> ExitCode {
+fn stdin(settings: &Settings, filename: Option<&Path>, reporter: Reporter) -> ExitCode {
     let shown = filename.map(|f| f.display().to_string());
     let options = settings.options(filename);
-    let mut items = vec![Item {
-        name: shown.clone().unwrap_or_else(|| "<stdin>".to_owned()),
-        mode: options.mode(),
-        result: read_stdin().and_then(|source| format_text(source, &options)),
-    }];
-    if let Some(verifier) = verifier {
-        let verification = verify(verifier, &mut items);
-        for note in verification.notes.iter().flatten() {
-            report(reporter, note);
-        }
-        if let Some(gave_up) = &verification.gave_up {
-            report(reporter, gave_up);
-        }
-        if reporter.verbosity == Verbosity::Verbose {
-            say!(
-                "{}",
-                verify::summary(&verification.counts, verification.unrendered)
-            );
-        }
-    }
-    let Some(item) = items.pop() else {
-        return ExitCode::from(2);
-    };
-    let result = item.result.and_then(|formatted| {
-        let outcome = finish(shown.as_deref().unwrap_or("-"), None, &formatted, settings)?;
-        Ok((formatted, outcome))
-    });
+    let result = read_stdin()
+        .and_then(|source| format_text(source, &options))
+        .and_then(|formatted| {
+            let outcome = finish(shown.as_deref().unwrap_or("-"), None, &formatted, settings)?;
+            Ok((formatted, outcome))
+        });
     let (formatted, outcome) = match result {
         Ok(done) => done,
         Err(e) => {
-            report(reporter, &e.diagnostic(&item.name));
+            report(
+                reporter,
+                &e.diagnostic(shown.as_deref().unwrap_or("<stdin>")),
+            );
             return ExitCode::from(2);
         }
     };
@@ -619,53 +410,19 @@ fn report(reporter: Reporter, diagnostic: &Diagnostic) {
 }
 
 /// Formats, checks or diffs the files under `paths`.
-fn files(
-    paths: &[PathBuf],
-    settings: &Settings,
-    jobs: usize,
-    verifier: Option<&Verifier>,
-    reporter: Reporter,
-) -> ExitCode {
+fn files(paths: &[PathBuf], settings: &Settings, jobs: usize, reporter: Reporter) -> ExitCode {
     let started = Instant::now();
     let (files, mut errors) = discover(paths, reporter);
-    let (outcomes, verification) = match verifier {
-        None => (
-            parallel::map(files.iter().collect(), jobs, |path: &PathBuf| {
-                process(path, settings)
-            }),
-            None,
-        ),
-        // Every file is formatted before any is written, so that the oracle
-        // judges them all in one batched run.
-        Some(verifier) => {
-            let mut items = parallel::map(files.iter().collect(), jobs, |path: &PathBuf| Item {
-                name: path.display().to_string(),
-                mode: settings.options(Some(path)).mode(),
-                result: format_file(path, settings),
-            });
-            let verification = verify(verifier, &mut items);
-            let outcomes = parallel::map(
-                files.iter().zip(items).collect(),
-                jobs,
-                |(path, item): (&PathBuf, Item)| {
-                    item.result
-                        .and_then(|formatted| finish(&item.name, Some(path), &formatted, settings))
-                },
-            );
-            (outcomes, Some(verification))
-        }
-    };
+    let outcomes = parallel::map(files.iter().collect(), jobs, |path: &PathBuf| {
+        process(path, settings)
+    });
     let mut changed = 0;
     let mut unchanged = 0;
     let mut refused = 0;
     let mut stdout = io::stdout().lock();
     let mut stdout_closed = false;
-    for (i, (path, outcome)) in files.iter().zip(outcomes).enumerate() {
+    for (path, outcome) in files.iter().zip(outcomes) {
         let shown = path.display().to_string();
-        let notes = verification.as_ref().and_then(|v| v.notes.get(i));
-        for note in notes.into_iter().flatten() {
-            report(reporter, note);
-        }
         match outcome {
             Ok(Outcome { changed: false, .. }) => {
                 unchanged += 1;
@@ -715,23 +472,11 @@ fn files(
         }
     }
     drop(stdout);
-    if let Some(gave_up) = verification.as_ref().and_then(|v| v.gave_up.as_ref()) {
-        report(reporter, gave_up);
-        errors += 1;
-    }
     let summary = summary(settings.action, changed, unchanged, refused, errors);
     match reporter.verbosity {
         Verbosity::Quiet => {}
         Verbosity::Normal => say!("{summary}"),
         Verbosity::Verbose => say!("{summary} in {:.2} s", started.elapsed().as_secs_f64()),
-    }
-    if let Some(verification) = verification
-        && reporter.verbosity != Verbosity::Quiet
-    {
-        say!(
-            "{}",
-            verify::summary(&verification.counts, verification.unrendered)
-        );
     }
     if errors > 0 || refused > 0 {
         ExitCode::from(2)
@@ -923,8 +668,8 @@ fn gone(e: io::Error) -> WriteError {
 /// gets the old one's permissions.
 ///
 /// Right before the rename the file is read again, and left alone if it no
-/// longer holds `before`: with `--verify`, minutes can pass between reading
-/// and writing, and an edit made meanwhile must not be lost.
+/// longer holds `before`, so that an edit made since it was read is not
+/// lost.
 ///
 /// Renaming needs write permission on the directory only, so a file the
 /// user may not write is refused first, as writing it in place would be.
@@ -1159,6 +904,29 @@ mod tests {
            ╰────
           help: the `-` marker of the tag after it strips the line break after it, and the comment can run on into text that follows a tag on its line; remove the marker, or end the lines of the tags there
         ");
+    }
+
+    /// A file that no longer holds the text it was formatted from, or is
+    /// gone, is left as it is.
+    #[test]
+    fn a_file_changed_since_it_was_read_is_not_written() {
+        let dir = std::env::temp_dir().join(format!("chl-changed-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("q.sql");
+        fs::write(&file, "select edited;\n").unwrap();
+        let result = write_atomically(&file, "select a;\n", "SELECT a;\n");
+        assert!(matches!(result, Err(WriteError::Changed)));
+        assert_eq!(fs::read_to_string(&file).unwrap(), "select edited;\n");
+        fs::remove_file(&file).unwrap();
+        let result = write_atomically(&file, "select a;\n", "SELECT a;\n");
+        assert!(matches!(result, Err(WriteError::Changed)));
+        assert!(!file.exists());
+        fs::write(&file, "select a;\n").unwrap();
+        assert!(write_atomically(&file, "select a;\n", "SELECT a;\n").is_ok());
+        assert_eq!(fs::read_to_string(&file).unwrap(), "SELECT a;\n");
+        // No temporary file is left behind.
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A hunk of a unified diff: where it starts in the input, how many

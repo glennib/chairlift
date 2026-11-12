@@ -53,7 +53,7 @@ pub enum Verbosity {
     Quiet,
     /// Errors, warnings and the summary line.
     Normal,
-    /// Also notes, and what happened to each file.
+    /// Also what happened to each file, and how long it all took.
     Verbose,
 }
 
@@ -73,7 +73,7 @@ impl Reporter {
             Verbosity::Normal => Severity::Warning,
             Verbosity::Verbose => Severity::Advice,
         };
-        if diagnostic.severity < least && !diagnostic.even_when_quiet {
+        if diagnostic.severity < least {
             return None;
         }
         let theme = if self.color {
@@ -105,8 +105,6 @@ pub struct Diagnostic {
     /// The file's text, with the place the diagnostic is about.
     pub snippet: Option<Box<Snippet>>,
     pub help: Option<String>,
-    /// Whether it is shown whatever the verbosity.
-    pub even_when_quiet: bool,
 }
 
 /// A labelled place in a file's text.
@@ -160,7 +158,6 @@ impl Diagnostic {
             message,
             snippet: None,
             help: None,
-            even_when_quiet: false,
         }
     }
 
@@ -170,22 +167,6 @@ impl Diagnostic {
             severity: Severity::Warning,
             ..Diagnostic::error(code, message)
         }
-    }
-
-    /// A note, which only `--verbose` shows.
-    pub fn note(code: &'static str, message: String) -> Diagnostic {
-        Diagnostic {
-            severity: Severity::Advice,
-            ..Diagnostic::error(code, message)
-        }
-    }
-
-    /// This diagnostic, shown also with `--quiet`: for a warning that the
-    /// check the user asked for was not done.
-    #[must_use]
-    pub fn even_when_quiet(mut self) -> Diagnostic {
-        self.even_when_quiet = true;
-        self
     }
 
     /// This diagnostic with `help`.

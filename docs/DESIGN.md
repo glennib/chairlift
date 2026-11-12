@@ -62,7 +62,7 @@ Two lessons shape the rest of this document:
   ClickHouse's debug builds reportedly check that formatting an AST
   and parsing it again gives the same AST *(unverified)*, which is what makes the canonical form trustworthy.
 
-Suggestion: use ClickHouse as a test oracle and as an optional runtime check, not as a dependency.
+Suggestion: use ClickHouse as a test oracle, not as a dependency.
 
 ## Core idea: change only whitespace and keyword case
 
@@ -160,7 +160,7 @@ The token check on the template source can't see that; the render check below ca
 ## Verification and tests
 
 - On every run: token-stream equality and idempotence (`fmt(fmt(x)) == fmt(x)`).
-- In tests, and behind an optional `--verify` flag: equal `clickhouse-format -n --oneline` output,
+- In tests and the corpus tool: equal `clickhouse-format -n --oneline` output,
   for plain SQL directly and for templates after rendering them with representative values
   (each `{% if %}` both ways), since `clickhouse-format` can't parse unrendered Jinja *(verified)*.
 - Snapshot tests per fixture.

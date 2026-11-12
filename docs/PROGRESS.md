@@ -55,8 +55,6 @@ Known loose ends:
 - The benchmark check catches a build made twice as slow, but on a loaded machine a regression of 15–20% can pass.
 - An in-place write does not keep a file's owner, extended attributes, ACLs or hard links,
   and a killed run can leave a `.chairlift-PID-N.tmp` file behind.
-- The default `cli` features do not include `template`,
-  so a default build's `--verify` does not judge a template through its renders; it says so in the summary.
 - The editor configurations in the README and the pre-commit hook were written but not run in those tools.
 - The weekly fuzz job runs `format` for 15 minutes, about 135,000 runs;
   the last two defects of the hour-long runs showed after 892,000 and 1.7 million.
@@ -112,7 +110,6 @@ Those assumptions are used unless the project owner decides otherwise:
 | M2 | Exit code when a lexer error leaves a file unchanged | 2 |
 | M4 | `WITH TOTALS` placement | on the `GROUP BY` line when it fits, own line otherwise |
 | M5 | Cap on rendered branch combinations in the test harness | 16 per template |
-| M6 | `--verify` and Docker | `clickhouse-format` on `PATH` or `--clickhouse-binary` only |
 
 ## Environment constraints
 
@@ -269,6 +266,10 @@ Readings chosen for templates:
   **For the project owner to confirm.**
 - **Jinja mode (M2)**: dbt models are templates in files named `.sql`, so the extension alone cannot decide.
   The CLI takes `--jinja auto|on|off`, with `auto` deciding by extension.
+- **No `--verify` (after M8)**: the binary's oracle check, built in M6, was removed before the first release,
+  so `chl` never runs or needs ClickHouse.
+  The oracle still runs in the tests, the corpus tool and the weekly oracle workflow.
+  The M6 notes below describe `--verify` as it was.
 - **Lexer throughput (M1)** is measured per file, not over one concatenated input: concatenated,
   an unclosed string in one file swallows every file after it.
 

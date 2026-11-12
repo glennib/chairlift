@@ -109,8 +109,11 @@ All decided on 2026-11-10 by the project owner unless marked *(derived)*, which 
   It compares token kinds and text; a bare word may differ in case only at positions the formatter recorded
   as re-cased keywords; Jinja tag text and comment text must match byte for byte.
 - **Idempotence** (`fmt(fmt(x)) == fmt(x)`) is checked in tests and by the corpus tool, not on every run.
-- **The ClickHouse oracle** (`clickhouse-format -n --oneline --show_secrets`) runs in tests,
-  in the corpus tool and behind `--verify`.
+- **The ClickHouse oracle** (`clickhouse-format -n --oneline --show_secrets`) runs in tests and in the corpus tool.
+  The binary does not run it, so chairlift needs no ClickHouse installation to run.
+  The binary's `--verify`, built in M6, was removed before the first release:
+  it judged neither Jinja nor what `clickhouse-format` cannot parse,
+  and ran whatever `clickhouse-format` version the user had, without the allowlist of its quirks.
   `--show_secrets` is required: without it engine arguments and passwords print as `[HIDDEN]` *(derived)*.
 - **Every comment and tag is emitted exactly once**: an assertion in the printer, as Prettier does.
 - chum's migration checksum is SHA-384 over the source text,
@@ -472,7 +475,8 @@ Goal: a binary comfortable in an editor's format-on-save and in pre-commit over 
 
 Scope:
 
-- `--verify`: the oracle check through a `clickhouse-format` found on `PATH` or given with `--clickhouse-binary`,
+- `--verify` (removed after M8; see "Verification"):
+  the oracle check through a `clickhouse-format` found on `PATH` or given with `--clickhouse-binary`,
   batched per process with per-file fallback, with the error classification from "Corpora and tooling";
   templates are rendered first if minijinja is compiled in (`template` feature) or skipped with a note.
 - Parallel file processing (`rayon`) and a quiet/verbose output with per-file diagnostics via `miette`, as chum does.
@@ -483,7 +487,8 @@ Scope:
 Acceptance:
 
 - Formatting a 1 MB file in under 100 ms and `--check` over the stateless corpus in under 5 s on 8 cores.
-- `--verify` over the local corpora reports zero differences and classifies the known unparseable files correctly.
+- `--verify` (removed after M8) over the local corpora reports zero differences
+  and classifies the known unparseable files correctly.
 - `echo 'select 1' | chl -` prints `SELECT 1` and exits 0; a lexer error exits 2 with a position.
 
 Effort: 2 days.
@@ -580,7 +585,6 @@ Decisions still needed from the project owner, by milestone:
 - **M4**: `GROUP BY hour, site WITH TOTALS`: on the `GROUP BY` line when it fits, own line otherwise
   (the proposal's rule), or always on its own line?
 - **M5**: The cap on rendered branch combinations in the test harness (plan: 16 per template).
-- **M6**: Does `--verify` require `clickhouse-format` on `PATH`, or should chairlift also accept a Docker image name?
 - **M9**: Whether chum gains a formatting-insensitive checksum (see the risk above).
 
 ## Spike reports
