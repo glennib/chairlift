@@ -10,9 +10,19 @@ authors = ["Glenn Bitar <glennbitar@gmail.com>"]
 readme = "README.md"
 keywords = ["clickhouse", "sql", "formatter", "jinja", "cli"]
 categories = ["command-line-utilities", "development-tools", "database"]
-# The tests, benchmarks and snapshots need fixtures and corpora that are not
-# published, so only what builds the library and the binaries ships.
-include = ["/src/**/*.rs", "/README.md", "/CHANGELOG.md", "/LICENSE-APACHE", "/LICENSE-MIT"]
+# What builds the library and the binaries, and what the library's own unit
+# tests read, so that `cargo test --lib` passes on the published crate. The
+# integration tests and benchmarks need corpora that are not published.
+include = [
+  "/src/**/*.rs",
+  "/src/**/*.snap",
+  "/tests/fixtures/**",
+  "/tests/support/doc_gen.rs",
+  "/README.md",
+  "/CHANGELOG.md",
+  "/LICENSE-APACHE",
+  "/LICENSE-MIT",
+]
 default-run = "chairlift"
 
 [lib]

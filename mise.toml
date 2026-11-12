@@ -109,6 +109,10 @@ run = "cargo build"
 description = "Check the library compiles with no default features"
 run = "cargo build --lib --no-default-features"
 
+[tasks."package:test"]
+description = "Package the crate as it would be published, and run the library's unit tests from the package"
+run = "scripts/package-test.sh"
+
 [tasks.bench]
 description = "Run benchmarks"
 run = "cargo bench --bench throughput"
@@ -180,5 +184,6 @@ depends = [
   "docs",
   "build:debug",
   "build:lib",
+  "package:test",
   "fuzz:check",
 ]
