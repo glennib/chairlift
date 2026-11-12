@@ -40,6 +40,11 @@
 //! table counts the variants, how many rendered, and the differences. A
 //! difference, or a variant only one side renders, is a chairlift bug.
 //! `--only-templates` leaves out the files that are not templates.
+//!
+//! `--extract-docs` writes the docs-examples corpus: the SQL blocks of the
+//! fetched ClickHouse documentation that `clickhouse-format` accepts, as
+//! files under `$CHAIRLIFT_CORPUS_DIR/docs` (see `docs.rs`). `mise run
+//! corpus:fetch` runs it after the fetch.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -74,8 +79,12 @@ use chairlift::syntax::SyntaxKind;
 use chairlift::syntax::SyntaxNode;
 use clap::Parser;
 
+#[path = "corpus/docs.rs"]
+mod docs;
+
 /// Format, verify and check whole corpora of SQL files.
 #[derive(Debug, Parser)]
+#[allow(clippy::struct_excessive_bools, reason = "each is a flag")]
 struct Cli {
     /// A directory whose files are templates when their names say so
     /// (`*.sql.j2`, `*.j2.sql`), as `NAME=DIR` or `DIR`.
@@ -88,7 +97,8 @@ struct Cli {
     templates: Vec<String>,
 
     /// The standard corpora: the vendored fixtures; the ClickHouse stateless
-    /// tests and dbt projects in `$CHAIRLIFT_CORPUS_DIR` (default `corpus/`);
+    /// tests, dbt projects and docs examples in `$CHAIRLIFT_CORPUS_DIR`
+    /// (default `corpus/`);
     /// and the directories in `$CHAIRLIFT_LOCAL_CORPORA` (`:`-separated). A
     /// missing fetched corpus is skipped, or an error when
     /// `$CHAIRLIFT_REQUIRE_CORPUS` is set.
@@ -136,6 +146,14 @@ struct Cli {
     /// Only the files read as templates.
     #[arg(long)]
     only_templates: bool,
+
+    /// Write the docs-examples corpus: the SQL blocks of
+    /// `ClickHouse/docs/reference` in `$CHAIRLIFT_CORPUS_DIR` that
+    /// `clickhouse-format` accepts, into `docs` there, and exit. Does nothing
+    /// when the corpus is already extracted from the same revision with the
+    /// same `clickhouse-format`.
+    #[arg(long, conflicts_with_all = ["default", "corpora", "templates", "tree"])]
+    extract_docs: bool,
 }
 
 struct Corpus {
@@ -383,6 +401,9 @@ fn run(cli: &Cli) -> Result<bool, String> {
     if !cli.tree.is_empty() {
         return print_trees(cli);
     }
+    if cli.extract_docs {
+        return extract_docs(cli);
+    }
     let corpora = corpora(cli)?;
     if corpora.is_empty() {
         return Err("no corpora given; pass --default, --corpus or --templates".to_owned());
@@ -510,6 +531,50 @@ fn print_trees(cli: &Cli) -> Result<bool, String> {
     Ok(true)
 }
 
+/// The fetched corpora's directory.
+fn fetched_dir() -> PathBuf {
+    std::env::var_os("CHAIRLIFT_CORPUS_DIR").map_or_else(
+        || Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus"),
+        PathBuf::from,
+    )
+}
+
+/// Writes the docs-examples corpus, `--extract-docs`.
+fn extract_docs(cli: &Cli) -> Result<bool, String> {
+    let fetched = fetched_dir();
+    let pages = fetched.join("ClickHouse/docs/reference");
+    let target = fetched.join("docs");
+    let mut oracle = Oracle::new(&cli.clickhouse_format);
+    if let Some(jobs) = cli.jobs {
+        oracle.jobs = jobs.max(1);
+    }
+    if let Err(e) = oracle.probe() {
+        return Err(format!(
+            "{e}; install it with `mise install` or pass --clickhouse-format"
+        ));
+    }
+    if !pages.is_dir() {
+        return Err(format!(
+            "{} is missing; run scripts/fetch-corpus.sh first",
+            pages.display()
+        ));
+    }
+    let stamp = docs::stamp(&pages, &cli.clickhouse_format)?;
+    let started = Instant::now();
+    match docs::extract(&pages, &target, &oracle, &stamp)? {
+        None => println!("docs examples in {} are up to date", target.display()),
+        Some(stats) => {
+            print!("{}", stats.report());
+            println!(
+                "docs examples written to {} in {:.2} s",
+                target.display(),
+                started.elapsed().as_secs_f64()
+            );
+        }
+    }
+    Ok(true)
+}
+
 /// The corpora the arguments name.
 fn corpora(cli: &Cli) -> Result<Vec<Corpus>, String> {
     let mut corpora = Vec::new();
@@ -547,8 +612,7 @@ fn corpora(cli: &Cli) -> Result<Vec<Corpus>, String> {
 
 fn default_corpora() -> Result<Vec<Corpus>, String> {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let fetched = std::env::var_os("CHAIRLIFT_CORPUS_DIR")
-        .map_or_else(|| manifest.join("corpus"), PathBuf::from);
+    let fetched = fetched_dir();
     let require = std::env::var_os("CHAIRLIFT_REQUIRE_CORPUS").is_some_and(|v| !v.is_empty());
     let mut corpora = vec![Corpus {
         name: "fixtures".to_owned(),
@@ -562,6 +626,7 @@ fn default_corpora() -> Result<Vec<Corpus>, String> {
             false,
         ),
         ("dbt", fetched.join("dbt"), true),
+        ("docs", fetched.join("docs"), false),
     ] {
         if dir.is_dir() {
             corpora.push(Corpus {

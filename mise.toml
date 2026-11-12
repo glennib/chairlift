@@ -139,8 +139,11 @@ env = { RUSTUP_TOOLCHAIN = "nightly" }
 run = 'cargo fuzz run --target "$(rustc -vV | sed -n "s/^host: //p")" doc --'
 
 [tasks."corpus:fetch"]
-description = "Fetch the ClickHouse and dbt corpora into $CHAIRLIFT_CORPUS_DIR (default corpus/)"
-run = "scripts/fetch-corpus.sh"
+description = "Fetch the ClickHouse and dbt corpora into $CHAIRLIFT_CORPUS_DIR (default corpus/), and extract the docs examples clickhouse-format accepts"
+run = [
+  "scripts/fetch-corpus.sh",
+  "cargo run --release --features corpus-tool --bin corpus -- --extract-docs",
+]
 
 [tasks."keywords:generate"]
 description = "Regenerate src/keyword/generated.rs from the fetched ClickHouse source"

@@ -106,19 +106,22 @@ jobs:
       - name: Install tools
         run: mise install
 
-      # The fetch script holds every pin, so its hash is the cache key. An older
-      # cache is still restored: the script moves it to the new pins, which is
-      # cheaper than a fresh clone.
+      # The fetch script holds every pin and docs.rs the docs extraction, so
+      # their hash is the cache key. An older cache is still restored: the
+      # script moves it to the new pins, which is cheaper than a fresh clone,
+      # and the extraction is redone when its stamp changes.
       - name: Cache corpus
         uses: actions/cache@v6
         with:
           path: corpus
-          key: corpus-${{ hashFiles('scripts/fetch-corpus.sh') }}
+          key: corpus-${{ hashFiles('scripts/fetch-corpus.sh', 'src/bin/corpus/docs.rs') }}
           restore-keys: |
             corpus-
 
+      # Also extracts the docs examples clickhouse-format accepts, which
+      # builds the corpus tool the later steps use.
       - name: Fetch corpus
-        run: scripts/fetch-corpus.sh
+        run: mise run corpus:fetch
 
       - name: Check the generated keyword list
         run: mise run keywords:check

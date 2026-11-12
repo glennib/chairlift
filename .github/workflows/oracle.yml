@@ -48,12 +48,14 @@ jobs:
         uses: actions/cache@v6
         with:
           path: corpus
-          key: corpus-${{ hashFiles('scripts/fetch-corpus.sh') }}
+          key: corpus-${{ hashFiles('scripts/fetch-corpus.sh', 'src/bin/corpus/docs.rs') }}
           restore-keys: |
             corpus-
 
+      # Also extracts the docs examples clickhouse-format accepts, which
+      # builds the corpus tool the later steps use.
       - name: Fetch corpus
-        run: scripts/fetch-corpus.sh
+        run: mise run corpus:fetch
 
       - name: Check that clickhouse-format runs
         run: mise run oracle:smoke

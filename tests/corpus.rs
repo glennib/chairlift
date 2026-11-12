@@ -1,7 +1,7 @@
 //! The lexer, the splitter, the formatter and the parser over every file of
 //! every corpus that is present: the vendored fixtures, the fetched
-//! ClickHouse stateless tests and dbt projects, and the local-only
-//! directories in `CHAIRLIFT_LOCAL_CORPORA`.
+//! ClickHouse stateless tests, dbt projects and docs examples, and the
+//! local-only directories in `CHAIRLIFT_LOCAL_CORPORA`.
 
 #[path = "support/clickhouse_lexer.rs"]
 mod clickhouse_lexer;
@@ -74,6 +74,17 @@ fn corpora() -> Vec<Corpus> {
         });
     } else {
         corpus::skip("the dbt projects");
+    }
+    // Written by `mise run corpus:fetch` (`corpus --extract-docs`).
+    let docs = corpus::corpus_dir().join("docs");
+    if docs.is_dir() {
+        corpora.push(Corpus {
+            name: "docs".into(),
+            files: sql_files(&docs),
+            all_templates: false,
+        });
+    } else {
+        corpus::skip("the docs examples");
     }
     if let Some(local) = std::env::var_os("CHAIRLIFT_LOCAL_CORPORA") {
         for (i, dir) in std::env::split_paths(&local)
