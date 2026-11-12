@@ -1,26 +1,118 @@
 //! `chairlift` — a formatter for ClickHouse SQL, including SQL files that
-//! contain Jinja templates.
+//! contain Jinja templates, such as dbt models.
 //!
-//! chairlift changes only whitespace and the case of keywords; it never adds,
-//! removes, reorders or rewrites tokens, and [`format()`] checks every result
-//! against its input with the [verifier](verify) before returning it.
-//!
-//! The crate is pre-release: [`format`](fn@format) lays out `SELECT` and
-//! `WITH` queries, `CREATE TABLE`, `CREATE MATERIALIZED VIEW`, `INSERT`, and
-//! `DROP`, `TRUNCATE`, `ATTACH`, `RENAME`, `OPTIMIZE`, `SET`, `USE` and their
-//! kin, and keeps every other statement as written, with only the safe
-//! cleanup of its whitespace; `docs/MILESTONES.md` in the repository lays out what comes
-//! next. The [parser](syntax) turns the text into a lossless syntax tree, the
-//! [layout] turns that into a [document](doc), and the document's printer
-//! chooses the line breaks.
+//! [`format()`] lays a text out in chairlift's style, and [`check`] says
+//! whether a text is formatted already. The style has two settings, both in
+//! [`Options`]: the line width, 100 by default, and whether the text is a
+//! Jinja template. The repository's
+//! [README](https://github.com/glennib/chairlift#readme) describes the style
+//! and the `chairlift` command line.
 //!
 //! ```
-//! let options = chairlift::Options::default();
-//! let formatted = chairlift::format("select a, b from t where x = 1;  \r\n\n\n\nsystem flush logs;", &options)?;
-//! assert_eq!(formatted, "SELECT\n    a,\n    b\nFROM t\nWHERE x = 1;\n\n\nsystem flush logs;\n");
+//! use chairlift::Options;
+//!
+//! let options = Options::default();
+//! let formatted = chairlift::format(
+//!     "select a, b from t where x = 1;  \r\n\n\n\nsystem flush logs;",
+//!     &options,
+//! )?;
+//! assert_eq!(
+//!     formatted,
+//!     "SELECT\n    a,\n    b\nFROM t\nWHERE x = 1;\n\n\nsystem flush logs;\n",
+//! );
 //! assert!(chairlift::check(&formatted, &options)?);
+//!
+//! let template = Options::default().with_jinja(true);
+//! let formatted = chairlift::format("select {{ col }} from {{ ref('t') }}", &template)?;
+//! assert_eq!(formatted, "SELECT {{ col }}\nFROM {{ ref('t') }}\n");
 //! # Ok::<(), chairlift::Error>(())
 //! ```
+//!
+//! # What formatting changes
+//!
+//! Only whitespace and the case of keywords. A word is upper cased only where
+//! the parser read a keyword, so a column named `date` keeps its case, and
+//! `true`, `false`, `inf` and `nan` are written in lower case, as
+//! `clickhouse-format` prints them. No token is added, removed, reordered or
+//! rewritten: string and number literals, comments, Jinja tags and the data
+//! of an `INSERT` keep every byte, and names (identifiers, aliases, and
+//! function, type, engine and setting names) keep their case.
+//!
+//! [`format()`] checks this on every call. The result must hold every token
+//! of the input once and in order, and the [verifier](verify) lexes it again
+//! and compares its tokens with those of the input, so that a line comment
+//! that would swallow the next line, or two tokens that would run together,
+//! are caught. A result that fails is a bug, and [`format()`] returns an
+//! error in its place. It also returns an error, and no text, for input with
+//! a lexer error, such as an unclosed string, and for a template it refuses;
+//! its documentation lists the cases.
+//!
+//! # Statements
+//!
+//! The [parser](syntax) turns each statement into a lossless syntax tree.
+//! A statement of these kinds is then [laid out](layout) by the rule for its
+//! kind:
+//!
+//! - `SELECT` queries, with `WITH` and set operations such as `UNION`;
+//! - `INSERT`;
+//! - `CREATE TABLE`, `VIEW`, `MATERIALIZED VIEW`, `DICTIONARY`, `DATABASE`,
+//!   `FUNCTION` and `INDEX`;
+//! - `ALTER` of tables and databases, and the lightweight `DELETE` and
+//!   `UPDATE`;
+//! - `GRANT`, `REVOKE`, `SET ROLE`, and the statements that create, alter
+//!   and drop users, roles, quotas, row policies and settings profiles;
+//! - `DROP`, `DETACH`, `UNDROP`, `TRUNCATE`, `RENAME`, `EXCHANGE`,
+//!   `OPTIMIZE`, `SET` and `USE`;
+//! - `SHOW` and `DESCRIBE`;
+//! - `ATTACH`: a table's columns and clauses after `FROM 'path'` are laid
+//!   out as `CREATE TABLE` lays them out, and any other definition after the
+//!   name is kept as written.
+//!
+//! Every other statement is kept as written: `SYSTEM`, `EXPLAIN`, KQL
+//! `PRINT`, the rarer kinds the parser does not know, such as `KILL`,
+//! `CHECK` and `BACKUP`, statements joined by `PARALLEL WITH`, and anything
+//! it cannot parse. In a statement kept as written, trailing whitespace goes
+//! and runs of blank lines are shortened, and nothing else changes.
+//! [`format_with_statements`] says what became of each statement, and why
+//! one was kept.
+//!
+//! The [layout] turns the tree into a [document](doc), whose printer chooses
+//! the line breaks.
+//!
+//! # Jinja templates
+//!
+//! With [`Options::jinja`] set, the [lexer] reads `{{ … }}`, `{% … %}` and
+//! `{# … #}` as template tags, and the text inside a tag is never changed.
+//! The parser steps over block tags, so it sees the SQL of every branch at
+//! once, and the layout puts each block tag on a line of its own. Where the
+//! layout cannot be sure that every render of the template keeps its
+//! meaning, such as where a tag stands for a keyword or a render could join
+//! two tokens into one, the statement is kept as written. A template in
+//! which a line comment can run on past its line break in a render is
+//! refused with [`Error::Template`]: moving a line break there could change
+//! what the comment comments out.
+//!
+//! # Features
+//!
+//! - `cli`, on by default: the `chairlift` binary. It enables `oracle` and
+//!   the binary's own dependencies; the library needs none of them, so a
+//!   crate that uses only the library can turn default features off.
+//! - `oracle`: the `chairlift::oracle` module, which runs ClickHouse's
+//!   `clickhouse-format` on a text and its formatted output to check that
+//!   ClickHouse reads both the same, for the binary's `--verify`.
+//! - `template`: the `chairlift::template` module, a test harness that
+//!   renders a template once per combination of its branches and loop
+//!   counts, and checks that formatting kept the SQL of every render. It
+//!   adds minijinja.
+//! - `corpus-tool`: the `corpus` binary, a development tool that formats,
+//!   verifies and checks whole directory trees.
+//!
+//! # ClickHouse version
+//!
+//! The grammar, the keyword list and the lexer rules follow one ClickHouse
+//! release, [`CLICKHOUSE_VERSION`]. [`KEYWORDS_VERSION`] is the release the
+//! keyword list was generated from, and so the release whose keywords are
+//! re-cased.
 
 mod cleanup;
 pub mod doc;
