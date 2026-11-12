@@ -67,9 +67,16 @@ chl [OPTIONS] <PATHS>...
 
 Paths are files or directories, formatted in place.
 In a directory chairlift formats `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files,
-symbolic links and whatever `.gitignore` and `.ignore` files exclude.
+symbolic links and whatever `.gitignore`, `.ignore` and `.chlignore` files exclude.
 A file named on the command line is formatted whatever its name.
 `-` reads stdin and writes the result to stdout.
+
+A `.chlignore` file, in gitignore syntax, excludes files from formatting only,
+where an `.ignore` file would also hide them from ripgrep and fd: vendored or generated SQL, say.
+It works in a git repository or outside one, and a `.chlignore` in a directory above the one searched applies too.
+Its rules win over those of `.gitignore` and `.ignore`, so a `!` line in it brings back a file they exclude,
+though not one in a directory they exclude, as that directory is not searched.
+A file named on the command line is formatted whatever `.chlignore` says.
 
 ```console
 $ chl .

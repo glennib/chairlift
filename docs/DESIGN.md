@@ -227,7 +227,8 @@ GRANT SELECT ON analytics.page_views_1h TO {{ this.reader_role | sql_ident }};
 
 - `chl [PATH…]` formats in place; `--check` lists unformatted files and exits non-zero; `--diff` prints a diff;
   `-` reads stdin and writes stdout, for editors.
-- File discovery: `*.sql`, `*.sql.j2` and `*.j2.sql`, respecting `.gitignore`.
+- File discovery: `*.sql`, `*.sql.j2` and `*.j2.sql`, respecting `.gitignore`, `.ignore` and `.chlignore`,
+  the last for chairlift alone.
 - Library: something like `format(source, options) -> Result<String, Error>`,
   so chum could offer `chum fmt` or check formatting when it loads migrations.
 

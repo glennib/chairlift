@@ -44,8 +44,9 @@ use diagnostic::Verbosity;
 ///
 /// Files are formatted in place. Directories are searched for `*.sql`,
 /// `*.sql.j2` and `*.j2.sql` files, skipping hidden files, symbolic links
-/// and whatever `.gitignore` and `.ignore` files exclude. A file named on
-/// the command line is formatted whatever its name.
+/// and whatever `.gitignore`, `.ignore` and `.chlignore` files exclude;
+/// `.chlignore` excludes files from formatting only. A file named on the
+/// command line is formatted whatever its name.
 #[derive(Debug, Parser)]
 #[allow(clippy::struct_excessive_bools, reason = "each is a flag")]
 #[command(
@@ -498,7 +499,10 @@ fn discover(paths: &[PathBuf], reporter: Reporter) -> (Vec<PathBuf>, usize) {
         match fs::metadata(path) {
             Ok(meta) if meta.is_dir() => {
                 let before = files.len();
-                let walk = ignore::WalkBuilder::new(path).require_git(false).build();
+                let walk = ignore::WalkBuilder::new(path)
+                    .require_git(false)
+                    .add_custom_ignore_filename(IGNORE_FILE)
+                    .build();
                 for entry in walk {
                     match entry {
                         Ok(entry) => {
@@ -551,6 +555,11 @@ fn discover(paths: &[PathBuf], reporter: Reporter) -> (Vec<PathBuf>, usize) {
     files.retain(|file| seen.insert(fs::canonicalize(file).unwrap_or_else(|_| file.clone())));
     (files, errors)
 }
+
+/// The name of the files, in gitignore syntax, that exclude files from
+/// formatting only. Their rules win over `.gitignore` and `.ignore`, and
+/// those in the parent directories of a searched directory apply too.
+const IGNORE_FILE: &str = ".chlignore";
 
 /// `*.sql` (which includes `*.j2.sql`) or `*.sql.j2`, in any case.
 fn is_sql_file(path: &Path) -> bool {

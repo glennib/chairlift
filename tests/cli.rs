@@ -101,7 +101,7 @@ fn help() {
     insta::assert_snapshot!(help.join("\n"), @"
     Format ClickHouse SQL and Jinja-templated SQL files.
 
-    Files are formatted in place. Directories are searched for `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files, symbolic links and whatever `.gitignore` and `.ignore` files exclude. A file named on the command line is formatted whatever its name.
+    Files are formatted in place. Directories are searched for `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files, symbolic links and whatever `.gitignore`, `.ignore` and `.chlignore` files exclude; `.chlignore` excludes files from formatting only. A file named on the command line is formatted whatever its name.
 
     Usage: chl [OPTIONS] <PATHS>...
 
@@ -472,6 +472,103 @@ fn directories_are_searched_for_sql_files() {
     assert_eq!(
         stdout(&output),
         "Would reformat: ignored.sql\nWould reformat: notes.txt\n"
+    );
+}
+
+/// The files `chl --check` lists, run in `dir` on `args`, with `/` as the
+/// separator.
+fn listed(dir: &Path, args: &[&str]) -> Vec<String> {
+    let output = run(&[&["--check"][..], args].concat(), None, Some(dir));
+    assert_ne!(output.status.code(), Some(2), "{}", stderr(&output));
+    stdout(&output)
+        .lines()
+        .map(|l| {
+            l.strip_prefix("Would reformat: ")
+                .unwrap()
+                .replace('\\', "/")
+        })
+        .collect()
+}
+
+#[test]
+fn chlignore_excludes_files_from_formatting() {
+    for in_git in [false, true] {
+        let dir = temp_dir(&format!("chlignore-{in_git}"));
+        if in_git {
+            fs::create_dir(dir.join(".git")).unwrap();
+        }
+        for name in [
+            "a.sql",
+            "generated.sql",
+            "vendor/b.sql",
+            "sub/c.sql",
+            "sub/nested.sql",
+        ] {
+            write(&dir, name, "SELECT 1; ");
+        }
+        write(&dir, ".chlignore", "generated.sql\nvendor/\n");
+        write(&dir, "sub/.chlignore", "nested.sql\n");
+        assert_eq!(listed(&dir, &["."]), ["./a.sql", "./sub/c.sql"], "{in_git}");
+        // A file named on the command line is formatted whatever
+        // `.chlignore` says.
+        assert_eq!(
+            listed(&dir, &["generated.sql", "vendor/b.sql"]),
+            ["generated.sql", "vendor/b.sql"],
+            "{in_git}"
+        );
+    }
+}
+
+/// `.chlignore` wins over `.gitignore` and `.ignore` either way: it can
+/// bring back a file they exclude, and they cannot bring back one it
+/// excludes. A directory they exclude is not searched, so `.chlignore`
+/// cannot bring back the files in it.
+#[test]
+fn chlignore_wins_over_gitignore_and_ignore() {
+    let dir = temp_dir("chlignore-precedence");
+    fs::create_dir(dir.join(".git")).unwrap();
+    for name in [
+        "back-from-git.sql",
+        "back-from-ignore.sql",
+        "kept-out.sql",
+        "skipped/d.sql",
+    ] {
+        write(&dir, name, "SELECT 1; ");
+    }
+    write(
+        &dir,
+        ".gitignore",
+        "back-from-git.sql\n!kept-out.sql\nskipped/\n",
+    );
+    write(&dir, ".ignore", "back-from-ignore.sql\n!kept-out.sql\n");
+    write(
+        &dir,
+        ".chlignore",
+        "!back-from-git.sql\n!back-from-ignore.sql\nkept-out.sql\n!skipped/d.sql\n",
+    );
+    assert_eq!(
+        listed(&dir, &["."]),
+        ["./back-from-git.sql", "./back-from-ignore.sql"]
+    );
+}
+
+/// A `.chlignore` in a directory above the one searched applies, whether
+/// the directory is given by a relative path or an absolute one, with its
+/// patterns relative to its own directory.
+#[test]
+fn chlignore_in_a_parent_directory_applies() {
+    let dir = temp_dir("chlignore-parents");
+    for name in ["sub/a.sql", "sub/anywhere.sql", "sub/anchored.sql"] {
+        write(&dir, name, "SELECT 1; ");
+    }
+    write(&dir, ".chlignore", "anywhere.sql\n/sub/anchored.sql\n");
+    assert_eq!(listed(&dir, &["sub"]), ["sub/a.sql"]);
+    assert_eq!(listed(&dir.join("sub"), &["."]), ["./a.sql"]);
+    let sub = dir.join("sub");
+    let sub = sub.to_str().unwrap();
+    assert_eq!(
+        listed(&dir, &[sub]),
+        [format!("{}/a.sql", sub.replace('\\', "/"))]
     );
 }
 
