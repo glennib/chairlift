@@ -10,7 +10,9 @@ authors = ["Glenn Bitar <glennbitar@gmail.com>"]
 readme = "README.md"
 keywords = ["clickhouse", "sql", "formatter", "jinja", "cli"]
 categories = ["command-line-utilities", "development-tools", "database"]
-exclude = ["/corpus", "/docs", "/fuzz", "/scripts", "/tests/fixtures"]
+# The tests, benchmarks and snapshots need fixtures and corpora that are not
+# published, so only what builds the library and the binaries ships.
+include = ["/src/**/*.rs", "/README.md", "/CHANGELOG.md", "/LICENSE-APACHE", "/LICENSE-MIT"]
 default-run = "chairlift"
 
 [lib]
@@ -100,6 +102,9 @@ insta = "1.49"
 # with no semver guarantees, hence the tilde requirement (chum pins the same).
 minijinja = { version = "~3.1.0", default-features = false, features = ["unstable_machinery"] }
 proptest = "1.12"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
