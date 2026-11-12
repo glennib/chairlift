@@ -144,9 +144,9 @@ use crate::split::split;
 /// Every statement is [parsed](syntax) and either [laid out](layout) by the
 /// style's rules (keywords upper case, clauses one per line, lists that fit
 /// on a line or go one item per line, at [`Options::line_width`]), or kept
-/// as written: a statement the layout has no rule for yet, or one holding a
-/// Jinja shape the rules do not cover. A statement kept as written gets the
-/// safe cleanup only:
+/// as written: a statement the parser does not know or could not parse, or
+/// one holding a Jinja shape the rules do not cover. A statement kept as
+/// written gets the safe cleanup only:
 ///
 /// - whitespace at the end of lines goes, and CRLF line endings become LF;
 /// - blank lines collapse to one at most, with none right after `(` or

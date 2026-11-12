@@ -882,8 +882,11 @@ syntax_kinds! {
         /// [`IfNotExists`](Self::IfNotExists), the name, any
         /// [`TableUuid`](Self::TableUuid), `FROM` and a string
         /// [`Literal`](Self::Literal) or `AS [NOT] REPLICATED`, any
-        /// [`OnCluster`](Self::OnCluster), and the definition that may follow,
-        /// [`Opaque`](Self::Opaque).
+        /// [`OnCluster`](Self::OnCluster), and the rest of the definition,
+        /// [`Opaque`](Self::Opaque). Where a table's columns follow `FROM
+        /// 'path'`, its [`TableElementList`](Self::TableElementList) and
+        /// clauses are parsed instead, as in
+        /// [`CreateTable`](Self::CreateTable).
         AttachQuery: Statement,
         /// `RENAME [TABLE | DICTIONARY | DATABASE]` or `EXCHANGE TABLES |
         /// DICTIONARIES`, a [`RenameList`](Self::RenameList), any

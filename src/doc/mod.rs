@@ -156,7 +156,7 @@
 //!
 //! # Style rules and their constructs
 //!
-//! | Rule (`docs/MILESTONES.md`, "Style") | Construct |
+//! | Rule of the [style](https://github.com/glennib/chairlift#style) | Construct |
 //! | --- | --- |
 //! | Line width 100, four-space indent | [`PrintOptions`] |
 //! | Keywords upper case; `true`, `nan` lower, `NULL` upper | `keyword`, `literal_word` |

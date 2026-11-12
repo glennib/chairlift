@@ -110,7 +110,7 @@ pub enum Entry {
     /// keyword after the list is parsed as `SELECT` and an expression list,
     /// into an [`ExpressionProbe`](SyntaxKind::ExpressionProbe); every other
     /// statement is verbatim. It measures the expression grammar on real
-    /// queries before the `SELECT` grammar exists.
+    /// queries apart from the rest of the `SELECT` grammar.
     SelectListProbe,
     /// Each statement as one expression, with an optional alias.
     Expression,

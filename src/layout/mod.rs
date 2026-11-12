@@ -3,8 +3,9 @@
 //! [`format`](crate::format) splits and parses a text, lays out the tree
 //! here, prints the document and verifies the result. The layout walks the
 //! tree once, adding every token to a [`Builder`](crate::doc::Builder) in
-//! order, with the spaces, line breaks, groups and indentation the style
-//! (`docs/MILESTONES.md`, "Style") asks for between them.
+//! order, with the spaces, line breaks, groups and indentation the
+//! [style](https://github.com/glennib/chairlift#style) asks for between
+//! them.
 //!
 //! # Statements: laid out or kept as written
 //!
@@ -13,10 +14,13 @@
 //! [`Builder::as_written`](crate::doc::Builder::as_written)): its lines as
 //! they are, without trailing whitespace and with at most one blank line
 //! in a row. The layout never guesses: a statement is kept when the parser
-//! did not parse it, when there is no rule for its kind yet, or when it
-//! holds a Jinja shape the rules do not cover, and [`Statement::decision`]
-//! says which. A kept statement still starts on a line of its own, with
-//! the blank lines between statements that the style keeps.
+//! did not parse it, when there is no rule for its kind, or when it holds
+//! a Jinja shape the rules do not cover, and [`Statement::decision`] says
+//! which. Every statement kind the parser produces for a file has a rule;
+//! only the statements of the
+//! [expression probe](crate::syntax::Entry::SelectListProbe) have none. A
+//! kept statement still starts on a line of its own, with the blank lines
+//! between statements that the style keeps.
 //!
 //! # How the parts fit
 //!
@@ -93,8 +97,7 @@
 //!
 //! # Templates
 //!
-//! What the layout does with Jinja, by `docs/MILESTONES.md` ("Style",
-//! Jinja):
+//! What the layout does with Jinja:
 //!
 //! - A block tag goes on a line of its own at the indentation of what
 //!   follows it, `{% else %}`, `{% elif %}` and closers at their opener's;
@@ -193,7 +196,9 @@ pub enum Kept {
     /// The parser kept it verbatim: a kind it does not know, or one that
     /// did not parse.
     NotParsed,
-    /// The layout has no rule for its kind yet.
+    /// The layout has no rule for its kind. Of the statements the parser
+    /// produces, only an [`ExpressionProbe`](SyntaxKind::ExpressionProbe),
+    /// which a file never holds, is kept for this.
     NoRule,
     /// A Jinja block tag stands where the layout cannot put it on a line
     /// of its own, such as inside an expression.
