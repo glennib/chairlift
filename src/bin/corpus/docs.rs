@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use chairlift::lexer::Mode;
+use chairlift::lexer::TokenKind;
 use chairlift::oracle::Judgement;
 use chairlift::oracle::Oracle;
 use chairlift::oracle::Pair;
@@ -33,7 +34,7 @@ pub const STAMP: &str = "stamp.txt";
 
 /// Changes whenever the extraction would write something else from the same
 /// documentation, so that an extracted corpus is redone.
-pub const EXTRACTOR_VERSION: u32 = 1;
+pub const EXTRACTOR_VERSION: u32 = 2;
 
 /// A fenced code block of SQL.
 #[derive(Debug, PartialEq, Eq)]
@@ -147,8 +148,8 @@ impl Stats {
 /// The part of `block` the oracle accepts, given whether it accepts each of
 /// the statements the splitter finds in it: the block as it is if it accepts
 /// them all, else each accepted statement with the comments and blank lines
-/// before it, and the trivia after the last statement. `None` if it accepts
-/// none.
+/// before it and the comments after it on its last line, and the trivia
+/// after the last statement. `None` if it accepts none.
 #[must_use]
 pub fn kept(block: &str, accepted: &[bool]) -> Option<String> {
     let split = split(block, Mode::Sql);
@@ -163,7 +164,18 @@ pub fn kept(block: &str, accepted: &[bool]) -> Option<String> {
     let mut out = String::new();
     let mut previous = 0;
     for (statement, &ok) in split.statements().iter().zip(accepted) {
-        let end = tokens[statement.tokens.end - 1].end();
+        // A comment after the `;` on its line comments on this statement,
+        // though it lies before the next one.
+        let mut last = statement.tokens.end;
+        while let Some(token) = tokens.get(last) {
+            match token.kind() {
+                TokenKind::Whitespace if !token.text(block).contains('\n') => {}
+                TokenKind::LineComment | TokenKind::BlockComment => {}
+                _ => break,
+            }
+            last += 1;
+        }
+        let end = tokens[last - 1].end();
         if ok {
             out.push_str(&block[previous..end]);
         }
@@ -437,5 +449,18 @@ SELECT 4
             Some("-- three\nSELECT 3; -- end\n")
         );
         assert_eq!(kept(block, &[false, false, false]), None);
+    }
+
+    #[test]
+    fn kept_keeps_a_trailing_comment_with_its_statement() {
+        let block = "SELECT 1; -- first\nf(x[, y]); /* signature */ -- too\nSELECT 3;\n";
+        assert_eq!(
+            kept(block, &[true, false, true]).as_deref(),
+            Some("SELECT 1; -- first\nSELECT 3;\n")
+        );
+        assert_eq!(
+            kept(block, &[false, true, false]).as_deref(),
+            Some("f(x[, y]); /* signature */ -- too\n")
+        );
     }
 }
