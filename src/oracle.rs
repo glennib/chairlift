@@ -245,14 +245,15 @@ pub struct Variant<'a> {
 /// every statement is judged. Without it, templates are judged unrendered.
 #[must_use]
 pub fn variants<'a>(input: &'a str, output: &'a str, mode: Mode) -> Vec<Variant<'a>> {
-    let mut out = vec![Variant {
+    let file = Variant {
         rendering: None,
         input: Cow::Borrowed(input),
         output: Cow::Borrowed(output),
         mode,
-    }];
+    };
     #[cfg(feature = "template")]
     if mode == Mode::Jinja {
+        let mut out = vec![file];
         out.extend(
             crate::template::rendered_pairs(input, output)
                 .into_iter()
@@ -263,8 +264,9 @@ pub fn variants<'a>(input: &'a str, output: &'a str, mode: Mode) -> Vec<Variant<
                     mode: Mode::Sql,
                 }),
         );
+        return out;
     }
-    out
+    vec![file]
 }
 
 /// Characters of a canonical form shown before the point where it differs.
