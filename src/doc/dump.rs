@@ -74,6 +74,13 @@ impl fmt::Debug for Doc<'_> {
                 Node::Frozen { start, end } => {
                     write!(f, "frozen {:?}", &self.source[start as usize..end as usize])?;
                 }
+                Node::Indentation { start, end } => {
+                    write!(
+                        f,
+                        "indentation {:?}",
+                        &self.source[start as usize..end as usize]
+                    )?;
+                }
                 Node::GroupStart(g) => {
                     write!(f, "group #{g}")?;
                     if self.groups[g as usize].forced {

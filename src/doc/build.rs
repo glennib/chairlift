@@ -5,6 +5,7 @@ use super::Ending;
 use super::Gap;
 use super::GroupId;
 use super::TagId;
+use super::bit;
 use super::ir::Atom;
 use super::ir::GroupInfo;
 use super::ir::LineKind;
@@ -19,6 +20,7 @@ use super::ir::VerbatimInfo;
 use super::ir::first_line;
 use super::ir::narrow;
 use super::print::line_comment_text;
+use super::set_bit;
 use super::touch::may_touch;
 use crate::lexer::Mode;
 use crate::lexer::Token;
@@ -73,6 +75,9 @@ pub struct Builder<'s> {
     groups: Vec<OpenGroup>,
     adj: Adjacency<'s>,
     any_frozen: bool,
+    /// A bit per token: the last token of lines kept as written (see
+    /// [`keep_lines`](Self::keep_lines)).
+    line_ends: Vec<u64>,
     /// The first token that renders as text is a `Dot`, after tags that
     /// render nothing, and the rendered text has whitespace before it.
     dot_first: bool,
@@ -160,6 +165,7 @@ impl<'s> Builder<'s> {
                 statics: Vec::new(),
                 tags: Vec::new(),
                 frozen: Vec::new(),
+                line_starts: Vec::new(),
                 ending: Ending::Newline,
             },
             scopes: Vec::new(),
@@ -172,6 +178,7 @@ impl<'s> Builder<'s> {
                 gap: Between::Separated,
             },
             any_frozen: false,
+            line_ends: Vec::new(),
             dot_first: dot_after_tags(source, tokens, mode),
         }
     }
@@ -456,13 +463,19 @@ impl<'s> Builder<'s> {
     /// next token, byte for byte, in place of whatever the layout puts
     /// there: for whitespace that is part of another token once a template
     /// is rendered, or that comes before a group which must not start with
-    /// it. Where the tokens touched in the input, they touch.
+    /// it. Where the tokens touched in the input, they touch. Before lines
+    /// kept as written (see [`keep_lines`](Self::keep_lines)), it is their
+    /// line break and indentation.
     pub fn frozen(&mut self) {
         let Some(last) = self.adj.last else {
             return;
         };
         let tokens = self.doc.tokens;
         let last = last as usize;
+        if self.doc.is_line_start(last + 1) && !self.doc.is_frozen(last + 1) {
+            self.push_indentation(last + 1);
+            return;
+        }
         let start = tokens[last].end();
         let end = match tokens.get(last + 1) {
             Some(t) if t.kind() == TokenKind::Whitespace => t.end(),
@@ -486,12 +499,45 @@ impl<'s> Builder<'s> {
             self.adj.last.is_none_or(|last| index >= last as usize),
             "token {index} is frozen after the tokens after it were added"
         );
-        let (word, bit) = (index / 64, index % 64);
-        if self.doc.frozen.len() <= word {
-            self.doc.frozen.resize(word + 1, 0);
-        }
-        self.doc.frozen[word] |= 1 << bit;
+        set_bit(&mut self.doc.frozen, index);
         self.any_frozen = true;
+    }
+
+    /// Whether whitespace token `index` comes before lines kept as written
+    /// (see [`keep_lines`](Self::keep_lines)).
+    #[must_use]
+    pub fn starts_kept_lines(&self, index: usize) -> bool {
+        self.doc.is_line_start(index)
+    }
+
+    /// Keeps tokens `first` to `last`, whole lines of the input, as they
+    /// are: the tokens and the whitespace between them are
+    /// [frozen](Self::freeze), the first line starts a line with the
+    /// input's indentation (and the blank lines the layout asks for before
+    /// it), and a line break follows the last. `first` must start a line
+    /// of the input and `last` end one, and neither may be whitespace. Call
+    /// it before adding the tokens it concerns.
+    ///
+    /// Inside [verbatim](Self::verbatim) text, the line break before
+    /// `first` keeps the input's indentation too.
+    pub fn keep_lines(&mut self, first: usize, last: usize) {
+        let tokens = self.doc.tokens;
+        debug_assert!(
+            first <= last
+                && tokens[first].kind() != TokenKind::Whitespace
+                && tokens[last].kind() != TokenKind::Whitespace,
+            "lines kept as written start or end with whitespace: {first}..={last}"
+        );
+        for i in first..=last {
+            self.freeze(i);
+        }
+        if let Some(ws) = first.checked_sub(1)
+            && tokens[ws].kind() == TokenKind::Whitespace
+            && tokens[ws].text(self.doc.source).contains('\n')
+        {
+            set_bit(&mut self.doc.line_starts, ws);
+        }
+        set_bit(&mut self.line_ends, last);
     }
 
     // Scopes.
@@ -760,6 +806,7 @@ impl<'s> Builder<'s> {
         } else {
             Between::Touching
         };
+        self.end_kept_lines(index);
     }
 
     /// The width of the first line of verbatim tokens `first..=last` as the
@@ -850,6 +897,7 @@ impl<'s> Builder<'s> {
         } else {
             Between::Touching
         };
+        self.end_kept_lines(last);
     }
 
     /// Records that token `index` is printed next.
@@ -933,6 +981,30 @@ impl<'s> Builder<'s> {
         };
         if freeze {
             self.push_frozen(tokens[last].end(), tokens[index].start());
+        } else if index == last + 2 && self.doc.is_line_start(last + 1) {
+            self.push_indentation(last + 1);
+        }
+    }
+
+    /// Starts a line with the input's indentation from whitespace token
+    /// `ws` (see [`keep_lines`](Self::keep_lines)).
+    fn push_indentation(&mut self, ws: usize) {
+        let token = self.doc.tokens[ws];
+        let text = token.text(self.doc.source);
+        let start = token.start() + text.rfind('\n').map_or(0, |at| at + 1);
+        self.doc.nodes.push(Node::Indentation {
+            start: narrow(start),
+            end: narrow(token.end()),
+        });
+        self.force_break();
+        self.adj.gap = Between::Frozen;
+    }
+
+    /// Breaks the line after token `index`, just added, where it ends lines
+    /// kept as written.
+    fn end_kept_lines(&mut self, index: usize) {
+        if bit(&self.line_ends, index) {
+            self.hard_line();
         }
     }
 

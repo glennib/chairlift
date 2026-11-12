@@ -37,6 +37,13 @@ pub(super) enum Node {
         start: u32,
         end: u32,
     },
+    /// A line break, with the blank lines asked for here, then the input's
+    /// indentation, a byte range of the source: the start of a line kept as
+    /// written (see `Builder::keep_lines`).
+    Indentation {
+        start: u32,
+        end: u32,
+    },
     /// The start of a group: an index into [`Doc::groups`](super::Doc).
     GroupStart(u32),
     GroupEnd,

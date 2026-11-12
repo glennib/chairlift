@@ -105,6 +105,8 @@
 //!   be added or dropped, which chairlift never does.
 //! - [`frozen`](Builder::frozen) and [`freeze`](Builder::freeze): the
 //!   input's whitespace at a place, byte for byte, in place of the layout's.
+//! - [`keep_lines`](Builder::keep_lines): whole lines of the input byte for
+//!   byte, for a region between `fmt: off` and `fmt: on`.
 //!
 //! **Scopes.**
 //!
@@ -182,6 +184,7 @@
 //! | A header (`{{ config() }}`) on lines of its own at column 0, a blank line kept | `token hard_line blank_lines(n)` before the statement's body |
 //! | `{{ }}` adjacency as written; text a rendered template joins kept | automatic; `frozen`, `freeze` |
 //! | Verbatim regions re-indented as a block; `::` operand and `INSERT` data untouched | `verbatim`; `verbatim_exact` |
+//! | Lines between `fmt: off` and `fmt: on` byte for byte | `keep_lines` |
 //!
 //! # Invariants for layout rules
 //!
@@ -252,6 +255,9 @@ pub struct Doc<'s> {
     tags: Vec<u32>,
     /// A bit per token: frozen (see [`Builder::freeze`]).
     frozen: Vec<u64>,
+    /// A bit per token: whitespace before lines kept as written, whose
+    /// indentation their first line keeps (see [`Builder::keep_lines`]).
+    line_starts: Vec<u64>,
     ending: Ending,
 }
 
@@ -367,10 +373,27 @@ impl<'s> Doc<'s> {
     }
 
     fn is_frozen(&self, index: usize) -> bool {
-        self.frozen
-            .get(index / 64)
-            .is_some_and(|word| word & (1 << (index % 64)) != 0)
+        bit(&self.frozen, index)
     }
+
+    fn is_line_start(&self, index: usize) -> bool {
+        bit(&self.line_starts, index)
+    }
+}
+
+/// Whether bit `index` of `bits` is set.
+fn bit(bits: &[u64], index: usize) -> bool {
+    bits.get(index / 64)
+        .is_some_and(|word| word & (1 << (index % 64)) != 0)
+}
+
+/// Sets bit `index` of `bits`.
+fn set_bit(bits: &mut Vec<u64>, index: usize) {
+    let (word, bit) = (index / 64, index % 64);
+    if bits.len() <= word {
+        bits.resize(word + 1, 0);
+    }
+    bits[word] |= 1 << bit;
 }
 
 #[cfg(test)]

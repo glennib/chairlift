@@ -142,6 +142,9 @@ struct Pending {
     blank_ref: u32,
     /// Input whitespace that replaces everything else here.
     frozen: Option<(u32, u32)>,
+    /// The input's indentation, which the line a pending line break starts
+    /// takes in place of the scope's.
+    indentation: Option<(u32, u32)>,
 }
 
 impl Default for Pending {
@@ -154,6 +157,7 @@ impl Default for Pending {
             blank_at_brackets: 0,
             blank_ref: NONE,
             frozen: None,
+            indentation: None,
         }
     }
 }
@@ -293,6 +297,10 @@ impl<'d, 's> Printer<'d, 's> {
                 if self.pending.frozen.is_none() {
                     self.pending.frozen = Some((start, end));
                 }
+            }
+            Node::Indentation { start, end } => {
+                self.want_newline(Newline::Forced);
+                self.pending.indentation = Some((start, end));
             }
             Node::GroupStart(group) => self.group_start(group),
             Node::GroupEnd => {
@@ -517,7 +525,12 @@ impl<'d, 's> Printer<'d, 's> {
                 pending.blank.max(u8::from(referred))
             };
             let blank = blank.max(pending.blank_at_brackets).min(MAX_BLANK_LINES);
-            self.newline(usize::from(blank), indent);
+            if let Some((start, end)) = pending.indentation {
+                self.newline(usize::from(blank), 0);
+                self.write(&self.doc.source[start as usize..end as usize]);
+            } else {
+                self.newline(usize::from(blank), indent);
+            }
         } else if pending.space || sep == Sep::Glue {
             self.write_spaces(1);
         }
@@ -571,7 +584,7 @@ impl<'d, 's> Printer<'d, 's> {
                                 (newlines - 1).min(1)
                             };
                             let indentation = after_last_newline(text);
-                            if info.kind == Verbatim::AsWritten {
+                            if info.kind == Verbatim::AsWritten || doc.is_line_start(i) {
                                 self.newline(blank, 0);
                                 self.write(indentation);
                                 self.line_indent = indent_columns(indentation, self.indent_width);
@@ -632,6 +645,7 @@ impl<'d, 's> Printer<'d, 's> {
             if token.kind() == TokenKind::Whitespace
                 && text.contains('\n')
                 && self.rewritable(i, text)
+                && !doc.is_line_start(i)
             {
                 common = common.min(indent_columns(after_last_newline(text), self.indent_width));
             }
@@ -777,7 +791,11 @@ impl<'d, 's> Printer<'d, 's> {
             };
             (indent, pend)
         } else if pending.newline != Newline::None {
-            (self.pending_indent(), Pend::LineStart)
+            let indent = match pending.indentation {
+                Some((start, end)) => width(&self.doc.source[start as usize..end as usize]),
+                None => self.pending_indent(),
+            };
+            (indent, Pend::LineStart)
         } else if pending.space {
             (self.column, Pend::Space)
         } else {
@@ -827,7 +845,7 @@ impl<'d, 's> Printer<'d, 's> {
                         }
                     }
                     Node::Space | Node::Line(LineKind::Normal) => meter.space(),
-                    Node::Line(LineKind::Hard) => return false,
+                    Node::Line(LineKind::Hard) | Node::Indentation { .. } => return false,
                     Node::IfBreak {
                         group: other,
                         broken,
@@ -902,7 +920,7 @@ impl<'d, 's> Printer<'d, 's> {
                     }
                 }
                 Node::Space => meter.space(),
-                Node::Line(_) => return true,
+                Node::Line(_) | Node::Indentation { .. } => return true,
                 Node::IfBreak {
                     group: other,
                     broken,
