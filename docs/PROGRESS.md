@@ -12,34 +12,40 @@ M9 (chum integration) is not part of this run.
 | M2. Verifier, splitter, safe-cleanup CLI | done | review findings fixed |
 | M3. Parser core | done | both grammar reviews' fixes are on `main` |
 | M4. Formatting rules and printer | done | acceptance measured; reviews' fixes on `main`; style readings await the project owner |
-| M5. Jinja templates | implemented | on `main`; acceptance measured; not yet reviewed |
+| M5. Jinja templates | done | reviewed; findings fixed, except laying out the loop-comma idioms |
 | M6. CLI polish and performance | done | reviewed; every finding fixed |
-| M7. Remaining statement kinds | implemented | on `main`; acceptance met; not yet reviewed |
-| M8. Hardening and first release | not started | |
+| M7. Remaining statement kinds | done | reviewed; every finding fixed |
+| M8. Hardening and first release | in progress | docs corpus, `--version`, weekly fuzz job, README, changelog |
 
 ## Resuming the work
 
 M0–M7 are on `main`.
-M5, M6 and M7 each had an independent review on 2026-11-12.
-The M6 findings are fixed and on `main`; the fixes for M5 and M7 are in progress.
+M5, M6 and M7 each had an independent review on 2026-11-12, and the fixes for all three are on `main`.
 Only the tip of each landed stack was checked with `mise run ci`, not every commit.
 
 What remains, in order:
 
-1. **The fixes for the M5 and M7 reviews**, listed under those milestones' notes once they land.
-2. **M8**: fuzz targets run for an hour, the docs-examples corpus in the oracle sweep, the README
+1. **M8**: fuzz targets run for an hour, the docs-examples corpus in the oracle sweep, the README
    (installation, usage, style summary, editor setup, pre-commit),
    `CHANGELOG.md` through release-plz, and `--version` printing the keyword-list version.
-3. **For the project owner**: the style questions and the snapshots listed below, and the release itself.
+2. **For the project owner**: the style questions and the snapshots listed below, and the release itself.
 
 Known loose ends:
 
+- The loop-comma idioms (`{{ c }}{% if not loop.last %},{% endif %}` and its kin) keep their statement as written.
+  Laying them out needs a document form for inline block tags.
+- Brackets next to `{{ … }}` keep their space as written;
+  a `GRANT` with a block tag before a list continuation indents the continuation one level too deep.
+- The render harness gives every loop of one render the same count,
+  and takes only the truthy side of an inline `{{ a if x else b }}` over a stub.
+- `EXISTS`, `KILL`, `CHECK TABLE`, `SHOW USERS` and its kin, `SHOW TABLE t`,
+  `DESCRIBE SELECT …` and the named-collection statements stay verbatim.
+- `SHOW DICTIONARIES FROM settings settings 'x'`, which ClickHouse rejects, re-cases the database name.
 - The benchmark check catches a build made twice as slow, but on a loaded machine a regression of 15–20% can pass.
 - An in-place write does not keep a file's owner, extended attributes, ACLs or hard links,
   and a killed run can leave a `.chairlift-PID-N.tmp` file behind.
 - The default `cli` features do not include `template`,
   so a default build's `--verify` does not judge a template through its renders; it says so in the summary.
-- `cargo clippy --lib --no-default-features --features oracle` fails on an unused `mut`; CI does not build that.
 - `SYSTEM`, `EXPLAIN` and KQL `PRINT` statements stay verbatim, as planned.
 - In plain SQL, `{map} AS m` does not upper-case `as`.
 
@@ -115,6 +121,9 @@ Those assumptions are used unless the project owner decides otherwise:
 - Snapshot review: `insta` snapshots are committed so that every commit passes its tests.
   They are listed here per milestone until reviewed.
   - M0: the inline snapshot of `--help` in `tests/cli.rs`.
+  - M7 review fixes: `tests/snapshots/format__statements__{access,rename_optimize_set_use,drop_and_friends}.sql.snap`
+    and the tree snapshots `…access__tests__users_and_roles.snap` and `…simple__tests__attach.snap`.
+  - M6 review fixes: the inline `help` snapshot in `tests/cli.rs`.
   - M7 part 3: 5 tree snapshots under `src/syntax/grammar/{access,show}/snapshots/`
     and two new `tests/snapshots/format__statements__*.snap`.
   - M7 part 2: 6 tree snapshots under `src/syntax/grammar/{alter,create_other}/snapshots/`,
@@ -186,6 +195,24 @@ Readings chosen for access control, `SHOW` and `DESCRIBE`:
 - `u@'%'`, `SELECT(a, b)` and `CURRENT GRANTS(…)` are written without spaces.
 - `DESCRIBE (subquery)` always spans lines, since a subquery hugs its brackets.
 
+Readings chosen while fixing the M7 review:
+
+- A head that does not fit puts `ON CLUSTER` and the clauses after the name on lines of their own, one level in.
+  This holds for `OPTIMIZE`, `SHOW`, `ALTER`, `DELETE`, `UPDATE`, `DROP`, `RENAME`,
+  every `CREATE` header and the access entities.
+  When an `ALTER` head breaks, a single command starts a line too.
+- `GRANT … ON CLUSTER c` and `CREATE FUNCTION … ON CLUSTER c` keep the cluster on the first line.
+- A row policy's `ON table` is a clause, on its own line when the statement breaks.
+- Several authentication methods go one per line under `IDENTIFIED WITH`;
+  one method that does not fit breaks before `SALT` and `VALID UNTIL`.
+- A quota's `FOR INTERVAL` blocks go one per line when the statement breaks.
+- `INSERT INTO t (SELECT …)` hugs its bracket.
+- `ATTACH TABLE … FROM 'path'` with a definition is laid out like `CREATE TABLE`.
+- Nested dictionary pairs glue their bracket to the key: `replica(host …)`.
+- Left for the owner: `ALTER … UPDATE` keeps its assignments on the command's line,
+  while a lightweight `UPDATE` puts each clause at column 0;
+  privilege phrases and `LIFETIME(min … max …)` keep their case.
+
 Readings chosen for templates:
 
 - `{% endif %};` puts the `;` on its own line after the tag.
@@ -194,6 +221,12 @@ Readings chosen for templates:
 
 ## Deviations from the plan
 
+- **A template is returned unchanged where a render can turn whitespace between its tokens into the inside of a literal
+  or comment.**
+  That is a tag hidden in a string, quoted identifier, heredoc or comment, an unpaired `$`,
+  a `-` or `/` that a branch puts against `-` or `*`, and a heredoc whose opener a render can glue to a word.
+  Not even trailing whitespace is removed.
+  A tag hidden in a word without `$`, or glued into a `{{ … }}`, still gets the cleanup.
 - **Lexer rules (M1)**: where the plan's summary of ClickHouse's lexer differs from ClickHouse's source,
   the source is followed.
   The lexer's token stream is compared with ClickHouse's own lexer, compiled from the fetched source, in the tests.
@@ -724,8 +757,8 @@ Not independently reviewed.
   (16 of 16),
   the DESIGN.md example included; 41 of 42 dbt statements,
   the other being a macro file whose only statement is `{{ print() }}`.
-  The local corpora hold no template.
-- Stateless templates: 6,735 of 7,102 statements formatted.
+  The local corpora hold one template, which is formatted.
+- Stateless templates: 6,735 of 7,060 statements formatted.
   Kept as written: 102 with a tag glued into a word, 11 with data that differs between renders,
   4 where a render joins tokens, 3 with a tag inside an expression.
   Two templates are refused.
@@ -759,3 +792,53 @@ Only the tip was checked with `mise run ci` (549 tests).
   `--help` states the real rules for `--jinja auto`, `--check --diff`, symlinks and explicit paths.
 - Unchanged: `--check` over the stateless corpus gives the same output byte for byte with 1 and 8 jobs
   (2.5 s with 8 jobs on a loaded machine).
+
+### M5, reviewed
+
+An independent review found two ways a render's meaning could change, one super-linear check,
+and layout and coverage problems.
+The fixes are on `main`.
+
+- **Whitespace inside a literal that only a render forms.**
+  A statement kept as written still lost trailing whitespace and blank lines,
+  which in a render that leaves out a branch can sit inside a string.
+  A `$h$` in a loop body became a heredoc across iterations, and its content was re-indented.
+  Such templates are returned unchanged now; see "Deviations from the plan".
+- The reviewer's two generators, which render every combination with the real `loop.last`,
+  report no difference in 420,000 templates.
+  About 6 of them differ in a render that starts with a lone `.`, which is not valid SQL.
+- Two further defects the generators found are fixed:
+  a word joined to another across a `-` marker beyond a tag was re-cased,
+  and a `#` comment whose space a marker strips failed verification and is refused now.
+- The check of where a line comment runs on is linear: 50,000 `elif`s take 0.08 s; 5,000 did not finish before.
+- The oracle judges a render alone when it does not lex on its own or holds a lone `$`.
+- The render harness decides an `{% if %}` on `loop.…` in each pass.
+  The property test generates quotes, heredocs and comments that a branch or loop pairs.
+- **Cost**: a block tag glued into a `{{ … }}` that reaches outside it, and a block holding only a comma,
+  keep their statement as written, since the layout misaligned their closers.
+  Stateless template statements formatted: 6,619 of 7,060, down from 6,735.
+  Fixtures 16 of 16 and dbt 41 of 42, as before.
+- Unchanged: 284 templates in 936 variants, no difference between renders; the oracle judges 855 variants,
+  none differing.
+
+### M7, reviewed
+
+An independent review found no change of meaning,
+no altered data or secret and no dropped token in about 20,000 generated cases.
+It found one crash, one quadratic slowdown, and width and style defects.
+All are fixed and on `main`.
+
+- A dictionary `SOURCE` nested 100,000 deep overflowed the stack; it goes through the depth limit now.
+  65 bracketed constructs nested 200,000 deep are formatted without a crash.
+- Printing many failed list items on one line was quadratic: 80,000 took 5.3 s and take about 0.5 s now.
+- Long statement heads break; see the readings above.
+- `ATTACH` with a definition, `ALTER USER … ADD|DROP HOST`, `ADD IDENTIFIED`,
+  `RESET AUTHENTICATION METHODS TO NEW` and `SHOW CREATE ROW POLICY p ON t` are parsed.
+- Over 70 keyword-position templates were added; they exposed two wrong slots, both fixed.
+  989,839 cases pass.
+- An `ALTER` command whose list carries on past a comma must be the last for `MODIFY SETTING`, `RESET SETTING`,
+  `MODIFY TTL` and the statistics commands.
+  For `UPDATE`, `DELETE IN PARTITION` and `MATERIALIZE STATISTICS` the `WHERE` or `IN PARTITION` ends the list,
+  so the note under M7 part 2 overstates it.
+- Statements verbatim at statement level on the stateless corpus: 10,145 of 275,515 (3.68%).
+  The oracle judges 270,251 statements, none differing.
