@@ -33,7 +33,11 @@ fn run(args: &[&str], stdin: Option<&[u8]>, dir: Option<&Path>) -> Output {
     let mut child = command.spawn().expect("chairlift binary runs");
     let mut pipe = child.stdin.take().unwrap();
     if let Some(input) = stdin {
-        pipe.write_all(input).unwrap();
+        // `chl` can exit without reading stdin, on a bad `chl.toml` for one.
+        match pipe.write_all(input) {
+            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {}
+            result => result.unwrap(),
+        }
     }
     drop(pipe);
     child.wait_with_output().unwrap()
