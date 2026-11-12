@@ -26,13 +26,12 @@ Only the tip of each landed stack was checked with `mise run ci`, not every comm
 What remains is for the project owner:
 
 1. **The release.** The version is 0.1.0.
-   `dist generate --mode=ci` writes the cargo-dist workflow, which is not checked in,
-   and `release-plz.yml` runs on manual dispatch only.
-   Commit the cargo-dist workflow before the first dispatch of `release-plz.yml`: release-plz publishes the crate,
-   pushes the tag and makes a draft release, and a workflow added after the tag never builds binaries for it.
-   Without the workflow `dist plan` fails.
-   The first publish to crates.io probably needs a token or a manual `cargo publish`,
-   as trusted publishing is set up on a crate that exists; this was not checked.
+   Release automation is set up as in chum.
+   On every push to `main`, `release-plz.yml` opens or updates a release pull request.
+   Merging it publishes the crate to crates.io by trusted publishing, pushes the tag and makes a draft release,
+   and the tag starts `release.yml`, which builds the archives with cargo-dist and publishes the release.
+   A placeholder 0.0.1 was published by hand so that trusted publishing could be set up on an existing crate,
+   and `RELEASE_PLZ_TOKEN` is a repository secret.
    The first changelog has 168 entries and may want trimming in the release pull request (see "M8, reviewed").
 2. **The style questions and the snapshots** listed below.
 
@@ -115,10 +114,9 @@ Those assumptions are used unless the project owner decides otherwise:
 
 - Work is pushed to `main` on `origin` after each milestone's review, without pull requests.
   CI results are recorded per milestone below.
-- No release automation runs yet: only CI triggers on a push.
+- CI and release-plz run on a push to `main`, cargo-dist on a version tag and on pull requests.
   The fuzz and oracle workflows run weekly.
-  Release configuration is kept in the repository,
-  but publishing to crates.io and tagging `0.1.0` in M8 are left to the project owner.
+  Merging the release pull request, which publishes to crates.io and tags, is left to the project owner.
 - The ClickHouse corpus is fetched at `v26.10.2.103-stable`.
   The fetch script takes `CHAIRLIFT_CORPUS_DIR` so that several checkouts can share one copy;
   it defaults to `corpus/` in the repository.

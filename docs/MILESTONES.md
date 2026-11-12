@@ -536,13 +536,13 @@ Scope:
 - Fuzz targets for lexer, parser and the whole `format`
   (no panics, verify holds, idempotent), run for an hour before release and in a weekly CI job.
 - The docs-examples corpus added to the oracle sweep, filtered by oracle acceptance.
-- README with installation (cargo-dist installers), usage, the style summary, editor setup
-  (stdin mode), and the pre-commit snippet; `CHANGELOG.md` managed by release-plz.
+- README with installation (prebuilt binaries through mise and cargo-binstall, as in chum; no installer scripts), usage,
+  the style summary, editor setup (stdin mode), and the pre-commit snippet; `CHANGELOG.md` managed by release-plz.
 - A `--version` that prints the ClickHouse keyword-list version it was built against.
 
 Acceptance:
 
-- A tagged release with binaries for Linux (musl), macOS and Windows, published by the cargo-dist workflow.
+- A tagged release with binaries for Linux (glibc and musl), macOS and Windows, published by the cargo-dist workflow.
 - All corpus checks green; the oracle sweep green with the documented allowlist.
 
 Effort: 2 days.

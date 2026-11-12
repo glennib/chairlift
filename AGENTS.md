@@ -48,6 +48,8 @@ Run `mise tasks` for the list instead of trusting a copy of it here.
 - The library builds with no features; `cli`, `oracle`, `template`, `corpus-tool` and `unstable` are optional.
   Put a new dependency behind the feature that needs it; `mise run clippy:lib` checks each feature alone.
 - `src/keyword/generated.rs` is generated: change it with `mise run keywords:generate`, not by hand.
+- `.github/workflows/release.yml` is generated: change `dist-workspace.toml`, then run `dist generate --mode=ci`;
+  the release's `dist plan` step fails on a hand-edited workflow.
 - The ClickHouse version is pinned in three places that move together: `clickhouse` in `mise.toml`,
   `CLICKHOUSE_VERSION` in `src/lib.rs`, and the tag in `scripts/fetch-corpus.sh`.
 - The published crate holds only what `include` in `Cargo.toml` lists.

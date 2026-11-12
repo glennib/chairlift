@@ -26,35 +26,26 @@ aliases, and function, type, engine and setting names.
 
 ## Installation
 
-No release has been published yet.
-The commands in this section work from the first release, 0.1.0, on.
-
-Prebuilt binaries for Linux (static, musl), macOS and Windows, x86-64 and ARM64
+Prebuilt binaries for Linux (glibc, and static with musl), macOS and Windows, x86-64 and ARM64
 (ARM64 on Linux and macOS only), are attached to each [GitHub release](https://github.com/glennib/chairlift/releases).
-The installer scripts download the right one:
+
+With [mise](https://mise.jdx.dev), which installs the prebuilt binary from the GitHub release:
 
 ```shell
-# Linux and macOS
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/glennib/chairlift/releases/latest/download/chairlift-installer.sh | sh
+mise use -g github:glennib/chairlift@latest --pin
 ```
 
-```powershell
-# Windows
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/glennib/chairlift/releases/latest/download/chairlift-installer.ps1 | iex"
+With [cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
+
+```shell
+cargo binstall chairlift
 ```
 
-With a Rust toolchain, from crates.io:
+Or download the archive for your platform from a [GitHub release](https://github.com/glennib/chairlift/releases)
+and put `chl` on your `PATH`, or build from crates.io:
 
 ```shell
 cargo install --locked chairlift
-```
-
-`cargo binstall chairlift` looks for a prebuilt binary in the GitHub release before it builds from source.
-
-Before the first release, build from the repository:
-
-```shell
-cargo install --locked --git https://github.com/glennib/chairlift chairlift
 ```
 
 `chl --version` prints chairlift's version and the ClickHouse version whose keyword list it was built against.

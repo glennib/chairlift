@@ -5,10 +5,10 @@ permissions:
   contents: write
   id-token: write
 
-# Manual only: nothing release-related runs on a push until releases are
-# switched on.
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
   release-plz-release:
