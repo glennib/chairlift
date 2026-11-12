@@ -1,6 +1,6 @@
 [tools]
 actionlint = "1.7.12"
-cargo-binstall = "1.26.2"
+cargo-binstall = "1.27.0"
 "cargo:cargo-dist" = "0.34.0"
 "cargo:cargo-edit" = "0.13.14"
 "cargo:cargo-fuzz" = "0.13.2"
