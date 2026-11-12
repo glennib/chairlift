@@ -583,7 +583,7 @@ The crate's default `cli` feature pulls in the command line's dependencies; a li
 
 ```toml
 [dependencies]
-chairlift = { version = "0.1", default-features = false }
+chairlift = { version = "0.2", default-features = false }
 ```
 
 ```rust
