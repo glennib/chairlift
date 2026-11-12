@@ -6,7 +6,7 @@
 //! [`Options`]: the line width, 100 by default, and whether the text is a
 //! Jinja template. The repository's
 //! [README](https://github.com/glennib/chairlift#readme) describes the style
-//! and the `chairlift` command line.
+//! and the `chl` command line.
 //!
 //! ```
 //! use chairlift::Options;
@@ -88,7 +88,7 @@
 //!
 //! # Features
 //!
-//! - `cli`, on by default: the `chairlift` binary. It enables `oracle` and
+//! - `cli`, on by default: the `chl` binary. It enables `oracle` and
 //!   the binary's own dependencies; the library needs none of them, so a
 //!   crate that uses only the library can turn default features off.
 //! - `oracle`: the `chairlift::oracle` module, which runs ClickHouse's

@@ -1,6 +1,6 @@
 # Agent guide
 
-chairlift is a formatter for ClickHouse SQL and Jinja-templated SQL: one Rust crate, a library and a CLI.
+chairlift is a formatter for ClickHouse SQL and Jinja-templated SQL: one Rust crate, a library and a CLI, `chl`.
 This file holds what an agent needs before its first edit and cannot get quickly from the code.
 Keeping it current is part of every task; see [Keeping this file current](#keeping-this-file-current).
 

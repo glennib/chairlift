@@ -260,6 +260,6 @@ impl miette::Diagnostic for Diagnostic {
 pub fn bug_report_help() -> String {
     format!(
         "this is a bug in chairlift. Please report it at {ISSUES} with the file, or the \
-         smallest part of it that shows the problem, and the output of `chairlift --version`."
+         smallest part of it that shows the problem, and the output of `chl --version`."
     )
 }

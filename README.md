@@ -2,7 +2,7 @@
 
 chairlift is a formatter for ClickHouse SQL, including SQL files that contain Jinja templates,
 such as dbt-clickhouse models and [chum](https://github.com/glennib/chum) migrations.
-It is a single binary and a Rust library.
+It is a single binary, `chl`, and a Rust library.
 
 It changes only whitespace and the case of keywords.
 It never adds, removes, reorders or rewrites a token,
@@ -11,7 +11,7 @@ Syntax it does not understand is kept as written instead of failing the file,
 and every comment stays where its author put it.
 
 ```console
-$ echo 'select a, b from t where x = 1 and y = 2' | chairlift -
+$ echo 'select a, b from t where x = 1 and y = 2' | chl -
 SELECT
     a,
     b
@@ -57,12 +57,12 @@ Before the first release, build from the repository:
 cargo install --locked --git https://github.com/glennib/chairlift chairlift
 ```
 
-`chairlift --version` prints chairlift's version and the ClickHouse version whose keyword list it was built against.
+`chl --version` prints chairlift's version and the ClickHouse version whose keyword list it was built against.
 
 ## Usage
 
 ```text
-chairlift [OPTIONS] <PATHS>...
+chl [OPTIONS] <PATHS>...
 ```
 
 Paths are files or directories, formatted in place.
@@ -72,7 +72,7 @@ A file named on the command line is formatted whatever its name.
 `-` reads stdin and writes the result to stdout.
 
 ```console
-$ chairlift .
+$ chl .
 1 file reformatted, 2 files already formatted
 ```
 
@@ -80,10 +80,10 @@ $ chairlift .
 `--diff` prints the changes as a unified diff instead:
 
 ```console
-$ chairlift --check .
+$ chl --check .
 Would reformat: ./migrations/0001_init.sql
 1 file would be reformatted, 2 files already formatted
-$ chairlift --diff migrations
+$ chl --diff migrations
 --- a/migrations/0001_init.sql
 +++ b/migrations/0001_init.sql
 @@ -1 +1,5 @@
@@ -125,7 +125,7 @@ The line width and the Jinja mode are the only settings of the style, and there 
 A file that cannot be formatted is left as it is, and a diagnostic on stderr says why:
 
 ```console
-$ printf "select 'unclosed from t\n" | chairlift --stdin-filename query.sql -
+$ printf "select 'unclosed from t\n" | chl --stdin-filename query.sql -
 chairlift::lex
 
   × query.sql:1:8: Single quoted string is not closed; the file is left unchanged
@@ -324,7 +324,7 @@ where that comment ends depends on the rendering, so moving any line break could
 The file is left unchanged, and chairlift exits with 2:
 
 ```console
-$ chairlift refused.sql.j2
+$ chl refused.sql.j2
 chairlift::template
 
   × refused.sql.j2:1:10: where this line comment ends depends on the rendering, so the file is left unchanged
@@ -363,7 +363,7 @@ on the input and the output of each changed file, and compares the two.
 A file that ClickHouse reads differently is an error and is not written.
 
 ```console
-$ chairlift --verify migrations
+$ chl --verify migrations
 1 file reformatted, 1 file already formatted
 clickhouse-format reads 1 of 1 statements in changed files the same
 ```
@@ -374,7 +374,7 @@ The tests use the `clickhouse-format` of ClickHouse 26.10.
 
 ## Editor setup
 
-`chairlift -` reads a buffer on stdin and writes the formatted text to stdout.
+`chl -` reads a buffer on stdin and writes the formatted text to stdout.
 On success it prints nothing else.
 When the text cannot be formatted it exits with 2, prints nothing on stdout and the reason on stderr,
 so an editor that keeps the buffer when a formatter fails loses nothing.
@@ -391,7 +391,7 @@ With [conform.nvim](https://github.com/stevearc/conform.nvim):
 require("conform").setup({
   formatters = {
     chairlift = {
-      command = "chairlift",
+      command = "chl",
       args = { "--stdin-filename", "$FILENAME", "-" },
     },
   },
@@ -414,7 +414,7 @@ In `languages.toml`:
 ```toml
 [[language]]
 name = "sql"
-formatter = { command = "chairlift", args = ["-"] }
+formatter = { command = "chl", args = ["-"] }
 auto-format = true
 ```
 
@@ -430,7 +430,7 @@ in `settings.json`:
 {
   "customLocalFormatters.formatters": [
     {
-      "command": "chairlift -",
+      "command": "chl -",
       "languages": ["sql"]
     }
   ]
@@ -439,7 +439,7 @@ in `settings.json`:
 
 ## pre-commit
 
-With `chairlift` on `PATH`, a local hook in `.pre-commit-config.yaml`:
+With `chl` on `PATH`, a local hook in `.pre-commit-config.yaml`:
 
 ```yaml
 repos:
@@ -447,7 +447,7 @@ repos:
     hooks:
       - id: chairlift
         name: chairlift
-        entry: chairlift
+        entry: chl
         language: system
         files: \.sql(\.j2)?$
 ```

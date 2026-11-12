@@ -902,7 +902,7 @@ No verify or idempotence failure and no formatter defect.
 The allowlist has no entry for this corpus.
 Verbatim by leading keyword: `SYSTEM` 46, `EXPLAIN` 45, `CREATE` 35, `FROM` (pipe syntax) 18, `SHOW` 11, `CHECK` 10.
 
-- **`--version`**: `-V` prints `chairlift 0.1.0 (ClickHouse keywords 26.10.2.103-stable)`;
+- **`--version`**: `chl -V` prints `chairlift 0.1.0 (ClickHouse keywords 26.10.2.103-stable)`;
   `--version` adds the features built in.
   The library has `KEYWORDS_VERSION`.
 - **README**: installation, usage, exit statuses, the style in before-and-after examples, templates, safety,
@@ -910,8 +910,8 @@ Verbatim by leading keyword: `SYSTEM` 46, `EXPLAIN` 45, `CREATE` 35, `FROM` (pip
   Every SQL example is output of the binary.
 - **Changelog**: release-plz writes `CHANGELOG.md` whole on its first run, so none is checked in.
   Its configuration leaves out commit types a user never sees.
-- **Packaging**: the crate holds 103 files through an `include` list. cargo-dist ships only `chairlift`,
-  not the `corpus` tool, with shell and PowerShell installers.
+- **Packaging**: the crate holds 103 files through an `include` list. cargo-dist ships only the `chl` binary,
+  not the `corpus` tool, in archives and shell and PowerShell installers named `chairlift`.
   `.pre-commit-hooks.yaml` makes the repository a hook repository.
   The minimum Rust version, 1.94.0, was checked.
 - `mise run ci` checks rustdoc with warnings as errors, and lints the library with each feature on its own.

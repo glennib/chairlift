@@ -1,7 +1,7 @@
-//! `chairlift` — command-line formatter for ClickHouse SQL.
+//! `chl`, chairlift's command line: a formatter for ClickHouse SQL.
 //!
 //! Each file is handled on its own: read and formatted ([`format_file`]),
-//! judged by `clickhouse-format` with `--verify` ([`verify`]), and written
+//! judged by `clickhouse-format` with `--verify` ([`verify()`]), and written
 //! back or diffed ([`finish`]), giving an [`Outcome`] or a [`FileError`];
 //! files are handled in parallel, and reported in path order afterwards.
 
@@ -14,11 +14,11 @@ macro_rules! say {
     }};
 }
 
-#[path = "chairlift/diagnostic.rs"]
+#[path = "chl/diagnostic.rs"]
 mod diagnostic;
-#[path = "chairlift/parallel.rs"]
+#[path = "chl/parallel.rs"]
 mod parallel;
-#[path = "chairlift/verify.rs"]
+#[path = "chl/verify.rs"]
 mod verify;
 
 use std::fs;
@@ -1084,7 +1084,7 @@ mod tests {
            ·   ┬
            ·   ╰── the output differs here
            ╰────
-          help: this is a bug in chairlift. Please report it at https://github.com/glennib/chairlift/issues with the file, or the smallest part of it that shows the problem, and the output of `chairlift --version`.
+          help: this is a bug in chairlift. Please report it at https://github.com/glennib/chairlift/issues with the file, or the smallest part of it that shows the problem, and the output of `chl --version`.
         ");
     }
 

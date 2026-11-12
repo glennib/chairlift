@@ -1,4 +1,4 @@
-//! End-to-end tests of the `chairlift` binary.
+//! End-to-end tests of the `chl` binary.
 
 use std::fs;
 use std::io::Write as _;
@@ -13,7 +13,7 @@ fn chairlift(args: &[&str]) -> Output {
 }
 
 fn run(args: &[&str], stdin: Option<&[u8]>, dir: Option<&Path>) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_chairlift"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_chl"));
     command
         .args(args)
         .stdin(Stdio::piped())
@@ -116,7 +116,7 @@ fn help() {
 
     Files are formatted in place. Directories are searched for `*.sql`, `*.sql.j2` and `*.j2.sql` files, skipping hidden files, symbolic links and whatever `.gitignore` and `.ignore` files exclude. A file named on the command line is formatted whatever its name.
 
-    Usage: chairlift [OPTIONS] <PATHS>...
+    Usage: chl [OPTIONS] <PATHS>...
 
     Arguments:
       <PATHS>...
@@ -560,7 +560,7 @@ fn a_closed_pipe_stops_the_output_quietly() {
         write(&dir, &format!("f{n}.sql"), "select 1");
     }
     for (args, closed) in [(&["--check"][..], "stdout"), (&["--check", "-v"], "stderr")] {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_chairlift"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_chl"));
         command.args(args).arg(&*dir).stdin(Stdio::null());
         if closed == "stdout" {
             command.stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -916,14 +916,14 @@ fn verbose_says_what_happened_to_each_file() {
 #[test]
 fn colour() {
     let has_escape = |output: &Output| stderr(output).contains('\u{1b}');
-    let output = Command::new(env!("CARGO_BIN_EXE_chairlift"))
+    let output = Command::new(env!("CARGO_BIN_EXE_chl"))
         .args(["--color", "always", "nope.sql"])
         .env("NO_COLOR", "1")
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(has_escape(&output), "{}", stderr(&output));
-    let output = Command::new(env!("CARGO_BIN_EXE_chairlift"))
+    let output = Command::new(env!("CARGO_BIN_EXE_chl"))
         .args(["--color", "auto", "nope.sql"])
         .env_remove("NO_COLOR")
         .output()
@@ -933,7 +933,7 @@ fn colour() {
         "stderr is a pipe: {}",
         stderr(&output)
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_chairlift"))
+    let output = Command::new(env!("CARGO_BIN_EXE_chl"))
         .args(["--color", "never", "nope.sql"])
         .output()
         .unwrap();
@@ -982,7 +982,7 @@ fn verify_needs_clickhouse_format() {
     assert_eq!(read(&messy), MESSY, "nothing is written");
 
     // Not on PATH either.
-    let output = Command::new(env!("CARGO_BIN_EXE_chairlift"))
+    let output = Command::new(env!("CARGO_BIN_EXE_chl"))
         .args(["--verify", "-"])
         .env("PATH", &*dir)
         .stdin(Stdio::null())
@@ -1199,7 +1199,7 @@ fn verify_rejects_a_file_the_oracle_reads_differently() {
        · ╰── this statement
        ╰────
       help: the oracle prints "select a, b from t;" for the input and "SELECT\n    a,\n    b\nFROM t;" for the output
-            this is a bug in chairlift. Please report it at https://github.com/glennib/chairlift/issues with the file, or the smallest part of it that shows the problem, and the output of `chairlift --version`.
+            this is a bug in chairlift. Please report it at https://github.com/glennib/chairlift/issues with the file, or the smallest part of it that shows the problem, and the output of `chl --version`.
     0 files reformatted, 0 files already formatted, 1 error
     clickhouse-format reads 0 of 1 statements in changed files the same
     "#);
@@ -1377,7 +1377,7 @@ echo $$ >> '{0}'; (sleep 1000 & echo $! >> '{0}'); sleep 1000"#,
         ),
     );
     let file = write(&dir, "q.sql", "select a;\n");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_chairlift"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_chl"))
         .args([
             "--verify",
             "-j",

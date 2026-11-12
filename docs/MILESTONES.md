@@ -263,7 +263,7 @@ Goal: a crate that builds, lints, tests and releases the same way chum does, wit
 
 Scope:
 
-- Library crate `chairlift` with a `cli` feature and a `chairlift` binary, mirroring chum's layout
+- Library crate `chairlift` with a `cli` feature and a `chl` binary, mirroring chum's layout
   (`src/lib.rs`, `src/bin/`), `clippy::pedantic` warnings, `rustfmt.toml`, MIT/Apache dual licence.
 - Dev tooling: `cargo nextest`, `insta` for snapshots, `criterion` or `divan` for benchmarks,
   `cargo-fuzz` targets directory (fuzzing itself comes in M1), `mise.toml` pinning ClickHouse 26.10.
@@ -331,7 +331,7 @@ Scope:
 - Safe cleanup only: strip trailing whitespace, collapse runs of blank lines
   (per the blank-line decision), ensure exactly one final newline, normalise CRLF to LF.
   No re-indentation, no keyword case.
-- CLI: `chairlift [PATH…]` formats in place; `--check` lists unformatted files and exits 1;
+- CLI: `chl [PATH…]` formats in place; `--check` lists unformatted files and exits 1;
   `--diff` prints unified diffs; `-` reads stdin and writes stdout;
   `--line-width` is accepted and stored for later milestones.
   File discovery: `*.sql`, `*.sql.j2`, `*.j2.sql`, honouring `.gitignore` via the `ignore` crate.
@@ -348,7 +348,7 @@ Acceptance:
 - A deliberately injected printer bug (print `-` and `-1` adjacent) is caught by the verifier in a test.
 - Over every corpus: verify passes, output is idempotent,
   and `clickhouse-format` canonical forms are unchanged for every file the oracle accepts, with the allowlist empty.
-- `chairlift --check` on the stateless corpus runs in under 5 s in release mode.
+- `chl --check` on the stateless corpus runs in under 5 s in release mode.
 - The DESIGN.md example is unchanged by M2 (it already has no trailing whitespace or blank-line runs).
 
 Effort: 2–3 days.
@@ -429,7 +429,7 @@ Acceptance:
   and at most 50 differing files on the stateless corpus, each classified
   (reserved-word-as-identifier cases to fix in M7, or an allowlisted oracle quirk).
   The spike reached 43 with cruder rules.
-- `chairlift --check` over the stateless corpus in under 15 s single-threaded, release build; per-file p95 under 5 ms.
+- `chl --check` over the stateless corpus in under 15 s single-threaded, release build; per-file p95 under 5 ms.
 
 Effort: 5–7 days.
 
@@ -484,7 +484,7 @@ Acceptance:
 
 - Formatting a 1 MB file in under 100 ms and `--check` over the stateless corpus in under 5 s on 8 cores.
 - `--verify` over the local corpora reports zero differences and classifies the known unparseable files correctly.
-- `echo 'select 1' | chairlift -` prints `SELECT 1` and exits 0; a lexer error exits 2 with a position.
+- `echo 'select 1' | chl -` prints `SELECT 1` and exits 0; a lexer error exits 2 with a position.
 
 Effort: 2 days.
 
