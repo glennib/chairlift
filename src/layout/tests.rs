@@ -780,6 +780,18 @@ fn a_comment_tag_glued_to_a_semicolon_stays_glued_in_a_kept_text() {
     assert_eq!(fmt_in("=1;{# h #}\ns{%%}", true, 8), "=1;{# h #}\ns{%%}\n");
 }
 
+/// Text kept verbatim is measured as it is printed: the space before its
+/// first line break, which the printer drops, does not keep the list before
+/// it from fitting.
+#[test]
+fn verbatim_text_is_measured_without_the_space_before_a_line_break() {
+    let source = "rename balte a to b,FORMAT \ni[";
+    assert_eq!(
+        fmt_in(source, false, 27),
+        "RENAME balte a to b, FORMAT\ni[\n"
+    );
+}
+
 /// A `-}}` without a `{{` is no tag: the text joins nothing once rendered,
 /// before and after the layout breaks the line inside it.
 #[test]

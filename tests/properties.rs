@@ -62,6 +62,45 @@ fn statement_inputs() -> impl Strategy<Value = String> {
     prop::collection::vec(piece, 0..40).prop_map(|v| v.concat())
 }
 
+/// Pieces of statements that parse in part: heads with a list, items the
+/// parser falls back on, words that start data, and whitespace before line
+/// breaks, which text kept as written loses when printed.
+#[rustfmt::skip]
+const BROKEN_FRAGMENTS: &[&str] = &[
+    "RENAME ", "rename table ", "OPTIMIZE TABLE t ", "ALTER TABLE t ", "DROP TABLE ", "GRANT ",
+    "SELECT ", "CREATE VIEW v AS ", "CREATE TABLE t (", "INSERT INTO t ", "SET ", "a", "b",
+    "balte", " a TO b", ", ", ",", "x = 1", "FORMAT ", "VALUES ", "(1)", "PARTITION ", "tuple(",
+    "FINAL ", "BY ", " FROM x", "[", "(", ")", "-", "}}", "'", "\"", "-- c  \n", "/* c */",
+    "/* c  \n */", " ", "  \n", " \n", "\n", "\n  ", "\n\n", ";", ";\n",
+];
+
+fn broken_inputs() -> impl Strategy<Value = String> {
+    prop::collection::vec(prop::sample::select(BROKEN_FRAGMENTS), 0..24).prop_map(|v| v.concat())
+}
+
+/// A head, a list with an item the parser may fall back on, and text that
+/// runs on over a line break with whitespace before it: a group whose fit
+/// depends on how wide the text after it is up to that line break.
+fn run_on_inputs() -> impl Strategy<Value = String> {
+    (
+        prop::sample::select(
+            &[
+                "RENAME ",
+                "OPTIMIZE TABLE t ",
+                "SELECT ",
+                "GRANT SELECT ON t TO ",
+                "SET ",
+            ][..],
+        ),
+        prop::sample::select(&["a TO b", "balte a to b", "x", "f(", "a b c", "1 2"][..]),
+        prop::sample::select(&[",", ", ", " "][..]),
+        prop::sample::select(&["FORMAT", "VALUES", "SETTINGS", "FROM", "-- c", "/* c", "x"][..]),
+        prop::sample::select(&["", " ", "  ", "\t"][..]),
+        prop::sample::select(&["\ni[", "\n(", "\nx", "\n*/", "\n  y"][..]),
+    )
+        .prop_map(|(head, item, sep, word, ws, tail)| format!("{head}{item}{sep}{word}{ws}{tail}"))
+}
+
 /// Pieces of expressions and data types, for the parser: operators,
 /// keywords in and out of their slots, brackets, and trivia between them.
 #[rustfmt::skip]
@@ -253,13 +292,15 @@ proptest! {
     }
 
     /// Formatting never fails verification, and formatting its output again
-    /// changes nothing.
+    /// changes nothing, also at the narrow widths where a group's measure
+    /// decides whether it breaks.
     #[test]
     fn format_verifies_and_is_idempotent(
-        source in prop_oneof![statement_inputs(), inputs()],
+        source in prop_oneof![statement_inputs(), broken_inputs(), inputs()],
         jinja in any::<bool>(),
+        width in prop_oneof![Just(100u16), 10u16..=40],
     ) {
-        let options = chairlift::Options::default().with_jinja(jinja);
+        let options = chairlift::Options::default().with_jinja(jinja).with_line_width(width);
         match chairlift::format(&source, &options) {
             Ok(once) => {
                 let twice = chairlift::format(&once, &options);
@@ -267,6 +308,27 @@ proptest! {
             }
             Err(chairlift::Error::Lex(_) | chairlift::Error::Template(_)) => {}
             Err(e) => prop_assert!(false, "{:?}: {}", source, e),
+        }
+    }
+
+    /// Formatting a statement whose text runs on over a line break is
+    /// idempotent at every narrow width, in both modes: the width at which
+    /// a group just fits is where a measure that differs from what is
+    /// printed shows.
+    #[test]
+    fn run_on_text_is_idempotent_at_every_width(source in run_on_inputs()) {
+        for jinja in [false, true] {
+            for width in 10..=40 {
+                let options = chairlift::Options::default().with_jinja(jinja).with_line_width(width);
+                if let Ok(once) = chairlift::format(&source, &options) {
+                    let twice = chairlift::format(&once, &options);
+                    prop_assert_eq!(
+                        twice.as_ref(),
+                        Ok(&once),
+                        "{:?} at width {} (jinja: {})", source, width, jinja
+                    );
+                }
+            }
         }
     }
 

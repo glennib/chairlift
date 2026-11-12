@@ -762,6 +762,40 @@ impl<'s> Builder<'s> {
         };
     }
 
+    /// The width of the first line of verbatim tokens `first..=last` as the
+    /// printer prints it, and whether they span lines. Outside exact text the
+    /// printer drops the whitespace before a line break it may rewrite and at
+    /// the end of a line comment, so the source's first line can be wider.
+    fn verbatim_first_line(&self, first: usize, last: usize, kind: Verbatim) -> (usize, bool) {
+        let tokens = self.doc.tokens;
+        let source = self.doc.source;
+        if kind == Verbatim::Exact {
+            return first_line(&source[tokens[first].start()..tokens[last].end()]);
+        }
+        let mut total = 0;
+        for (i, token) in tokens.iter().enumerate().take(last + 1).skip(first) {
+            let text = token.text(source);
+            let frozen = self.doc.is_frozen(i);
+            let text = match token.kind() {
+                TokenKind::Whitespace
+                    if text.contains('\n')
+                        && !frozen
+                        && (self.doc.mode == Mode::Sql || renderer_whitespace(text)) =>
+                {
+                    return (total, true);
+                }
+                TokenKind::LineComment if !frozen => line_comment_text(text, self.doc.mode),
+                _ => text,
+            };
+            let (width, newline) = first_line(text);
+            total += width;
+            if newline {
+                return (total, true);
+            }
+        }
+        (total, false)
+    }
+
     fn verbatim_block(&mut self, first: usize, last: usize, kind: Verbatim, own_line: bool) {
         let tokens = self.doc.tokens;
         let source = self.doc.source;
@@ -783,7 +817,7 @@ impl<'s> Builder<'s> {
             tokens[first].text(source),
             place,
         );
-        let (width, multiline) = first_line(&source[tokens[first].start()..tokens[last].end()]);
+        let (width, multiline) = self.verbatim_first_line(first, last, kind);
         let first_width = narrow(width);
         let breaks_after = own_line || tokens[last].kind() == TokenKind::LineComment;
         self.doc
