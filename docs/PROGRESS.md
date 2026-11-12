@@ -15,12 +15,12 @@ M9 (chum integration) is not part of this run.
 | M5. Jinja templates | done | reviewed; findings fixed, except laying out the loop-comma idioms |
 | M6. CLI polish and performance | done | reviewed; every finding fixed |
 | M7. Remaining statement kinds | done | reviewed; every finding fixed |
-| M8. Hardening and first release | done, except the release | everything but tagging and publishing, which the project owner does |
+| M8. Hardening and first release | done, except the release | reviewed; findings fixed, except three for the project owner; tagging and publishing are the project owner's |
 
 ## Resuming the work
 
 M0–M8 are on `main`, and nothing is in progress.
-M5, M6 and M7 each had an independent review on 2026-11-12; M8 has not had one.
+M5, M6, M7 and M8 each had an independent review on 2026-11-12.
 Only the tip of each landed stack was checked with `mise run ci`, not every commit.
 
 What remains is for the project owner:
@@ -28,9 +28,12 @@ What remains is for the project owner:
 1. **The release.** The version is 0.1.0.
    `dist generate --mode=ci` writes the cargo-dist workflow, which is not checked in,
    and `release-plz.yml` runs on manual dispatch only.
+   Commit the cargo-dist workflow before the first dispatch of `release-plz.yml`: release-plz publishes the crate,
+   pushes the tag and makes a draft release, and a workflow added after the tag never builds binaries for it.
+   Without the workflow `dist plan` fails.
    The first publish to crates.io probably needs a token or a manual `cargo publish`,
    as trusted publishing is set up on a crate that exists; this was not checked.
-   The first changelog lists about 150 commits and may want trimming in the release pull request.
+   The first changelog has 168 entries and may want trimming in the release pull request (see "M8, reviewed").
 2. **The style questions and the snapshots** listed below.
 
 Known loose ends:
@@ -55,6 +58,9 @@ Known loose ends:
 - The default `cli` features do not include `template`,
   so a default build's `--verify` does not judge a template through its renders; it says so in the summary.
 - The editor configurations in the README and the pre-commit hook were written but not run in those tools.
+- The weekly fuzz job runs `format` for 15 minutes, about 135,000 runs;
+  the last two defects of the hour-long runs showed after 892,000 and 1.7 million.
+  The cached corpus carries coverage from one week to the next, but not that depth.
 
 ### Setup
 
@@ -851,7 +857,7 @@ All are fixed and on `main`.
 ### M8
 
 On `main`.
-Not independently reviewed.
+Reviewed afterwards; see "M8, reviewed".
 Only the tip of each stack was checked with `mise run ci`.
 
 - **Fuzz runs of an hour.**
@@ -910,3 +916,69 @@ Verbatim by leading keyword: `SYSTEM` 46, `EXPLAIN` 45, `CREATE` 35, `FROM` (pip
   The minimum Rust version, 1.94.0, was checked.
 - `mise run ci` checks rustdoc with warnings as errors, and lints the library with each feature on its own.
 - Oracle sweep at the end: fixtures 125, stateless 270,251, dbt 3, docs 6,563 statements judged; none differing.
+
+### M8, reviewed
+
+An independent review re-ran M8's acceptance on its tip and found nothing wrong in what chairlift prints.
+Its findings were about the published crate and the release.
+
+Re-measured on M8's tip:
+
+- `mise run ci`: 577 tests pass; `mise run test:corpus`: 18 pass.
+- The corpus tool over 17,520 files, the docs examples and the two local corpora included:
+  no verify or idempotence failure.
+- `corpus:oracle`: no file differs and none is rejected; the one allowlisted file is the only exception.
+  Statements judged: fixtures 142, stateless 273,770, dbt 42, docs 6,563.
+  Template renders: none differs.
+- A further 15-minute run of the `format` fuzz target: 134,789 runs, clean.
+- `cargo package` builds with the default features, all and none, and its rustdoc is clean.
+  The minimum Rust version, 1.94.0, holds.
+- With the cargo-dist workflow generated in a scratch copy, `dist plan` gives five archives holding only `chairlift`,
+  and both installers; the musl targets build on native runners with `musl-tools`.
+- Every SQL and console example in the README is the binary's output byte for byte,
+  and the library example compiles and passes with `default-features = false`.
+- `cargo install --bins --path .`, which a `language: rust` pre-commit hook runs, installs only `chairlift`.
+- The five fixes the format fuzzer led to are each covered by a test;
+  `render_joins_text` asking the tag scanner stays on the safe side, as the scanner also finds tags in strings.
+
+Fixed:
+
+- **The library's API is `format`, `check`, `Options`, the error types, `Mode`, the version constants and `oracle`.**
+  The lexer, splitter, parser, layout, document printer and verifier were public,
+  about 170 items with rowan's `SyntaxNode` among them,
+  so any change to them would have been a breaking change once on crates.io.
+  They are behind an `unstable` feature now, with `format_with_statements` and the `template` harness.
+  The tests and benchmarks get it through a dev-dependency of the crate on itself,
+  the fuzz targets and the corpus tool through their features.
+  `LexError` no longer exposes `TokenKind`; its `description()` says what is wrong.
+  The documentation on docs.rs shows the default features.
+- **The published crate's unit tests did not compile:** they read a fixture,
+  the document generator from `tests/` and the snapshots under `src/`, none of which were packaged.
+  The package holds them now (196 files),
+  and `mise run ci` runs the library's unit tests from the package (`package:test`),
+  with the default features and with none.
+- The README's library example runs as a doctest.
+- The README says that the pre-commit hook repository builds without `--locked`,
+  which neither the hook nor cargo's configuration can change.
+- The docs extractor gave a comment after a statement's `;` to the statement after it.
+  Three docs examples ended in a `//` comment from a result table the oracle rejected; they no longer do.
+  Still 4,575 files and 6,563 statements.
+- The docs extraction's stamp records a fingerprint of the extractor's source instead of a version bumped by hand,
+  so editing the extractor redoes an extracted corpus.
+
+Only the tip of the fixes was checked with `mise run ci`, with the corpora present: 578 tests pass,
+and the packaged library's 380 unit tests with the default features and 355 with none.
+
+For the project owner:
+
+- **Release order:** see "Resuming the work".
+- **The first changelog**, from a release-plz dry run: 168 entries, 54 added, 90 fixed, 9 performance, 15 other.
+  Most of the fixes are of bugs no release had.
+  The 15 "other" are `docs:` commits about this tracker, the spikes and the milestones,
+  which the configuration does not skip.
+  Skipping `^docs`, or writing the 0.1.0 section by hand, would leave a changelog a user can read.
+  The `unstable` commit is marked breaking, so release-plz lists it whatever its group.
+- **Weekly fuzz depth:** see "Known loose ends".
+
+Not checked: the musl build itself, the hook and the editor configurations in their tools,
+`cargo binstall` finding the release archives, and the first publish to crates.io.
