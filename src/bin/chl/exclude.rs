@@ -32,15 +32,16 @@ pub struct Excludes {
 }
 
 impl Excludes {
-    /// `root` is absolute.
-    pub fn new(root: &Path, globs: &[String]) -> Result<Self, ignore::Error> {
+    /// `root` is absolute. `from` is the file the globs are read from, if
+    /// they are, which an [`Exclusion`] names.
+    pub fn new(root: &Path, from: Option<&Path>, globs: &[String]) -> Result<Self, ignore::Error> {
         let root = normalize(root);
         let mut builder = GitignoreBuilder::new(&root);
         // As `ignore::overrides` does: a `[` without its `]` is more likely
         // a mistake than a literal.
         builder.allow_unclosed_class(false);
         for glob in globs {
-            builder.add_line(None, glob)?;
+            builder.add_line(from.map(Path::to_path_buf), glob)?;
         }
         Ok(Self {
             canonical_root: root.canonicalize().ok(),

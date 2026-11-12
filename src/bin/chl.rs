@@ -340,24 +340,24 @@ fn main() -> ExitCode {
         line_width: cli.line_width,
         jinja: cli.jinja,
     };
-    let excludes = if cli.exclude.is_empty() {
-        None
-    } else {
+    let mut excludes = Vec::new();
+    if !cli.exclude.is_empty() {
         let built = std::env::current_dir()
             .map_err(|e| {
                 format!("cannot read the current directory, which --exclude is relative to: {e}")
             })
             .and_then(|cwd| {
-                Excludes::new(&cwd, &cli.exclude).map_err(|e| format!("invalid --exclude: {e}"))
+                Excludes::new(&cwd, None, &cli.exclude)
+                    .map_err(|e| format!("invalid --exclude: {e}"))
             });
         match built {
-            Ok(excludes) => Some(Arc::new(excludes)),
+            Ok(built) => excludes.push(Arc::new(built)),
             Err(e) => {
                 say!("error: {e}");
                 return ExitCode::from(2);
             }
         }
-    };
+    }
     if cli.paths.iter().any(|p| p.as_os_str() == "-") {
         if cli.paths.len() > 1 {
             say!("error: `-` (stdin) cannot be combined with other paths");
@@ -366,7 +366,7 @@ fn main() -> ExitCode {
         return stdin(
             &settings,
             cli.stdin_filename.as_deref(),
-            excludes.as_deref(),
+            &excludes,
             reporter,
         );
     }
@@ -375,7 +375,7 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
     let jobs = cli.jobs.map_or_else(parallel::default_jobs, usize::from);
-    files(&cli.paths, excludes.as_ref(), &settings, jobs, reporter)
+    files(&cli.paths, &excludes, &settings, jobs, reporter)
 }
 
 /// Formats stdin to stdout, or checks or diffs it. `filename` is the name
@@ -385,7 +385,7 @@ fn main() -> ExitCode {
 fn stdin(
     settings: &Settings,
     filename: Option<&Path>,
-    excludes: Option<&Excludes>,
+    excludes: &[Arc<Excludes>],
     reporter: Reporter,
 ) -> ExitCode {
     if let Some(filename) = filename {
@@ -506,7 +506,7 @@ fn report(reporter: Reporter, diagnostic: &Diagnostic) {
 /// Formats, checks or diffs the files under `paths`.
 fn files(
     paths: &[PathBuf],
-    excludes: Option<&Arc<Excludes>>,
+    excludes: &[Arc<Excludes>],
     settings: &Settings,
     jobs: usize,
     reporter: Reporter,
@@ -594,7 +594,7 @@ fn files(
 /// read are reported, and counted in the second value.
 fn discover(
     paths: &[PathBuf],
-    excludes: Option<&Arc<Excludes>>,
+    excludes: &[Arc<Excludes>],
     reporter: Reporter,
 ) -> (Vec<PathBuf>, usize) {
     let mut files = Vec::new();
@@ -603,13 +603,8 @@ fn discover(
     for path in paths {
         let meta = fs::metadata(path);
         if let Ok(meta) = &meta {
-            let (exclusion, ignore_errors) = exclusion(
-                path,
-                meta.is_dir(),
-                &mut ignore_files,
-                excludes.map(Arc::as_ref),
-                reporter,
-            );
+            let (exclusion, ignore_errors) =
+                exclusion(path, meta.is_dir(), &mut ignore_files, excludes, reporter);
             errors += ignore_errors;
             if let Some(exclusion) = exclusion {
                 let shown = path.display();
@@ -633,8 +628,10 @@ fn discover(
                 let mut walk = ignore::WalkBuilder::new(path);
                 walk.require_git(false)
                     .add_custom_ignore_filename(IGNORE_FILE);
-                if let Some(excludes) = excludes {
-                    walk.filter_entry(excludes.walk_filter(path));
+                if !excludes.is_empty() {
+                    // A second `filter_entry` would replace the first.
+                    let filters: Vec<_> = excludes.iter().map(|e| e.walk_filter(path)).collect();
+                    walk.filter_entry(move |entry| filters.iter().all(|keep| keep(entry)));
                 }
                 let walk = walk.build();
                 for entry in walk {
@@ -690,19 +687,21 @@ fn discover(
     (files, errors)
 }
 
-/// What excludes `path`, if anything does: a `.chlignore` file or
-/// `excludes`. Ignore files that cannot be read are reported, and counted in
-/// the second value.
+/// What excludes `path`, if anything does: a `.chlignore` file or, in
+/// order, one of `excludes`. Ignore files that cannot be read are reported,
+/// and counted in the second value.
 fn exclusion(
     path: &Path,
     is_dir: bool,
     ignore_files: &mut IgnoreFiles,
-    excludes: Option<&Excludes>,
+    excludes: &[Arc<Excludes>],
     reporter: Reporter,
 ) -> (Option<Exclusion>, usize) {
-    let exclusion = ignore_files
-        .excludes(path, is_dir)
-        .or_else(|| excludes.and_then(|excludes| excludes.excludes(path, is_dir)));
+    let exclusion = ignore_files.excludes(path, is_dir).or_else(|| {
+        excludes
+            .iter()
+            .find_map(|excludes| excludes.excludes(path, is_dir))
+    });
     let errors = ignore_files.take_errors();
     for error in &errors {
         report(
