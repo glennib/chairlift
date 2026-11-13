@@ -5,7 +5,7 @@ cargo-binstall = "1.27.0"
 "cargo:cargo-edit" = "0.13.14"
 "cargo:cargo-fuzz" = "0.13.2"
 "cargo:cargo-insta" = "1.49.0"
-"cargo:cargo-nextest" = "0.9.151"
+"cargo:cargo-nextest" = "0.9.152"
 "cargo:release-plz" = "0.4.3"
 # The oracle: provides `clickhouse-format` and `clickhouse local`. Keep in step
 # with `CLICKHOUSE_VERSION` in src/lib.rs.
