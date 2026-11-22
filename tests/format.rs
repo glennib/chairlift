@@ -82,6 +82,21 @@ fn a_byte_order_mark_does_not_shift_text_kept_as_written() {
     }
 }
 
+/// A template keeps a byte-order mark that starts a later line, as one
+/// column of that line's indentation, and text kept as written after it is
+/// indented the same each time it is formatted.
+#[test]
+fn a_kept_byte_order_mark_does_not_shift_text_kept_as_written() {
+    let options = Options::default().with_jinja(true);
+    let source = "CREATE VIEW v (a String)\nCOMMENT 'x;\nc'\n\u{feff}primary key id\nsource(x)\n";
+    let once = chairlift::format(source, &options).unwrap();
+    assert!(
+        once.ends_with("\n\u{feff}primary key id\n source(x)\n"),
+        "{once:?}"
+    );
+    assert_eq!(chairlift::format(&once, &options).unwrap(), once);
+}
+
 #[test]
 fn check_reports_whether_a_text_is_formatted() {
     let options = Options::default();

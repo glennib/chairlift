@@ -594,6 +594,20 @@ fn verbatim_text_on_the_first_line_does_not_count_a_byte_order_mark_as_indentati
 }
 
 #[test]
+fn verbatim_text_after_a_kept_byte_order_mark_counts_it_as_indentation() {
+    let source = "a\n\u{feff}(b\n c)";
+    let out = print_at(source, Mode::Jinja, 100, |b, n| {
+        b.token(n.t("a"));
+        b.hard_line();
+        let first = n.t("(");
+        n.t("b");
+        n.t("c");
+        b.verbatim(first, n.t(")"));
+    });
+    assert_eq!(out, format!("{source}\n"));
+}
+
+#[test]
 fn verbatim_blank_lines_never_follow_open_or_precede_close() {
     let source = "f(\n\n  a,  \n\n\n  b\n\n)";
     let out = print(source, |b, n| {

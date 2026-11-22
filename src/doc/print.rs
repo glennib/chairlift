@@ -639,10 +639,14 @@ impl<'d, 's> Printer<'d, 's> {
             0 => 0,
             n => line_starts[n - 1],
         };
-        // A byte-order mark is printed ahead of the first line, not as part
-        // of its indentation.
+        // A byte-order mark that starts the text is printed ahead of the
+        // first line, not as part of its indentation. One that starts a later
+        // line is indentation, which a template keeps as written.
         let line = &doc.source[line_start..];
-        let line = line.strip_prefix('\u{feff}').unwrap_or(line);
+        let line = match line_start {
+            0 => line.strip_prefix('\u{feff}').unwrap_or(line),
+            _ => line,
+        };
         let mut common = indent_columns(line, self.indent_width);
         for (i, token) in doc.tokens.iter().enumerate().take(last + 1).skip(first) {
             let text = token.text(doc.source);
