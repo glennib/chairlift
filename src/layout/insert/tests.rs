@@ -122,6 +122,10 @@ fn the_data_stays_as_written() {
         "insert into t format TSV  \r\n  x\ty\n",
         "INSERT INTO t FORMAT TSV\n  x\ty\n",
     );
+    check(
+        "insert into t format TSV\r  x\ty\n",
+        "INSERT INTO t FORMAT TSV\n  x\ty\n",
+    );
     // A line comment at the end of the rows keeps the `;` on its line.
     check(
         "insert into t values (1) -- one\n;",

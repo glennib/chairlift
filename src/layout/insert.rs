@@ -11,17 +11,17 @@
 //! header line one level in. A query alone in brackets hugs them: `(` ends
 //! the header line.
 //!
-//! The data is a token that keeps its bytes. After `FORMAT name` it starts
-//! the next line at column 0 if a line break comes before it in the input,
-//! and follows a space otherwise: ClickHouse skips the spaces and the line
-//! break before it. The rows of `VALUES` (or `FORMAT Values`) follow a
-//! space, or, where a line break comes before them in the input, keep the
-//! whitespace before them as written, so that the first row keeps its
-//! indentation, as do comments there; whitespace with more than one blank
-//! line, `\r` or spaces at the end of a line gives a line break and one
-//! blank line at most instead. What comes between the rows and the `;`
-//! stays as written: `clickhouse-format` reads the rows to the end of their
-//! line, and they can end in a line comment.
+//! The data is a token that keeps its bytes. After `FORMAT name` it starts the
+//! next line at column 0 if a line break (`\n`, `\r\n` or a lone `\r`) comes
+//! before it in the input, and follows a space otherwise: ClickHouse skips the
+//! spaces and the line break before it. The rows of `VALUES` (or `FORMAT
+//! Values`) follow a space, or, where a line break comes before them in the
+//! input, keep the whitespace before them as written, so that the first row
+//! keeps its indentation, as do comments there; whitespace with more than one
+//! blank line, `\r` or spaces at the end of a line gives a line break and one
+//! blank line at most instead. What comes between the rows and the `;` stays as
+//! written: `clickhouse-format` reads the rows to the end of their line, and
+//! they can end in a line comment.
 
 use super::query;
 use super::tree::El;
@@ -192,8 +192,10 @@ fn insert_data(w: &mut Writer<'_>, part: &Part, format: bool) {
     let trivia = part.trivia.clone();
     let breaks = trivia.clone().any(|i| w.text(i).contains('\n'));
     if format {
-        // Only spaces, tabs and one line break, which ClickHouse skips.
-        if breaks {
+        // Only spaces, tabs and one line break, which ClickHouse skips. A
+        // lone `\r` is that line break too: the data after it may start with
+        // spaces, which a space instead of it would add to those skipped.
+        if trivia.clone().any(|i| w.text(i).contains(['\n', '\r'])) {
             let root = w.b.open_at_root();
             w.gap(trivia, Sep::Hard, 0);
             w.el(&part.el);
